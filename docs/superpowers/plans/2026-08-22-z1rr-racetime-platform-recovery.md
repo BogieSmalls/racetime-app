@@ -1,0 +1,547 @@
+# Z1RR RaceTime Production Platform and Recovery Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Package the Z1RR RaceTime core as an immutable ARM64 production stack with fail-closed settings, versioned OCI infrastructure, race-aware deployment, encrypted off-machine backups, monitoring, and rehearsable rollback/rebuild.
+
+**Architecture:** Caddy is the only public container and proxies HTTP/WSS to non-root Daphne; web/racebot share an application image while MariaDB and Redis remain internal. Terraform defines/imports the selected OCI resources without applying before G1, and tested scripts gate every deploy on active-race status plus a verified backup.
+
+**Tech Stack:** Docker/BuildKit/Compose, Caddy 2, Django/Daphne, MariaDB, Redis, Bash, Python `unittest`, Terraform OCI provider, OCI CLI Instance Principal, age/zstd, GitHub Actions/Trivy/Syft
+
+---
+
+## Control documents
+
+**Spec:** [Plan-B RaceTime architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
+**Requirements and gates:** [Requirements and decision record](../../racetime-z1rr/requirements-and-decisions.md)
+**Artifact register:** [Launch artifact register](../../racetime-z1rr/artifact-register.md)
+**Master plan:** [Contingency launch master plan](2026-08-22-z1rr-racetime-launch-master.md)
+**Requirements owned:** FR-CORE-001/006, FR-OPS-001–007, NFR-SEC-001–003, NFR-REL-001, NFR-PERF-001, NFR-OSS-001, NFR-TEST-001, and NFR-COST-001.
+
+## Global Constraints
+
+- G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
+- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
+- RaceTime application work targets Django 5.2/Python 3.12 and immutable ARM64 production images; provider work must preserve its plan's declared runtime.
+- Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
+- Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
+- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
+
+## File map
+
+- Create `project/settings/env.py`: strict environment parsing with secret-safe errors.
+- Create `project/settings/production.py`: production security/database/cache/log/site/external-service settings.
+- Create `project/logging.py`: JSON formatter and redaction filter.
+- Create `.env.production.example`: complete placeholder-free environment schema using documented sentinel values.
+- Create `deploy/env/ci.env`: non-secret CI fixture environment.
+- Create `deploy/validate-config.py`: validate rendered runtime contract without printing values.
+- Replace `Dockerfile`: Node/Python multi-stage ARM64-capable image with web/racebot targets.
+- Create `.docker/start-production`, `.docker/healthcheck`: explicit process entrypoints.
+- Create `deploy/compose.production.yml`: internal stack, volumes, healthchecks, resource limits.
+- Create `deploy/Caddyfile`: public HTTPS/WSS/static/media plus loopback-only admin listener.
+- Create `racetime/management/commands/deployment_preflight.py`: authoritative active-race/migration/bootstrap checks.
+- Create `deploy/scripts/deploy.sh`, `preflight.sh`, `rollback.sh`: release orchestration and audit.
+- Create `deploy/backup/backup.sh`, `verify.sh`, `restore-test.sh`, `retention.py`: encrypted OCI backup lifecycle.
+- Create `deploy/systemd/*.service`, `*.timer`: backup/verification/restore-test schedules.
+- Create `infra/oci/*.tf`, `*.tfvars.example`, `README.md`: import-first OCI definitions.
+- Create `deploy/monitoring/`: health/backup/cost alert definitions and secret-safe Discord adapter contract.
+- Create `.github/workflows/container.yml`, `release.yml`: test/build/scan/SBOM/provenance/publish gates.
+- Create `tests/platform/`: settings/config/Compose/Caddy/deploy/backup/IaC contract tests.
+
+## Task 1: Implement strict production configuration
+
+**Files:**
+- Create: `project/settings/env.py`
+- Create: `project/settings/production.py`
+- Create: `project/logging.py`
+- Create: `.env.production.example`
+- Create: `deploy/env/ci.env`
+- Create: `tests/platform/test_production_settings.py`
+- Create: `tests/platform/test_config_contract.py`
+
+- [ ] **Step 1: Write failing environment parser tests**
+
+Test required string, boolean, integer range, comma-list, URL origin, and secret minimum length. Missing/blank, `changeme`, `example`, wildcard host/origin, HTTP production origin, credentials in URL, invalid boolean, and unknown security-critical setting must raise `ImproperlyConfigured` naming only the variable.
+
+- [ ] **Step 2: Run and verify failure**
+
+```powershell
+.\venv\Scripts\python.exe -m unittest tests.platform.test_config_contract -v
+```
+
+Expected: import/file failure.
+
+- [ ] **Step 3: Implement `project/settings/env.py`**
+
+Expose only:
+
+```python
+required(name: str) -> str
+secret(name: str, minimum: int = 32) -> str
+boolean(name: str, default: bool | None = None) -> bool
+integer(name: str, minimum: int, maximum: int, default: int | None = None) -> int
+csv(name: str, required: bool = False) -> list[str]
+https_origin(name: str) -> str
+```
+
+Never include a value in an exception or repr.
+
+- [ ] **Step 4: Write failing production settings assertions**
+
+Assert `DEBUG=False`, no debug toolbar app/middleware, exact hosts/trusted origins, secure/HttpOnly/SameSite cookies, HTTPS redirect, HSTS include-subdomains/preload, proxy SSL header, restricted CORS, nosniff/referrer/frame policies, database/Redis credentials, dedicated throttle HMAC key, exact trusted-proxy CIDRs, static/media roots, body/upload limits, Discord flags, PKCE required, JSON logs, and no development secret/default credential.
+
+- [ ] **Step 5: Implement `production.py`**
+
+Import `base` then override. Use environment variables:
+
+```text
+DJANGO_SECRET_KEY, RT_SITE_URI, ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS
+DB_NAME, DB_USER, DB_PASSWORD, DB_HOST, DB_PORT
+REDIS_URL, INTERNAL_HEALTH_TOKEN, RACETIME_THROTTLE_HMAC_KEY
+RACETIME_TRUSTED_PROXY_CIDRS
+DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI
+TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
+STATIC_ROOT, MEDIA_ROOT, LOG_LEVEL
+```
+
+Set public password/category requests/Patreon and legacy LiveSplit PKCE bypass false. `RACETIME_THROTTLE_HMAC_KEY` is an independently generated base64 value decoding to at least 32 bytes and must differ from `DJANGO_SECRET_KEY`. Set `REAL_IP_HEADER="HTTP_X_FORWARDED_FOR"` and require `RACETIME_TRUSTED_PROXY_CIDRS=172.30.0.2/32`, the single fixed Caddy address on the Compose `proxy` network; Daphne is internal and the client-IP helper honors the header only for that immediate peer after Caddy overwrites it.
+
+- [ ] **Step 6: Implement JSON logging/redaction**
+
+Emit timestamp, level, logger, message, request/correlation ID, and safe exception class. Redact keys/strings matching authorization, token, code, secret, cookie, password, webhook, synthetic Discord email, and query parameters on OAuth routes. Tests inject canaries in nested dictionaries and exception messages.
+
+- [ ] **Step 7: Write environment examples and validator**
+
+`.env.production.example` contains every name with empty or clearly invalid sentinel; never a usable secret. `ci.env` contains distinct valid non-production fixture keys, exact test proxy `/32`, and loopback/test domains. `deploy/validate-config.py` imports production settings, verifies the throttle key decodes to at least 32 bytes and differs from `DJANGO_SECRET_KEY`, and requires the trusted-proxy value to equal the rendered Caddy fixed address as a `/32`—not the whole subnet—while checking all other invariants/unknown variables. It prints only variable names plus PASS/FAIL.
+
+- [ ] **Step 8: Run production deploy checks**
+
+```powershell
+$env:DJANGO_SETTINGS_MODULE='project.settings.production'
+Get-Content deploy\env\ci.env | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { Set-Item -Path "Env:$($matches[1])" -Value $matches[2] } }
+.\venv\Scripts\python.exe deploy\validate-config.py
+.\venv\Scripts\python.exe manage.py check --deploy
+```
+
+Expected: both PASS; missing `DJANGO_SECRET_KEY` fixture test fails without printing it.
+
+- [ ] **Step 9: Commit**
+
+```powershell
+git add project\settings project\logging.py .env.production.example deploy\env tests\platform
+git commit -m "feat: add fail-closed production configuration"
+```
+
+## Task 2: Build immutable web and racebot images
+
+**Files:**
+- Modify: `Dockerfile`
+- Create: `.docker/start-production`
+- Create: `.docker/healthcheck`
+- Create: `.dockerignore`
+- Create: `tests/platform/test_image_contract.py`
+
+- [ ] **Step 1: Write failing Dockerfile contract tests**
+
+Assert production targets copy source rather than bind mount it, use `npm ci`, install pinned Python dependencies, run as non-root UID, use Daphne/racebot `--noreload`, expose only web 8000, include OCI CLI/age/zstd only in maintenance target, and contain no `runserver`, development secret, or production credential.
+
+- [ ] **Step 2: Run and observe failure**
+
+Expected: existing Dockerfile violates production contract.
+
+- [ ] **Step 3: Implement multi-stage build**
+
+Stages:
+
+```text
+assets: node LTS, npm ci, production static dependency tree
+python-build: python:3.12-slim, compiler/MariaDB headers, wheelhouse/venv
+runtime-base: slim runtime libraries, UID/GID 10001, source + venv + asset tree
+web: start-production web
+racebot: start-production racebot
+maintenance: runtime-base + pinned OCI CLI, age, zstd, mariadb-client
+```
+
+Pin base images by digest at release time. Use `COPY --chown`; no shell package cache remains.
+
+- [ ] **Step 4: Implement explicit entrypoints**
+
+`web` runs `daphne -b 0.0.0.0 -p 8000 project.asgi:application`. `racebot` runs `python manage.py racebot --noreload`. Neither migrates automatically. A `collectstatic` mode writes the static volume as a one-shot deploy task.
+
+- [ ] **Step 5: Build ARM64 locally with BuildKit**
+
+```powershell
+docker buildx build --platform linux/arm64 --target web -t z1rr-racetime:web-test --load .
+docker buildx build --platform linux/arm64 --target racebot -t z1rr-racetime:racebot-test --load .
+```
+
+Expected: builds succeed; `docker image history --no-trunc` secret scan is clean.
+
+- [ ] **Step 6: Run non-root/process tests**
+
+Expected: `id -u` is 10001; web command contains Daphne; racebot contains `--noreload`; read-only root filesystem starts with declared tmpfs/volumes.
+
+- [ ] **Step 7: Commit**
+
+```powershell
+git add Dockerfile .docker .dockerignore tests\platform\test_image_contract.py
+git commit -m "build: add immutable ARM64 racetime images"
+```
+
+## Task 3: Define the production Compose topology
+
+**Files:**
+- Create: `deploy/compose.production.yml`
+- Create: `tests/platform/test_compose_contract.py`
+
+- [ ] **Step 1: Write failing rendered-Compose tests**
+
+Parse `docker compose --env-file deploy/env/ci.env -f deploy/compose.production.yml config --format json`. Assert services `caddy`, `web`, `racebot`, `db`, `redis`; one-shot `migrate`, `collectstatic`; optional profile `maintenance`; a dedicated `proxy` bridge with IPAM `172.30.0.0/29`, fixed Caddy `172.30.0.2`, fixed web `172.30.0.3`, and no other members; a separate internal `data` network; no DB/Redis/web host ports; Caddy publishes public 80/443 plus exactly `127.0.0.1:8081:8081` for tunneled administration; no wildcard/non-loopback admin binding; healthchecks; restart policies; resource limits; read-only root filesystems where supported; named persistent volumes; log rotation; immutable image variables; and no `latest`/build/bind mount. Assert `RACETIME_TRUSTED_PROXY_CIDRS` is exactly `172.30.0.2/32`.
+
+- [ ] **Step 2: Run and observe failure**
+
+Expected: file absent.
+
+- [ ] **Step 3: Implement the stack**
+
+Use `RACETIME_IMAGE@RACETIME_IMAGE_DIGEST` or immutable SHA tag validated by deploy script. Pin Caddy/MariaDB/Redis by reviewed digest. Define a project-scoped `proxy` bridge with IPAM `172.30.0.0/29`; attach only Caddy at `172.30.0.2` and web at `172.30.0.3`. Attach web/racebot/DB/Redis as needed to a separate internal `data` network, with Caddy absent from it. Web receives media/static volumes; Caddy receives them read-only; database and Redis have separate data volumes. Publish container port 8081 only as host `127.0.0.1:8081`; OCI NSG/security lists expose no 8081 rule. Deployment preflight rejects overlap between `172.30.0.0/29` and host routes/existing Docker networks; any subnet/address change requires one reviewed change to Compose, trusted-proxy env, tests, and evidence—never widening trust to the subnet.
+
+- [ ] **Step 4: Add service healthchecks**
+
+Web calls `/healthz`; DB uses `healthcheck.sh --connect --innodb_initialized`; Redis uses authenticated `PING`; racebot health invokes a dedicated command that checks process liveness and a bounded adoption probe rather than an invented HTTP endpoint.
+
+- [ ] **Step 5: Render and test**
+
+```powershell
+docker compose --env-file deploy\env\ci.env -f deploy\compose.production.yml config
+.\venv\Scripts\python.exe -m unittest tests.platform.test_compose_contract -v
+```
+
+Expected: PASS with no unresolved variable.
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add deploy\compose.production.yml tests\platform\test_compose_contract.py
+git commit -m "build: define racetime production stack"
+```
+
+## Task 4: Configure Caddy and restricted administration
+
+**Files:**
+- Create: `deploy/Caddyfile`
+- Create: `tests/platform/test_caddy_contract.py`
+
+- [ ] **Step 1: Write failing Caddy contract tests**
+
+Assert a public HTTPS host, HTTP redirect, WebSocket forwarding, overwritten forwarding headers, request body cap, static immutable caching, non-executable media headers, compression, security headers, `/healthz`, and explicit public 404 for `/admin*` and `/internal/*`. Assert Caddy listens on container `:8081` for admin/internal proxying while Compose publishes that port only to host `127.0.0.1:8081`; this is the sole SSH/Bastion tunnel target.
+
+- [ ] **Step 2: Run and observe failure**
+
+- [ ] **Step 3: Implement routes**
+
+Public host order: admin/internal deny, static, media, application. The separate container `:8081` server accepts admin/internal paths and has no public DNS host; its reachability boundary is the loopback-only Compose publish. Use `header_up -X-Forwarded-For` then `header_up X-Forwarded-For {remote_host}` and corresponding host/proto. Do not trust a client-supplied proxy chain. For media, set attachment/nosniff where appropriate and never execute scripts.
+
+- [ ] **Step 4: Validate Caddy syntax**
+
+```powershell
+docker run --rm -v "${PWD}\deploy\Caddyfile:/etc/caddy/Caddyfile:ro" caddy:<pinned-version> caddy validate --config /etc/caddy/Caddyfile
+```
+
+Expected: valid configuration.
+
+- [ ] **Step 5: Run HTTP/WSS integration smoke**
+
+Start the fixture stack. Assert public `/admin/` is 404, host `127.0.0.1:8081` reaches login, the admin listener is unreachable through the host's non-loopback address and has no OCI ingress rule, static/media headers are correct, and a race WebSocket upgrades/stays connected.
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add deploy\Caddyfile tests\platform\test_caddy_contract.py
+git commit -m "feat: add secure racetime edge routing"
+```
+
+## Task 5: Add authoritative deploy preflight
+
+**Files:**
+- Create: `racetime/management/commands/deployment_preflight.py`
+- Create: `racetime/tests/site/test_deployment_preflight.py`
+- Create: `deploy/scripts/preflight.sh`
+- Create: `tests/platform/test_preflight_script.py`
+
+- [ ] **Step 1: Write failing Django command tests**
+
+The command exits non-zero when any race is open/invitational/pending/in-progress, migrations are unapplied, expected `z1rr` category is absent/inactive, database is read-only/unhealthy, or Redis set/get fails. `--json` emits counts/booleans but no race names/user data/secrets.
+
+- [ ] **Step 2: Run and observe failure**
+
+- [ ] **Step 3: Implement the command**
+
+Query the exact active `RaceStates` used by `RaceBot.queryset`. Use Django's migration executor, category lookup, DB transaction rollback probe, and cache nonce. Never use the public API as the authority.
+
+- [ ] **Step 4: Write failing shell-wrapper tests**
+
+Mock Compose. Assert preflight checks activation/evidence files, immutable image/digest, config validator, disk headroom, time sync, stack health, authoritative command, and backup prerequisites. Default emergency override is rejected.
+
+- [ ] **Step 5: Implement `preflight.sh`**
+
+Interface:
+
+```text
+preflight.sh --environment production --release-sha <40-hex> [--emergency-change-id ID]
+```
+
+At G0 use `--environment integration`. Production requires a G1 activation record path and G2 evidence hash in a root-owned config. An emergency ID permits active-race continuation only when passed to deploy too; it logs the ID and still requires backup/config/health.
+
+- [ ] **Step 6: Run tests and commit**
+
+```powershell
+git add racetime\management\commands\deployment_preflight.py racetime\tests\site deploy\scripts\preflight.sh tests\platform\test_preflight_script.py
+git commit -m "feat: block unsafe racetime deployments"
+```
+
+## Task 6: Implement encrypted backup, verification, retention, and restore test
+
+**Files:**
+- Create: `deploy/backup/backup.sh`
+- Create: `deploy/backup/verify.sh`
+- Create: `deploy/backup/restore-test.sh`
+- Create: `deploy/backup/retention.py`
+- Create: `deploy/backup/manifest.schema.json`
+- Create: `tests/platform/test_backup_scripts.py`
+- Create: `tests/platform/test_retention.py`
+- Create: `deploy/systemd/z1rr-racetime-backup.service`
+- Create: `deploy/systemd/z1rr-racetime-backup.timer`
+- Create: `deploy/systemd/z1rr-racetime-restore-test.service`
+- Create: `deploy/systemd/z1rr-racetime-restore-test.timer`
+
+- [ ] **Step 1: Write failing backup behavior tests**
+
+Use fake `docker`, `age`, `zstd`, and `oci` executables. Assert DB mode uses `mariadb-dump --single-transaction --routines --events --triggers --hex-blob`, verifies the dump in an empty disposable MariaDB, compresses, encrypts, decrypts/verifies, writes a manifest, uploads final+manifest atomically, and removes bounded plaintext scratch in `trap`. Media mode snapshots only the declared volume with safe paths.
+
+- [ ] **Step 2: Write failing retention tests**
+
+Given object timestamps, retain every recovery point for 14 days, one weekly for weeks 3–13, one monthly for months 4–12, all pinned predeploy backups inside their explicit retention, and never delete the newest verified DB/media point. Dry-run is default; malformed/unverified manifests are quarantined/alerted, not silently deleted.
+
+- [ ] **Step 3: Run and observe failure**
+
+- [ ] **Step 4: Implement backup/manifest**
+
+Manifest fields: schema, type, start/end UTC, release SHA, database schema/migration set, source bytes/counts, plaintext SHA-256, encrypted SHA-256/bytes, encryption recipient/key ID, verification result/time, Object Storage namespace/bucket/object, and tool versions. It contains no password/key/token.
+
+- [ ] **Step 5: Implement OCI transport**
+
+Use `oci os object put/get/list/delete --auth instance_principal`; bucket/prefix come from root-owned env. Upload to a unique temporary object then copy/rename or mark complete only when data and manifest are both visible and hash/size match. Never infer `NamespaceNotFound` as an empty bucket.
+
+- [ ] **Step 6: Implement restore test**
+
+Download selected point, verify encrypted hash, decrypt/decompress, restore to isolated database/media volumes under a unique Compose project, start an isolated web stack, and verify migrations, user/category/race/leaderboard row samples and media references. It refuses production database/volume names and accepts production replacement only through a separate documented command not present in this script.
+
+- [ ] **Step 7: Add schedules**
+
+Database timer every six hours; media nightly; restore test quarterly with randomized delay. Services use hardening, root-owned env, bounded runtime/disk scratch, failure status file, and alert hook.
+
+- [ ] **Step 8: Run all backup/retention tests**
+
+Expected: PASS including upload failure, decrypt failure, DB integrity failure, disk low, object-list ambiguity, retention dry-run/apply, and cleanup.
+
+- [ ] **Step 9: Commit**
+
+```powershell
+git add deploy\backup deploy\systemd tests\platform
+git commit -m "feat: add encrypted racetime backup and restore automation"
+```
+
+## Task 7: Implement race-aware deploy and rollback
+
+**Files:**
+- Create: `deploy/scripts/deploy.sh`
+- Create: `deploy/scripts/rollback.sh`
+- Create: `deploy/release-manifest.schema.json`
+- Create: `tests/platform/test_deploy_scripts.py`
+
+- [ ] **Step 1: Write failing deploy state-machine tests**
+
+Assert sequence: lock → preflight → verified predeploy backup → pull digest → verify manifest/signature/SBOM policy → migration plan/check → stop write traffic only when needed → migrate → collectstatic → start web/racebot → HTTP/WSS/DB/Redis/racebot/login smoke → promote record → unlock. Inject failure at every boundary and assert promotion stops.
+
+- [ ] **Step 2: Write failing rollback tests**
+
+Assert code-only rollback pins prior digest; schema release requires manifest-declared rollback class (`code-only`, `forward-fix`, `reversible`) and refuses blind reverse migration. Rollback also checks active race unless the same emergency ID is supplied.
+
+- [ ] **Step 3: Run and observe failure**
+
+- [ ] **Step 4: Implement deploy**
+
+Use an atomic host lock and append-only JSONL audit (actor, release, timestamps, stage, result, emergency ID). Do not log environment output. Release manifest records commit, image digest, migration range/strategy, config schema version, minimum rollback digest, and smoke version.
+
+- [ ] **Step 5: Implement rollback**
+
+Restore prior immutable config/image for code-only. For forward-fix, deploy the approved repair. For reversible, execute only a reviewed named migration target after a fresh backup. Never restore an old database merely to roll back application code.
+
+- [ ] **Step 6: Run tests and local stack deploy/rollback rehearsal**
+
+Expected: successful promotion, injected smoke failure retains/restores prior release, audit has every transition, and no production resource used.
+
+- [ ] **Step 7: Commit**
+
+```powershell
+git add deploy\scripts deploy\release-manifest.schema.json tests\platform\test_deploy_scripts.py
+git commit -m "feat: orchestrate safe racetime releases"
+```
+
+## Task 8: Define import-first OCI infrastructure
+
+**Files:**
+- Create: `infra/oci/versions.tf`
+- Create: `infra/oci/providers.tf`
+- Create: `infra/oci/variables.tf`
+- Create: `infra/oci/data.tf`
+- Create: `infra/oci/network.tf`
+- Create: `infra/oci/compute.tf`
+- Create: `infra/oci/storage.tf`
+- Create: `infra/oci/iam.tf`
+- Create: `infra/oci/monitoring.tf`
+- Create: `infra/oci/outputs.tf`
+- Create: `infra/oci/terraform.tfvars.example`
+- Create: `infra/oci/README.md`
+- Create: `tests/platform/test_terraform_contract.py`
+
+- [ ] **Step 1: Write failing Terraform contract tests**
+
+Assert pinned OCI provider constraint, non-empty `activation_record` validation, current-resource import blocks/instructions, `prevent_destroy` on instance/boot volume/bucket, selected A1 1-OCPU/6-GB target, only 80/443 public NSG ingress, no public SSH, Bastion path, private bucket/public-access prevention/versioning, instance-principal dynamic group/IAM limited to backup prefix/monitoring, Discord notification adapter target, $1/$3 budget alarms, CPU/memory/disk/availability alarms, and sensitive outputs.
+
+- [ ] **Step 2: Run and observe failure**
+
+- [ ] **Step 3: Implement provider/variables/data sources**
+
+Require explicit tenancy/compartment/region/AD/VCN/subnet/existing instance/boot-volume IDs and dated activation record. Do not discover resources by mutable display name during apply. Remote state configuration and state encryption/access are documented; secrets never enter tfvars.
+
+- [ ] **Step 4: Implement import-first compute**
+
+Model `z1rr-restream-control-staging` only after importing the exact instance and attached 47-GB volume. Keep `prevent_destroy`; update shape to 1 OCPU/6 GB only in a reviewed saved plan. Preserve Restream staging data first and use separately named Compose projects. Do not create an additional retained boot volume by default.
+
+- [ ] **Step 5: Implement network/storage/IAM/monitoring**
+
+Prefer NSGs over broad security-list changes. Restrict Object Storage policy to the dedicated bucket/prefix using the narrowest OCI-accepted statement; document any tenancy-scope exception. Alerts route through OCI Notifications to the authenticated/redacting adapter on `coop-relay` or approved email fallback.
+
+- [ ] **Step 6: Validate without applying at G0**
+
+```powershell
+terraform -chdir=infra\oci fmt -check -recursive
+terraform -chdir=infra\oci init -backend=false
+terraform -chdir=infra\oci validate
+```
+
+Expected: PASS. `terraform plan` without `activation_record` fails before proposing resources.
+
+- [ ] **Step 7: Write exact import/plan/apply/rollback runbook**
+
+README includes read-only inventory, backup of staging data, import commands, `plan -out`, JSON plan review for create/update/delete/replace, two-person approval, apply, post-apply inventory/cost check, and state recovery. Any delete/replace means stop unless explicitly intended and approved.
+
+- [ ] **Step 8: Commit**
+
+```powershell
+git add infra\oci tests\platform\test_terraform_contract.py
+git commit -m "infra: define guarded OCI racetime platform"
+```
+
+## Task 9: Add monitoring and secret-safe alerts
+
+**Files:**
+- Create: `deploy/monitoring/probe.py`
+- Create: `deploy/monitoring/alert.py`
+- Create: `deploy/monitoring/config.schema.json`
+- Create: `deploy/monitoring/rules.example.json`
+- Create: `tests/platform/test_monitoring.py`
+- Create: `docs/runbooks/monitoring.md`
+
+- [ ] **Step 1: Write failing probe/alert tests**
+
+Cover HTTPS, WSS handshake, public admin denial, internal readiness, container restart count, disk/inode/database growth, backup freshness/status, TLS expiry, OAuth error rate, and OCI/billing normalized events. Assert dedupe, recovery notices, bounded retries, redaction, webhook host allowlist, and secret canary absence.
+
+- [ ] **Step 2: Run and observe failure**
+
+- [ ] **Step 3: Implement probes and alert normalization**
+
+Probe returns stable status codes/metrics, never response bodies from OAuth/internal errors. Alert adapter accepts an authenticated signed payload, maps severity/component/runbook link, redacts nested input, rate-limits, and sends to configured Discord webhook without logging URL.
+
+- [ ] **Step 4: Document thresholds**
+
+Set actionable defaults: HTTPS/WSS consecutive failures, restart loops, memory/disk/inode headroom, DB growth trend, backup age > 7 hours DB/> 26 hours media, TLS < 21 days, auth abuse, and OCI $1/$3. Avoid per-user PII in alerts.
+
+- [ ] **Step 5: Run fake-sink alert tests and commit**
+
+```powershell
+git add deploy\monitoring tests\platform\test_monitoring.py docs\runbooks\monitoring.md
+git commit -m "feat: monitor and alert on racetime health"
+```
+
+## Task 10: Add immutable container release CI
+
+**Files:**
+- Create: `.github/workflows/container.yml`
+- Create: `.github/workflows/release.yml`
+- Create: `tests/platform/test_workflow_contract.py`
+
+- [ ] **Step 1: Write failing workflow-policy tests**
+
+Assert read-only default permissions, pinned action commit SHAs, PR test/build without push, ARM64 release build, digest output, unit/integration gate, Trivy high/critical threshold, Syft SPDX SBOM, provenance attestation, source commit/license link, immutable SHA tag, protected `production` environment, and no `latest` deployment.
+
+- [ ] **Step 2: Run and observe failure**
+
+- [ ] **Step 3: Implement PR container workflow**
+
+Build all targets with cache, run image contract/health tests, scan, and upload reports. Never access production secrets on pull requests.
+
+- [ ] **Step 4: Implement release workflow**
+
+On signed version tag/manual protected dispatch, rebuild from commit, publish digest-tagged images, SBOM/provenance/release manifest, and attach corresponding-source metadata. Deployment remains a separate manually approved operation.
+
+- [ ] **Step 5: Run workflow tests and local Actions lint**
+
+Expected: PASS with no mutable third-party action reference.
+
+- [ ] **Step 6: Commit**
+
+```powershell
+git add .github\workflows tests\platform\test_workflow_contract.py
+git commit -m "ci: build attest and scan racetime images"
+```
+
+## Task 11: Verify the platform release candidate and stop at G0
+
+**Files:**
+- Create: `docs/evidence/<execution-date>-platform-rc.md`
+
+- [ ] **Step 1: Run the full platform test suite**
+
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests\platform -v
+```
+
+Expected: PASS.
+
+- [ ] **Step 2: Build and start the isolated ARM64-compatible stack**
+
+Use local integration hostname/ports and fixture env. Run migrations/bootstrap/static, HTTP/WSS, racebot, DB, Redis, media write/read, and controlled restart smoke.
+
+- [ ] **Step 3: Rehearse backup/decrypt/restore and deploy/rollback locally**
+
+Expected: isolated restore verifies representative data; injected deploy failure returns to prior digest; no public resource is touched.
+
+- [ ] **Step 4: Validate IaC/config/security scans**
+
+Run Compose config, Caddy validate, Terraform fmt/init-backend-false/validate, secret scan, image vulnerability scan, SBOM generation, and `manage.py check --deploy`.
+
+- [ ] **Step 5: Request review**
+
+Use @superpowers:requesting-code-review against PLT-001–008 and NFR-SEC/REL/COST. Resolve blocking findings.
+
+- [ ] **Step 6: Record evidence and commit**
+
+```powershell
+git add docs\evidence
+git commit -m "docs: qualify racetime platform release candidate"
+```
+
+**G0 stop line:** Do not run `terraform apply`, reconfigure the selected OCI VM, create DNS, create production apps/secrets, publish images as production, or start the public service. Those actions begin only in the operations plan after G1.
