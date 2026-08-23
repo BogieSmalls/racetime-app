@@ -6,7 +6,7 @@
 
 ## G0 — Contingency package ready
 
-- [ ] Architecture, requirements, ADRs, master plan, and all subsystem plans have independent plan-review approval.
+- [x] Architecture, requirements, ADRs, master plan, and all subsystem plans have independent plan-review approval ([evidence](../evidence/2026-08-22-plan-review.md)).
 - [ ] Source archive restores to the recorded upstream baseline and has an off-workstation copy.
 - [ ] RaceTime, Restream, TTPBot, and LiveSplit readiness branches build and test locally without production credentials.
 - [ ] RaceTime CI discovers substantive tests; the current `js-cookie` high-severity advisory is closed.
