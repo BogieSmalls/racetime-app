@@ -49,7 +49,7 @@ This register is the definition of deliverables. An artifact is not complete bec
 | PLT-006 | G0 | `infra/oci/*.tf`, `infra/oci/*.tfvars.example`, `infra/oci/README.md` | Versioned OCI network/instance/import/bucket/IAM/alarms definitions | `terraform fmt/check/validate`; saved plan reviewed; no apply before G1 |
 | PLT-007 | G0 | `deploy/scripts/preflight.sh`, `deploy/scripts/deploy.sh`, `deploy/scripts/rollback.sh` | Race-aware release and rollback tooling | Shell tests cover active-race refusal, backup gate, migration failure, smoke failure, override audit |
 | PLT-008 | G0 | `deploy/backup/backup.sh`, `verify.sh`, `restore-test.sh`, retention tests | Encrypted DB/media backup and isolated restore automation | Local fake-OCI tests plus decrypt/integrity/retention tests pass |
-| PLT-009 | G1 | OCI resource inventory/evidence | Dedicated `racetime` A1 VM at 1 OCPU/6 GB with new 50-GB Balanced boot volume, NSG, Bastion, private bucket, dynamic group/policy, and alarms | Read-only inventory matches the reviewed Terraform plan; A1 compute forecast is $0.00, retained-volume forecast is approximately $3.61, and unexpected resources/costs are absent |
+| PLT-009 | G1 | OCI resource inventory/evidence | Dedicated `racetime` A1 VM at exactly 1 OCPU/6 GB with new 50-GB Balanced boot volume, NSG, Bastion, private bucket, dynamic group/policy, and alarms | Read-only inventory matches the reviewed Terraform plan; 744-hour RaceTime floor and dated Restream forecast are recorded; 2,600/2,900-hour A1 usage/slope alarms, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms exist; no unexpected resources are present |
 | PLT-010 | G1 | DNS/OAuth/secrets inventories (private) | Production secret and external-app records | Two-operator access, redirect URI review, secret scan and recovery-copy confirmation |
 
 ## 4. Restream artifacts (`Z1RR.Restream`)
@@ -97,13 +97,13 @@ This register is the definition of deliverables. An artifact is not complete bec
 | OPS-002 | G0 | `docs/runbooks/backup-restore.md`, `vm-loss.md` | Backup/restore/rebuild procedures | Empty-host restore rehearsal meets RPO/RTO targets |
 | OPS-003 | G0 | `docs/runbooks/identity-recovery.md`, `access-review.md` | Account recovery and least-privilege review | Sample transfer audit and quarterly checklist review |
 | OPS-004 | G0 | `docs/runbooks/incidents.md`, `status-comms.md` | Severity, escalation, Discord/status templates | Tabletop for DB, Discord, racebot, disk, and provider failures |
-| OPS-005 | G0 | `deploy/monitoring/` | Health probes, metrics/log rules, redaction, Discord adapter contract | Synthetic alert reaches test sink; secret canaries never appear in logs |
+| OPS-005 | G0 | `deploy/monitoring/` | Health probes, metrics/log rules, redaction, Discord adapter, A1 usage/slope and independent storage-cost controls | Synthetic health, 2,600/2,900-hour A1 usage/slope, Restream duty-cycle diagnostic, retained-volume, and Object Storage alerts reach the test sink; secret canaries never appear in logs |
 | OPS-006 | G2 | `docs/evidence/<date>-load.json` | Locked 1-OCPU four-room/2x load evidence manifest for ARM64 production and amd64 recovery | Same-commit `linux/arm64` A1 and `linux/amd64` paid-fallback runs both meet thresholds and 20% CPU/30% memory headroom on 1 OCPU/6 GB; failure blocks G2 for profiling, optimization, and retest rather than resize |
 | OPS-007 | G2 | `docs/evidence/<date>-restore.json` | Isolated ARM64 and 1-OCPU/6-GB amd64 full-restore evidence manifest | Accounts/category/race/media samples verify on both architectures; measured RPO is recorded and the paid amd64 fallback restores within the four-hour RTO |
 | OPS-008 | G2 | `docs/evidence/<date>-dress-rehearsal.json` | Late-G2 restricted-production cross-system race evidence manifest | After production issuance and normal G2 allowlist restoration, TTPBot → Discord → browser/LiveSplit → Restream → recorded leaderboard succeeds with ordinary certificate validation and no CA override/bypass |
 | OPS-009 | G3 | private secret/access inventory | Current operators, owners, clients, webhooks, policies, recovery copies | Primary and backup operator sign-off; stale access removed |
 | OPS-010 | G3 | `docs/evidence/<date>-go-no-go.md` | Launch decision and rollback trigger sheet | Council, technical, operations, and integrity approvals |
-| OPS-011 | G4 | `docs/evidence/<date>-stabilization.md` | Seven-day post-launch report | Availability/incidents/cost/backup/access review; no open P0/P1 issue |
+| OPS-011 | G4 | `docs/evidence/<date>-stabilization.md` | Seven-day post-launch report | Availability/incidents/backup/access review plus actual A1 usage slope, attribution diagnosis, retained-volume and Object Storage reconciliation against the dated forecast; no open P0/P1 issue |
 
 ## 8. Mandatory evidence conventions
 

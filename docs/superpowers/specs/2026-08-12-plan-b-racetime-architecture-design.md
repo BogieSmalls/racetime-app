@@ -68,8 +68,8 @@ Plan B must:
   one backup operator.
 - Support TTPBot, Z1RR.Restream, LiveSplit, Discord announcements, Twitch
   linking, and streaming-required rooms before production cutover.
-- Operate near zero incremental monthly cost and alert before costs become
-  material.
+- Keep recurring cost bounded and observable, preserving the shared A1 allowance
+  for duty-cycled Restream work while treating expected metered overage as an operating expense.
 - Recover from application failure, database corruption, operator error, or VM
   loss using versioned infrastructure configuration and encrypted backups.
 - Preserve upstream attribution and make Z1RR branding unmistakable without
@@ -221,7 +221,7 @@ clearly and retried only where safe.
 
 ## 8. OCI placement and cost envelope
 
-### 8.1 Current inventory as of 2026-08-22
+### 8.1 Current inventory and measured usage as of 2026-08-23
 
 Read-only OCI inventory found:
 
@@ -230,6 +230,13 @@ Read-only OCI inventory found:
 - `z1rr-restream-control-staging`: stopped A1, 2 OCPUs / 6 GB;
 - two stopped Restream encoder A1 VMs, each 12 OCPUs / 16 GB; and
 - five retained 47 GB boot volumes, 235 GB total.
+
+Operator-reported tenancy usage exceeded approximately 3,000 A1 OCPU-hours in
+July 2026 before the Restream sleep automation. The post-automation August
+normalized monthly estimate is approximately 1,000 OCPU-hours, and the
+near-term Restream forecast is 750–2,000 OCPU-hours per month for the next
+three to four months. These measurements are dated evidence, not permanent
+assumptions; the G1 preflight refreshes them from OCI usage data.
 
 `coop-relay` does not consume A1 allowance. The existing boot volumes already
 exceed OCI's currently documented 200 GB Always Free block-volume allocation.
@@ -265,37 +272,46 @@ explicitly gives each paid tenancy 3,000 A1 OCPU-hours and 18,000 GB-hours per
 month, while the Always Free resource page says all accounts receive 1,500/9,000
 and that paid accounts retain Always Free resources. The G1 preflight records
 the account's billing status, Limits, Quotas and Usage output, Cost Analysis,
-and current-month A1 usage before Terraform apply. The paid price-list allowance
-is the planning case, but the tenancy record is operational authority. A
-mismatch blocks apply only until compute cost and Restream headroom are repriced
-and the Council records the revised decision.
+and current-month A1 usage before Terraform apply. The 3,000/18,000 published
+price-list allowance is the planning case, but the tenancy record is operational
+authority. A mismatch requires a documented reprice and refreshed Restream
+headroom forecast before apply; it does not require a second Council approval
+for routine metered costs already authorized by Plan B.
 
-A continuously running 1-OCPU/6-GB VM consumes 744 OCPU-hours and 4,464
-GB-hours in a 31-day month. Under 3,000/18,000 it leaves 2,256 OCPU-hours and
-13,536 GB-hours: at most 188 aggregate hours for a 12-OCPU/16-GB Restream
-encoder, with OCPU-hours binding before memory.
+RaceTime is the only A1 workload in this tenancy that cannot sleep. A
+continuously running 1-OCPU/6-GB VM consumes 744 OCPU-hours and 4,464 GB-hours
+in a 31-day month: 24.8% of the 3,000-hour planning allowance. A 2-OCPU
+deployment would consume 1,488 hours, 49.6%, before Restream runs. The hard
+1-OCPU ceiling therefore keeps the non-elastic workload at roughly one quarter
+of the shared allowance and leaves 2,256 OCPU-hours for the duty-cycled,
+revenue-generating Restream workload before planning-case compute billing.
 
-The pessimistic 1,500/9,000 case leaves 756 OCPU-hours and 4,536 GB-hours with
-the locked deployment: 63 aggregate encoder-hours. At current A1 list rates of
-$0.01/OCPU-hour and $0.0015/GB-hour, a fully unallowanced 31-day compute line is
-approximately $14.14; this is a bounded repricing case, not the expected budget.
+Against the measured near-term Restream forecast, combined OCPU consumption is
+1,494 hours at the 750-hour low case and 2,744 at the 2,000-hour high case.
+Both forecast $0 A1 compute under the 3,000-hour planning allowance. Above that
+allowance, the current marginal A1 OCPU rate is $0.01 per hour; planned
+tournament growth and its resulting metered cost are accepted operating
+expenses supported by Restream advertising/subscription revenue, not a launch
+or Council-approval gate.
 
-The 1-OCPU/6-GB allocation is locked for launch. Run the full load gate early in
-G2, before the fresh-production transition, using the greater of twice the
-largest expected TTP-room load or the realistic aggregate peak across four
-simultaneous race rooms. Failure blocks G2/G3
-and requires profiling, optimization, and a complete retest on the same shape.
-It does not authorize a resize or launch waiver. Any future CPU increase must
-return to the Council as a new architecture decision with revised RaceTime
-cost, Restream headroom, and amd64 recovery evidence.
+The 1-OCPU/6-GB allocation is the hard production and recovery maximum under
+this architecture. Run the full load gate early in G2, before the
+fresh-production transition, using the greater of twice the largest expected
+TTP-room load or the realistic aggregate peak across four simultaneous race
+rooms. Failure blocks G2/G3 and requires profiling, optimization, and a complete
+retest on the same shape; it never authorizes a resize or launch waiver.
 
-After provisioning, G1 evidence records an expected A1 compute line of exactly
-$0.00, the approximately $3.61 retained-storage forecast, and the resulting
-combined monthly baseline as an exact dollar value. Any nonzero A1 compute line
-causes an immediate entitlement/reforecast warning. Combined forecast or actual
-spend above baseline plus $1 warns and above baseline plus $3 escalates. The
-first complete billing cycle is reconciled against the entitlement evidence and
-forecast.
+After provisioning, record the 744-hour RaceTime floor, dated Restream forecast,
+and expected A1 compute. Monitor the tenancy-wide A1 meter and usage slope,
+warning at 2,600 OCPU-hours and escalating at 2,900. Because OCI cannot
+attribute a shared-allowance overage to one service, first inspect Restream
+sleep automation, encoders, and control planes. A planned tournament window
+may replace the normal forecast with a dated operator note; threshold crossings
+require diagnosis, reconciliation, and reforecasting, not Council approval.
+Monitor retained-volume cost separately: approximately $3.61 is the baseline,
+baseline plus $1 warns, and baseline plus $3 escalates. Reconcile the first
+complete billing cycle against entitlement and forecast.
+
 The platform must not assume that an Always Free
 VM has an SLA. OCI documents possible idle-instance reclamation and temporary
 shape-capacity shortages, so rebuild onto a temporary paid shape is part of the
@@ -746,8 +762,9 @@ retention-point counts do not cap bytes as MariaDB and media grow. At G1,
 operators record the tenancy's applicable free byte/request entitlements,
 current tier usage, and the compressed/encrypted size of the first full backup.
 Monitoring alarms at 75% and 90% of the verified byte and request entitlements;
-forecast charges or a retention expansion require Council approval. Lifecycle
-pruning is tested so expired points release storage rather than grow forever.
+crossing either threshold requires retention review, cost reconciliation, and a
+dated reforecast. Routine forecast or actual charges are standing-authorized;
+lifecycle pruning is tested so expired points release storage rather than grow forever.
 
 Expected objectives are:
 
@@ -784,9 +801,9 @@ shape at 1 OCPU/6 GB before G2 can complete. Before G3, the selected amd64 shape
 must pass the same load/headroom gate and restore within four hours. A quarterly
 isolated recovery exercise restores the amd64 image and encrypted production
 data/Caddy state and proves the target four-hour RTO. Any different temporary
-CPU count or performance target requires a new Council-approved architecture
-decision; it is not implied by invoking DR. Cost alerts remain active, and the
-service can move back to A1 after capacity returns.
+CPU count is outside this architecture; invoking DR never authorizes more than
+1 OCPU. Cost alerts remain active, and the service can move back to A1 after
+capacity returns.
 
 ## 15. Monitoring, alerting, and logs
 
@@ -805,8 +822,9 @@ Monitoring covers:
 - TLS renewal;
 - Discord and Twitch integration failures;
 - repeated authentication/rate-limit abuse;
+- tenancy-wide A1 OCPU-hour consumption, slope, and Restream duty-cycle regressions;
 - OCI resource limits; and
-- OCI spending thresholds.
+- separate A1-usage, retained-volume-cost, Object Storage, and total-spend thresholds.
 
 Application/host alerts and OCI webhook notifications go to a private Z1RR
 operations Discord channel. OCI billing email remains a fallback. If OCI cannot
@@ -940,8 +958,10 @@ Verify:
 - OCI/host/service/billing alerts reach operations Discord, and launch/rollback
   public communications meet the independent-path timing and cadence contract;
 - the paid-tenancy entitlement record resolves the official-source discrepancy;
-  expected A1 compute is $0.00, any nonzero compute line alerts, and locked
-  1-OCPU Restream headroom is recorded under both entitlement cases;
+  the 744-hour RaceTime floor and dated Restream forecast are recorded; A1
+  consumption/slope alerts at 2,600/2,900 hours and separate retained-volume
+  and Object Storage alarms reach operators; and routine overage is reconciled
+  without being treated as a launch or CPU-resize authorization gate;
 - OCI/host ingress leaves public TCP 443 available for TLS-ALPN-01 while Caddy's
   post-handshake source-IP policy denies unapproved HTTP and WebSocket traffic;
 - logs omit credentials and rotate before filling disk; and

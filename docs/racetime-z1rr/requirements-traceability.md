@@ -86,7 +86,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | NFR-PRIV-001 data minimization/disclosure | Core Tasks 2–5, 10 | APP-003–APP-005, APP-009 | model/session/log/content tests | G0/G2 | Planned |
 | NFR-OSS-001 GPL/source attribution | Source plan; Core Task 10; Platform Task 10 | SRC-001–006, APP-009, PLT-005 | attribution/source-link/archive tests | G0/G3 | Planned |
 | NFR-TEST-001 substantive CI | Core Tasks 1, 11; Platform Task 2; all subsystem RC tasks | APP-001, APP-011, PLT-001, PLT-005 | deterministic test settings, separate non-zero SQLite and MariaDB/Redis jobs, and same-commit `linux/arm64` plus `linux/amd64` build/smoke artifacts | G0 | Planned |
-| NFR-COST-001 dedicated-VM/cost alarms | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-011 | Dedicated 1-OCPU/6-GB A1 and 50-GB volume Terraform plan/inventory plus $0.00 compute, retained-volume, Object Storage, and budget evidence | G1/G4 | Planned |
+| NFR-COST-001 fixed-VM/resource-consumption controls | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-005, OPS-011 | Exactly 1-OCPU/6-GB A1 and 50-GB volume plan/inventory; dated Restream forecast; 2,600/2,900-hour A1 usage/slope alerts; separate retained-volume and Object Storage alarms; standing-overage authorization and reconciliation evidence | G1/G4 | Planned |
 
 ## Architecture coverage not represented by a single requirement ID
 
