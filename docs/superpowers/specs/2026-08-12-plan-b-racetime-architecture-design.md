@@ -288,8 +288,12 @@ revenue-generating Restream workload before planning-case compute billing.
 
 Against the measured near-term Restream forecast, combined OCPU consumption is
 1,494 hours at the 750-hour low case and 2,744 at the 2,000-hour high case.
-Both forecast $0 A1 compute under the 3,000-hour planning allowance. Above that
-allowance, the current marginal A1 OCPU rate is $0.01 per hour; planned
+Both forecast $0 A1 compute under the 3,000-hour planning allowance.
+The most memory-heavy inventoried Restream A1 shape is 6 GB/2 OCPUs, or at
+most 3 GB-hours per OCPU-hour. Using that conservative ratio, the low/high
+combined memory cases are 6,714/10,464 GB-hours, both below the 18,000-hour
+planning allowance. Above the allowances, current marginal A1 rates are
+$0.01/OCPU-hour and $0.0015/GB-hour; planned
 tournament growth and its resulting metered cost are accepted operating
 expenses supported by Restream advertising/subscription revenue, not a launch
 or Council-approval gate.

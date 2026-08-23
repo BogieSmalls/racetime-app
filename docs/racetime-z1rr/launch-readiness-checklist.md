@@ -27,7 +27,7 @@
 - [ ] Public IP, NSG/Bastion, private backup bucket, dynamic group/policy, notifications, and alarms exist and match reviewed definitions.
 - [ ] TCP 443 is open to `0.0.0.0/0` (and `::/0` if enabled) for TLS-ALPN-01; source-IP restriction exists only in Caddy's post-handshake HTTP handler.
 - [ ] Canonical `racetime.z1rracing.com` DNS resolves to the reserved RaceTime public IP before either staging or production ACME issuance; launch requires no later DNS promotion.
-- [ ] Caddy qualification config has exactly one Let's Encrypt staging issuer, pins `dir == test_dir`, enables TLS-ALPN-01, disables HTTP-01, and uses separate disposable qualification state.
+- [ ] Caddy qualification config has exactly one Let's Encrypt staging issuer, pins `dir == test_dir`, enables TLS-ALPN-01, disables HTTP-01, and uses separate qualification state that persists across issuance/restarts, is never promoted to production, and is retired only after qualification completes.
 - [ ] Distinct qualification/production Discord, Twitch, TTPBot, LiveSplit, alert, and OAuth credentials use exact reviewed redirect URIs and scopes.
 - [ ] Root-owned production secrets, backup key, operator recovery copy, and two-person access are verified.
 - [ ] No secret appears in Git history, CI logs, image layers, Compose rendering, or evidence.
