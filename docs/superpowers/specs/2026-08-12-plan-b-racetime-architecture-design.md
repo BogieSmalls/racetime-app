@@ -646,9 +646,10 @@ no production scheduler or production Discord announcement.
 
 While the canonical host is still restricted under G2, operators:
 
-1. Enter a maintenance/default-deny transition barrier that blocks all ordinary
-   application paths, including previously allowlisted testers and integrations;
-   retain only the separately authenticated operator health/bootstrap path.
+1. Enter a maintenance/default-deny transition barrier that blocks every
+   externally routed application path, including previously allowlisted testers
+   and integrations. Retain only internal health checks and root/operator access
+   to local management commands; neither is routed through public Caddy.
    Stop all qualification schedulers and writes.
 2. Seal qualification backups beneath a distinct `qualification/` object prefix;
    production restore tooling rejects that prefix.
@@ -662,14 +663,16 @@ While the canonical host is still restricted under G2, operators:
    invalidate qualification sessions and tokens. Verify provider-side revocation
    where the provider exposes that state.
 6. Start the application on fresh production state behind the transition barrier.
-7. Bootstrap final production site/category/owner state through the separately
-   authenticated operator path.
+7. Bootstrap final production site/category/owner state with a root/operator
+   management command executed locally on the host.
 8. Create the persistent production Caddy state once, switch to production
    ACME, issue the public certificate, and retain short G2 HSTS.
-9. Rerun deployment, login, HTTP/WSS, TLS/issuer, integration smoke, and dress
-   rehearsal checks against the fresh production state.
+9. After revocation, bootstrap, and production-TLS evidence passes, replace the
+   hard transition barrier with the normal G2 source-IP allowlist. Public access
+   remains denied. Rerun deployment, login, HTTP/WSS, TLS/issuer, integration
+   smoke, and dress-rehearsal checks against the fresh production state.
 10. Obtain the Council's G3 go/no-go decision only after that evidence passes;
-    only G3 removes the transition barrier.
+    only G3 removes the canonical-host source-IP restriction.
 
 Rollback may use the last valid production backup/release, but never
 qualification data, backups, sessions, tokens, or credentials.
