@@ -597,11 +597,12 @@ approve every change. There is no shared HTTP password.
 
 Qualification certificate automation is explicit:
 
-- Caddy initially uses Let's Encrypt's staging ACME endpoint as its only issuer
-  and a persistent `caddy-qualification` data volume. No production, ZeroSSL,
-  or test-directory fallback issuer is configured. Staging roots are installed
-  only in dedicated test trust stores, never ordinary operator/client trust
-  stores.
+- Caddy initially uses one explicit ACME issuer and a persistent
+  `caddy-qualification` data volume. Its `dir` and CertMagic `test_dir` are both
+  pinned to Let's Encrypt's staging endpoint, so automatic fallback/retry stays
+  in staging. No production or ZeroSSL issuer is configured. Staging roots are
+  installed only in dedicated test trust stores, never ordinary operator/client
+  trust stores.
 - Staging certificates use test CT logs and are not reliably discoverable
   through production CT monitoring. This reduces but does not promise zero
   hostname disclosure during qualification.
@@ -610,12 +611,17 @@ Qualification certificate automation is explicit:
   `/.well-known/acme-challenge/` is not a public allowlist exemption. Port 80
   serves no application or challenge path while restricted; it redirects only
   allowlisted sources and gives unlisted sources the generic denial.
-- After fresh production application state is active in late G2, operators
-  create `caddy-production` exactly once, switch to the production ACME
-  endpoint as the only issuer, and obtain the publicly trusted certificate. A
-  failed issuance blocks G2 rather than falling back to another CA or staging.
-  Issuance makes `racetime.z1rracing.com` visible in public CT logs;
-  the Council accepts this narrowly timed disclosure after G1 activation.
+- After fresh production application state is active behind the transition
+  barrier in late G2, operators create `caddy-production` exactly once. Its one
+  explicit ACME issuer pins both `dir` and `test_dir` to Let's Encrypt's
+  production endpoint; no ZeroSSL issuer is present. This prevents CertMagic's
+  retry path from crossing from production to staging. The G2 transition
+  controller has a bounded issuance-observation deadline; any Caddy background
+  retries remain production-only. A deadline breach alerts operators, leaves the
+  maintenance/default-deny barrier in place, and blocks G2; Caddy never serves
+  or promotes an untrusted fallback certificate. Successful issuance makes
+  `racetime.z1rracing.com` visible in public CT logs; the Council accepts this
+  narrowly timed disclosure after G1 activation.
 - The production Caddy state volume persists across application-state resets,
   deployments, and rollbacks and is included in encrypted recovery artifacts.
   Preflight rejects accidental recreation without incident approval and an
@@ -623,7 +629,11 @@ Qualification certificate automation is explicit:
   five new certificates per seven days and must be reverified at G1.
 
 An unlisted source receives a generic `404`, cannot fetch assets or reach an
-OAuth callback, and cannot receive a WebSocket `101`. G2 evidence includes
+OAuth callback, and cannot receive a WebSocket `101`. Before either issuance,
+CI adapts the Caddyfile to JSON and rejects anything other than exactly one
+issuer with `ca == test_ca ==` the expected environment endpoint, HTTP-01
+disabled, and TLS-ALPN-01 enabled. A hermetic issuer-failure test proves retries
+cannot cross environments. G2 evidence includes those config/failure tests;
 denial probes from at least three unlisted public sources; successful allowed
 browser/OAuth/TTPBot/Restream/LiveSplit/WSS flows; staging and production issuer
 identity; HTTP-01 denial; exactly one production issuance; and persistence of
@@ -636,23 +646,30 @@ no production scheduler or production Discord announcement.
 
 While the canonical host is still restricted under G2, operators:
 
-1. Stop all qualification schedulers and writes.
+1. Enter a maintenance/default-deny transition barrier that blocks all ordinary
+   application paths, including previously allowlisted testers and integrations;
+   retain only the separately authenticated operator health/bootstrap path.
+   Stop all qualification schedulers and writes.
 2. Seal qualification backups beneath a distinct `qualification/` object prefix;
    production restore tooling rejects that prefix.
 3. Create fresh production MariaDB, Redis, media, and application-operational
    volumes plus the approved production secret bundle. These do not reuse or
    replace either Caddy state volume.
-4. Stop the Compose application, repoint it to the fresh production volumes,
-   and start it. This is a controlled stop/repoint/start, not an atomic volume
-   primitive.
-5. Revoke qualification Discord/Twitch/OAuth/bot/alert credentials and
-   invalidate qualification sessions and tokens before restarting public paths.
-6. Bootstrap final production site/category/owner state.
-7. Create the persistent production Caddy state once, switch to production
+4. Stop the Compose application and repoint it to the fresh production volumes,
+   but do not start it.
+5. While the application remains stopped and the transition barrier remains
+   enforced, revoke qualification Discord/Twitch/OAuth/bot/alert credentials and
+   invalidate qualification sessions and tokens. Verify provider-side revocation
+   where the provider exposes that state.
+6. Start the application on fresh production state behind the transition barrier.
+7. Bootstrap final production site/category/owner state through the separately
+   authenticated operator path.
+8. Create the persistent production Caddy state once, switch to production
    ACME, issue the public certificate, and retain short G2 HSTS.
-8. Rerun deployment, login, HTTP/WSS, TLS/issuer, integration smoke, and dress
+9. Rerun deployment, login, HTTP/WSS, TLS/issuer, integration smoke, and dress
    rehearsal checks against the fresh production state.
-9. Obtain the Council's G3 go/no-go decision only after that evidence passes.
+10. Obtain the Council's G3 go/no-go decision only after that evidence passes;
+    only G3 removes the transition barrier.
 
 Rollback may use the last valid production backup/release, but never
 qualification data, backups, sessions, tokens, or credentials.
@@ -725,13 +742,18 @@ The disaster-recovery package consists of:
 - a rehearsed rebuild/restore runbook.
 
 If A1 capacity is unavailable, the primary paid fallback is
-`VM.Standard.E5.Flex` at 1 OCPU/6 GB using the release's `linux/amd64` variant.
-At G1, a capacity report and image-compatibility check must verify that shape in
-the home region; if unavailable, operators record an equivalent paid amd64
-shape before G2 can complete. A quarterly isolated recovery exercise restores
-the amd64 image and encrypted production data/Caddy state and proves the target
-four-hour RTO. Cost alerts remain active, and the service can move back to A1
-after capacity returns.
+`VM.Standard.E5.Flex` using the release's `linux/amd64` variant, 6 GB RAM, and
+the same OCPU count that passed the production load gate: initially 1 OCPU, or
+2 OCPUs if G2 required the A1 resize. At G1, a capacity report and
+image-compatibility check must verify that shape in the home region; if
+unavailable, operators record an equivalent paid amd64 shape before G2 can
+complete. Before G3, the selected amd64 shape must pass the same load/headroom
+gate at the qualified OCPU count and restore within four hours. A quarterly
+isolated recovery exercise restores the amd64 image and encrypted production
+data/Caddy state and proves the target four-hour RTO. Any different temporary
+performance target requires a separately recorded Council exception; it is not
+implied by invoking DR. Cost alerts remain active, and the service can move back
+to A1 after capacity returns.
 
 ## 15. Monitoring, alerting, and logs
 
@@ -865,10 +887,15 @@ Verify:
   Object Storage lifecycle pruning, byte/request alarms, and cost forecast;
 - full restore to an empty isolated ARM64 environment and quarterly restore to
   the recorded paid amd64 fallback within the target RTO;
-- staging-ACME qualification, test-only trust, TLS-ALPN-only validation,
-  HTTP-01 denial, one late-G2 production issuance, production Caddy-state
-  persistence, TLS renewal, HSTS transition, and WebSocket proxy behavior;
-- OCI/host/service/billing alerts reach operations Discord;
+- the recorded paid amd64 fallback passes the same load/headroom gate at the
+  same qualified OCPU count and 6 GB RAM before G3;
+- staging-ACME qualification, test-only trust, adapted-config issuer pinning,
+  a hermetic no-cross-environment fallback test, a bounded transition deadline,
+  TLS-ALPN-only validation, HTTP-01 denial, one late-G2 production issuance,
+  production Caddy-state persistence, TLS renewal, HSTS transition, and
+  WebSocket proxy behavior;
+- OCI/host/service/billing alerts reach operations Discord, and launch/rollback
+  public communications meet the independent-path timing and cadence contract;
 - paid-tenancy A1 entitlement/current usage and both 1-OCPU and conditional
   2-OCPU Restream-headroom calculations are recorded;
 - logs omit credentials and rotate before filling disk; and
