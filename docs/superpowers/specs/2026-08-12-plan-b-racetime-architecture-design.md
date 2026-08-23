@@ -202,7 +202,7 @@ clearly and retried only where safe.
 
 ## 8. OCI placement and cost envelope
 
-### 8.1 Current inventory as of 2026-08-12
+### 8.1 Current inventory as of 2026-08-22
 
 Read-only OCI inventory found:
 
@@ -213,23 +213,31 @@ Read-only OCI inventory found:
 - five retained 47 GB boot volumes, 235 GB total.
 
 `coop-relay` does not consume A1 allowance. The existing boot volumes already
-exceed OCI's currently documented 200 GB Always Free block-volume allocation,
-so Plan B should reuse a volume rather than add another one.
+exceed OCI's currently documented 200 GB Always Free block-volume allocation.
 
-### 8.2 Selected carve-out
+### 8.2 Selected dedicated production allocation
 
-Reserve `z1rr-restream-control-staging` for Plan B, preserve any staging data
-that must survive, and rebuild/resize it as:
+After G1 activation, create a new Terraform-managed Compute instance named
+`racetime` as:
 
 - `VM.Standard.A1.Flex`;
 - 1 OCPU;
 - 6 GB RAM; and
-- its existing 47 GB boot-volume allocation.
+- a new 47 GB Balanced boot volume.
 
-Z1RR RaceTime owns this VM during normal operation. The Restream staging
-control stack may remain installed as a separately named, resource-limited
-Compose project, but it stays stopped except during deliberate testing windows.
-Starting Restream staging must not restart or reconfigure the RaceTime stack.
+Z1RR RaceTime owns this VM exclusively. `z1rr-restream-control-staging` remains
+unchanged and available for its existing staging purpose until a separately
+approved migration moves that work elsewhere. RaceTime production does not
+share a host, Compose project, networks, volumes, or secrets with Restream
+staging.
+
+The Council accepts the intentional cost of the new boot volume. At current
+published US list prices, 47 GB of storage plus 10 Balanced performance units
+per GB is approximately $2 per month. Creating it raises retained boot storage
+from 235 GB to 282 GB, or 82 GB above the documented 200 GB Always Free
+allocation. The actual retained-storage baseline must be captured from OCI
+after provisioning because existing volumes can have different performance
+settings.
 
 OCI currently documents 1,500 A1 OCPU-hours and 9,000 GB-hours per month for
 the tenancy. A continuously running 1-OCPU/6-GB Plan B VM consumes roughly 744
@@ -237,8 +245,9 @@ OCPU-hours and 4,464 GB-hours in a 31-day month. The remaining A1 allowance can
 continue supporting on-demand Restream sessions; compute OCPU-hours are likely
 to be the first free allowance exhausted.
 
-OCI usage and billing alarms should trigger before $1 and escalate for
-investigation at $3 per month. The platform must not assume that an Always Free
+After provisioning, OCI usage and billing alarms warn when forecast spend
+exceeds the observed retained-storage baseline by $1 and escalate when it
+exceeds that baseline by $3. The platform must not assume that an Always Free
 VM has an SLA. OCI documents possible idle-instance reclamation and temporary
 shape-capacity shortages, so rebuild onto a temporary paid shape is part of the
 recovery plan.
@@ -246,6 +255,8 @@ recovery plan.
 References:
 
 - <https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm>
+- <https://www.oracle.com/cloud/price-list/>
+- <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resource-billing-stopped-instances.htm>
 - <https://www.oracle.com/cloud/free/faq/>
 
 ## 9. Site identity, public accounts, and governance
@@ -532,21 +543,29 @@ an explicit migration/rollback review because reverting code does not
 automatically reverse database changes. Destructive migrations should use
 expand/migrate/contract sequencing across releases.
 
-### 13.2 Staging
+### 13.2 Restricted production qualification
 
-A Z1RR RaceTime staging Compose project may run on the same VM with:
+The new `racetime` VM is the production candidate used for G2 qualification.
+Its first externally reachable deployment uses the final canonical hostname,
+`racetime.z1rracing.com`, behind an operator-only Caddy access restriction.
+There is no `staging.racetime.z1rracing.com` record and no hostname or DNS
+promotion at G3.
 
-- a separate hostname or operator-only access path;
-- isolated MariaDB database/credentials;
-- isolated Redis namespace or instance;
-- isolated media and Caddy routes;
-- non-production Discord/Twitch/OAuth applications; and
-- strict CPU/memory limits.
+Qualification runs the exact immutable production image and production Compose
+topology with:
 
-Staging is stopped outside deliberate test windows. It must never connect to
-production TTPBot credentials or announce to production Discord channels. The
-Restream staging stack on the same VM is also normally stopped and cannot share
-Compose project names, ports, networks, volumes, or secrets with RaceTime.
+- final hostname, TLS, proxy, and security configuration;
+- qualification-only MariaDB, Redis, and media state;
+- non-production Discord, Twitch, TTPBot, LiveSplit, and alert credentials;
+- no production scheduler or production Discord announcements; and
+- access limited to approved operators and test participants.
+
+Before G3, operators take the required qualification evidence and backup,
+replace qualification data and credentials with freshly initialized production
+state, rerun deployment and integration smoke tests, and keep the canonical
+hostname restricted. Public launch removes that restriction only after the
+go/no-go decision. `z1rr-restream-control-staging` remains a separate Restream
+staging host and is not part of the RaceTime qualification deployment.
 
 ## 14. Backups and disaster recovery
 
@@ -738,20 +757,27 @@ All other Plan-B-only implementation begins only after Dyn declines the
 Council's request or the Council explicitly activates Plan B. The self-hosted
 service remains operator-only until every launch gate passes.
 
-Public cutover occurs in a historically quiet, race-free window:
+Public cutover occurs in a historically quiet, race-free window. The canonical
+`racetime.z1rracing.com` DNS record and TLS configuration are already present
+and operator-restricted; G3 does not change the hostname or promote a staging
+record:
 
-1. Freeze production changes and create final verified backups.
-2. Confirm DNS, TLS, health checks, and alert delivery.
-3. Create Council accounts and grant category ownership.
-4. Register production Discord, Twitch, TTPBot, and LiveSplit OAuth clients.
-5. Run a private dress-rehearsal race through TTPBot, LiveSplit, and Restream.
-6. Publish user instructions and the Z1RR LiveSplit provider.
-7. Disable TTPBot's scheduler for the old destination.
-8. Enable the new destination and observe the first scheduled room.
-9. Monitor the first week closely and retain rollback configuration.
+1. Freeze the qualified release and create final verified backups.
+2. Replace qualification data and credentials with approved production state.
+3. Confirm the existing canonical DNS, TLS, health checks, and alert delivery.
+4. Create Council accounts and grant category ownership.
+5. Verify production Discord, Twitch, TTPBot, and LiveSplit OAuth clients.
+6. Run a restricted dress-rehearsal race through TTPBot, LiveSplit, and Restream.
+7. Publish user instructions and the Z1RR LiveSplit provider.
+8. Disable TTPBot's scheduler for the old destination.
+9. Remove the canonical-host access restriction, enable the new destination,
+   and observe the first scheduled room.
+10. Monitor the first week closely and retain rollback configuration.
 
 No old TTPBot state or credentials are deleted during the rollback window. The
 cutover procedure must ensure only one scheduler can create production rooms.
+Early rollback re-applies the canonical-host access restriction and restores
+the old scheduler destination; it does not change DNS.
 
 If Dyn approves `racetime.gg/z1rr`, self-hosting work is canceled:
 

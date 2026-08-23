@@ -1,6 +1,6 @@
 # Z1RR RaceTime Requirements and Decision Record
 
-**Date:** 2026-08-22
+**Date:** 2026-08-23
 **Status:** Approved for contingency-readiness work; external activation remains gated
 **Architecture source:** `docs/superpowers/specs/2026-08-12-plan-b-racetime-architecture-design.md`
 
@@ -15,9 +15,9 @@ The Council must record an explicit **Plan B activation decision** before any ex
 | Gate | Decision owner | Entry condition | Permitted work | Exit evidence |
 | --- | --- | --- | --- | --- |
 | G0 — Request pending | Z1RR Council | Current state | Plans, source preservation, local code/build/test artifacts, provider-neutral Restream/TTPBot work | Reviewed plan bundle and green local CI |
-| G1 — Plan B activated | Z1RR Council, recorded in Council minutes | Racetime.gg declines, cannot meet the required date, or Council otherwise explicitly activates | OCI staging/production resources, non-public DNS, production app registrations and secrets | Dated activation record naming primary and backup operators |
-| G2 — Staging qualified | Primary operator + Competitive Integrity representative | All component builds green; isolated staging available | Private dress rehearsals, load/restore/security tests | Signed staging evidence packet with no open P0/P1 findings |
-| G3 — Public launch approved | Z1RR Council | Every mandatory launch gate passes and rollback is rehearsed | Public DNS, user documentation, LiveSplit release, TTPBot destination cutover | Go/no-go record, verified backups, current contact roster |
+| G1 — Plan B activated | Z1RR Council, recorded in Council minutes | Racetime.gg declines, cannot meet the required date, or Council otherwise explicitly activates | Dedicated OCI production-candidate resources, restricted canonical DNS/TLS, production app registrations and secrets | Dated activation record naming primary and backup operators |
+| G2 — Staging qualified | Primary operator + Competitive Integrity representative | All component builds green; restricted production candidate available | Private dress rehearsals, load/restore/security tests on the production-sized host | Signed staging evidence packet with no open P0/P1 findings |
+| G3 — Public launch approved | Z1RR Council | Every mandatory launch gate passes and rollback is rehearsed | Remove canonical-host access restriction, publish user documentation and LiveSplit release, cut over TTPBot destination | Go/no-go record, verified backups, current contact roster |
 | G4 — Stabilized | Primary operator + Council | Seven monitored days and at least one completed scheduled TTP slate | Normal operations; legacy archive project may begin | Stabilization report and access review |
 
 No implementer may infer a later gate from completion of an earlier gate.
@@ -69,11 +69,17 @@ The new component targets the current LiveSplit provider interfaces and Z1RR Rac
 
 RaceTime `master` remains the default, upstream-only mirror throughout G0. `z1rr-production` is created from the recorded baseline only after G1 Plan-B activation, becomes the protected default branch, accepts Z1RR product changes through reviewed pull requests, and is the only branch allowed to build releases. Upstream updates enter `master` first and then reach `z1rr-production` through a reviewed baseline-sync PR. `z1rr-production` is never merged back into `master`; force-push and branch deletion are disabled on both.
 
+### ADR-009: Production uses a new dedicated OCI VM and one canonical hostname
+
+After G1 activation, create a new Terraform-managed Compute instance named `racetime` using `VM.Standard.A1.Flex`, 1 OCPU, 6 GB RAM, and a new 47-GB Balanced boot volume. This is a Council-approved intentional storage cost of approximately $2 per month. Do not repurpose `z1rr-restream-control-staging`; it remains available for its existing staging purpose until a separate migration decision is approved.
+
+The first restricted deployment and public production both use `https://racetime.z1rracing.com`. There is no `staging.racetime.z1rracing.com` hostname or DNS-promotion step. Before G3, the canonical hostname is operator-restricted and uses qualification-only data and non-production integration credentials. G3 replaces qualification state with the approved production state, verifies the same hostname and release, and removes the access restriction without changing DNS.
+
 ## 4. Functional requirements
 
 ### Core service
 
-- **FR-CORE-001:** Serve `https://racetime.z1rracing.com` and WebSocket upgrades through Caddy with only ports 80/443 public.
+- **FR-CORE-001:** Serve `https://racetime.z1rracing.com` and WebSocket upgrades through Caddy with only ports 80/443 public. Use that canonical hostname for restricted qualification and production; do not create a staging subdomain or perform a hostname promotion at launch.
 - **FR-CORE-002:** Preserve upstream race creation, joining, ready/start/done/DNF/DQ, chat, moderation, recording, rating, leaderboard, API, OAuth, and racebot semantics.
 - **FR-CORE-003:** Expose one active public category, `z1rr`; any active authenticated user can create a race.
 - **FR-CORE-004:** Give all Council members category-owner rights without Django staff, shell, database, secret, backup, or OCI access.
@@ -121,7 +127,7 @@ RaceTime `master` remains the default, upstream-only mirror throughout G0. `z1rr
 - **FR-OPS-004:** Meet database RPO <= 6 hours, media RPO <= 24 hours, and target RTO <= 4 hours when OCI capacity is available.
 - **FR-OPS-005:** Monitor HTTPS, WebSocket, web/racebot/db/Redis health, restart loops, CPU/memory/disk/inodes, backup freshness, TLS, OAuth failures, OCI allowance, and spend.
 - **FR-OPS-006:** Deliver operational alerts to a private Discord channel with email fallback and no secrets.
-- **FR-OPS-007:** Rebuild from Git, immutable images, configuration, operator-held secrets, and Object Storage on the selected A1 VM or a temporary paid compatible shape.
+- **FR-OPS-007:** Rebuild from Git, immutable images, configuration, operator-held secrets, and Object Storage on the dedicated `racetime` A1 VM or a temporary paid compatible shape.
 
 ## 5. Non-functional requirements
 
@@ -135,7 +141,7 @@ RaceTime `master` remains the default, upstream-only mirror throughout G0. `z1rr
 - **NFR-PRIV-001:** Collect only Discord ID and minimum transient profile data; document Discord/Twitch data, logs, deletion, and backup expiry.
 - **NFR-OSS-001:** Preserve GPL-3.0 and upstream attribution; publish corresponding source for every deployed build.
 - **NFR-TEST-001:** Add an automated test baseline because the fork currently discovers zero Django tests. Pull requests must run unit/integration tests, migrations, static checks, dependency audit, and ARM64 image build.
-- **NFR-COST-001:** Reuse the current 47-GB staging boot volume; do not create another retained boot volume without Council approval. Alarm before $1 and escalate at $3 monthly spend.
+- **NFR-COST-001:** Create one Council-approved 47-GB Balanced boot volume for the dedicated `racetime` VM, with an expected incremental cost of approximately $2 per month; do not create further retained volumes without Council approval. Record the observed retained-storage baseline after provisioning, warn when forecast spend exceeds that baseline by $1, and escalate when it exceeds the baseline by $3.
 
 ## 6. Current verified baseline
 
@@ -146,6 +152,7 @@ Verified read-only on 2026-08-22:
 - `z1rr-restream-control-staging`: stopped A1, 2 OCPUs / 6 GB.
 - `z1rr-restream-encoder-a1` and `z1rr2-restream-encoder-a1`: stopped A1, 12 OCPUs / 16 GB each.
 - Five retained 47-GB boot volumes total 235 GB.
+- Approved but not provisioned at G0: one new dedicated `racetime` A1 instance at 1 OCPU/6 GB with a new 47-GB Balanced boot volume. After G1 creation, retained boot storage will total 282 GB; `z1rr-restream-control-staging` remains unchanged.
 - The RaceTime fork has no substantive automated tests (`manage.py test` found zero) but its Django system check is clean.
 - `npm audit` reports one high-severity `js-cookie <=3.0.5` advisory with a fix available.
 - Current LiveSplit 1.8.37 targets .NET Framework 4.8.1 and exposes `IRaceProviderFactory`, `RaceProviderAPI`, `RaceProviderSettings`, and `IRaceInfo` in `LiveSplit.Core`.
