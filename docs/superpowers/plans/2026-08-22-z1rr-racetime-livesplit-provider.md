@@ -4,7 +4,7 @@
 
 **Goal:** Build a clean-room, side-by-side LiveSplit provider for `racetime.z1rracing.com` with correct public-client PKCE, safe token storage, Racetime race actions/chat/reconnect, and reproducible signed releases.
 
-**Architecture:** A new repository references the official MIT-licensed LiveSplit 1.8.37 binaries/interfaces but copies no code from the unlicensed legacy Racetime provider. Protocol/authentication code is isolated from the Windows/LiveSplit adapter so deterministic unit and mock-server tests cover PKCE, REST/WSS, state transitions, reconnect, and timer actions before staging.
+**Architecture:** A new repository references the official MIT-licensed LiveSplit 1.8.37 binaries/interfaces but copies no code from the unlicensed legacy Racetime provider. Protocol/authentication code is isolated from the Windows/LiveSplit adapter so deterministic unit and mock-server tests cover PKCE, REST/WSS, state transitions, reconnect, and timer actions before late-G2 restricted-production qualification.
 
 **Tech Stack:** C#/.NET Framework 4.8.1, Windows Forms, `HttpClient`, `ClientWebSocket`, `TcpListener`, Windows Credential Manager P/Invoke, NUnit, MSBuild/dotnet, GitHub Actions Windows runners, CycloneDX, minisign
 
@@ -22,7 +22,7 @@
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
 - Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and immutable ARM64 production images; provider work must preserve its plan's declared runtime.
+- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
 - Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
@@ -81,7 +81,7 @@ Do not run `git clone` against the legacy provider.
 
 - [ ] **Step 2: Write the provenance record before implementation**
 
-Record permitted inputs: Z1RR architecture/requirements; Z1RR RaceTime GPL API/WebSocket behavior; official LiveSplit MIT release/binary/interfaces/source; OAuth 2.0/PKCE standards; observed network fixtures produced by Z1RR-owned staging. Prohibited input: source/assets/resources/update feed from the unlicensed legacy provider.
+Record permitted inputs: Z1RR architecture/requirements; Z1RR RaceTime GPL API/WebSocket behavior; official LiveSplit MIT release/binary/interfaces/source; OAuth 2.0/PKCE standards; observed network fixtures produced by Z1RR-owned local/qualification environments. Prohibited input: source/assets/resources/update feed from the unlicensed legacy provider.
 
 - [ ] **Step 3: Write a failing clean-room contract test/script**
 
@@ -479,4 +479,4 @@ Use @superpowers:requesting-code-review against FR-LS-001–004 and LS-001–007
 
 Commit evidence; an internal unsigned/signed test package may remain as protected CI artifact. Do not create a public release/update feed.
 
-**G0 stop line:** No production OAuth client, public DLL/release, update XML publication, or user installation instruction announcement. LS-008 executes against restricted staging only after G2 prerequisites.
+**G0 stop line:** No production OAuth client, public DLL/release, update XML publication, or user installation instruction announcement. LS-008 executes late in G2 against fresh restricted production only after the production certificate is trusted normally; no staging-root override or bypass is permitted.

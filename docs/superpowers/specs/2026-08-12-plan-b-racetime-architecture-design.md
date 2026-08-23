@@ -412,6 +412,14 @@ resealing. Staff login and Django admin are not part of the public login flow
 and are reachable only through a restricted operator path such as Bastion/SSH
 tunneling or tightly constrained ingress.
 
+The recovery record must also identify a verified route to regain OCI tenancy
+administration, GitHub organization and container-registry ownership, and
+authoritative DNS account access without the unavailable operator's active
+session. The route may be sealed recovery material, another account owner, or
+the platform's documented account-recovery process. Record the chosen method
+and non-secret identifiers/instructions; it grants no standing technical
+approval role.
+
 If a racer loses a Discord account, account transfer is a manual, audited
 operator procedure with identity verification. There is no weaker email or
 password fallback. Discord outages pause new logins; existing authenticated
@@ -817,6 +825,8 @@ The disaster-recovery package consists of:
 - pinned multi-platform application image/source;
 - operator-held working secrets and backup key plus the sealed offline recovery
   package and its non-secret custody record;
+- verified account-level recovery routes for OCI, GitHub/container registry,
+  and authoritative DNS;
 - encrypted Object Storage backups;
 - DNS update instructions; and
 - a rehearsed rebuild/restore runbook.

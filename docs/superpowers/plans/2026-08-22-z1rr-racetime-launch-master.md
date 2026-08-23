@@ -4,7 +4,7 @@
 
 **Goal:** Produce, qualify, and—only after explicit Council gates—launch `racetime.z1rracing.com` as a recoverable Z1RR-operated Racetime service while preserving the simpler `racetime.gg/z1rr` outcome.
 
-**Architecture:** A single-node ARM64 OCI deployment runs Caddy, Django/Daphne, the upstream racebot, MariaDB, Redis, and backup jobs from immutable images. Discord supplies public identity, Restream and TTPBot consume a provider-origin contract, and a clean-room LiveSplit DLL is built only for the self-hosted outcome. This master plan coordinates independently testable subsystem plans and keeps external activation behind G1–G3 decision records.
+**Architecture:** A dedicated single-node ARM64 OCI deployment runs Caddy, Django/Daphne, the upstream racebot, MariaDB, Redis, and backup jobs from same-commit ARM64/amd64 immutable images; amd64 is the paid disaster-recovery fallback. Discord supplies public identity, Restream and TTPBot consume a provider-origin contract, and a clean-room LiveSplit DLL is built only for the self-hosted outcome. Restricted qualification and public service share the canonical hostname but never data, credentials, sessions, or Caddy state.
 
 **Tech Stack:** Django 5.2, Channels/Daphne, MariaDB, Redis, Docker Compose, Caddy, OCI/Terraform, Python/Bash, Node/Vitest/React, .NET Framework 4.8.1, GitHub Actions
 
@@ -44,8 +44,8 @@ Request pending (G0)
   │    └─ Cancel self-hosted app/OCI/Discord auth/LiveSplit release
   └─ Council activates Plan B (G1)
        ├─ Apply reviewed OCI/external-app configuration
-       ├─ Qualify isolated staging (G2)
-       └─ Council go/no-go → public cutover (G3) → stabilization (G4)
+       ├─ Qualify disposable state, then initialize fresh restricted production (G2)
+       └─ Council go/no-go → remove restriction/cut scheduler (G3) → stabilization (G4)
 ```
 
 ## Working-copy topology
@@ -75,7 +75,7 @@ G0 implementation work uses `feature/racetime-readiness` from the recorded basel
 | P2 | Container/IaC/backup artifacts | Production settings contract | Restream, TTPBot, LiveSplit |
 | P3 | Local cross-system integration | Core + provider integrations | Documentation/tabletops |
 | P4 | G1 external prerequisites | Council Plan-B activation | Final documentation only |
-| P5 | G2 staging qualification | G1 + all component RCs | Independent load/security/restore tests |
+| P5 | G2 canonical-host qualification and fresh-production finalization | G1 + all component RCs | Independent load/security/restore tests |
 | P6 | G3 cutover | G2 signed evidence | None |
 | P7 | G4 stabilization | G3 launch | Backlog triage only |
 
@@ -181,7 +181,7 @@ Record LiveSplit release `1.8.37`, target `net4.8.1`, and the commit hashes of t
 
 - [ ] **Step 5: Capture read-only OCI capacity inventory**
 
-Use OCI CLI read-only list commands. Record instance name/state/shape/OCPU/memory and non-terminated boot-volume name/size. Expected current evidence is five 47-GB volumes (235 GB) and the shapes in the requirements record; any change triggers a fresh placement/cost review.
+Use OCI CLI read-only list commands. Record instance name/state/shape/OCPU/memory, non-terminated boot-volume name/size/VPUs, current A1 OCPU/GB-hour usage and slope, and paid-tenancy entitlement evidence. Expected current evidence is five 47-GB volumes (235 GB), 3,000/18,000 monthly A1 allowance, and the shapes/forecast in the requirements record; any change is reconciled before G1.
 
 - [ ] **Step 6: Commit the baseline evidence**
 
@@ -236,7 +236,7 @@ Expected: LS-001–007 build/test locally; no public OAuth app, release, or upda
 
 - [ ] **Step 5: Execute Operations Tasks 1–2 through its explicit G0 stop line**
 
-Expected: GOV-004 and OPS-001–004 are locally verified; `validate-evidence.py`, `validate-traceability.py`, the release-identity collector, and the qualification state machine exist and pass hermetic tests. Operations Task 3 or later is forbidden before its stated gate, and no OCI/DNS/external-app/staging mutation occurs.
+Expected: GOV-004 and OPS-001–004 are locally verified; `validate-evidence.py`, `validate-traceability.py`, the release-identity collector, and the qualification/fresh-production state machines exist and pass hermetic tests. Operations Task 3 or later is forbidden before its stated gate, and no OCI/DNS/external-app/qualification mutation occurs.
 
 - [ ] **Step 6: Review each workstream independently**
 
@@ -403,7 +403,7 @@ For `CONTINUE_WAITING`, schedule monthly dependency/inventory drift checks. For 
 
 - [ ] **Step 4: Obtain and inventory Racetime.gg category access** (`APPROVED_CATEGORY` only)
 
-Confirm the live `z1rr` category, Council owner/moderator access, goal configuration, and the minimum TTPBot confidential-client/category-bot credentials. Record credential owner, recovery owner, permissions, redirect/callback values, and revocation path in the private access register without copying secrets into evidence. Acceptance: primary and backup operators can perform category administration and credential rotation without relying on the old `z1r` owners.
+Confirm the live `z1rr` category, Council owner/moderator access, goal configuration, and the minimum TTPBot confidential-client/category-bot credentials. Record credential owner, recovery route, permissions, redirect/callback values, and revocation path in the private access register without copying secrets into evidence. Acceptance: the primary technical operator can rotate credentials and Council category owners can administer the category without relying on the old `z1r` owners.
 
 - [ ] **Step 5: Stage the approved provider configuration** (`APPROVED_CATEGORY` only)
 
@@ -415,7 +415,7 @@ Outside every room-open window, use a non-production schedule/webhook to prove: 
 
 - [ ] **Step 7: Freeze releases and take deploy backups** (`APPROVED_CATEGORY` only)
 
-Record exact Restream/TTPBot commits, dependency locks, configuration schema, and deployment target. Back up Restream data and TTPBot state/config without printing secrets. Confirm the next safe blackout and named go/no-go/rollback operators.
+Record exact Restream/TTPBot commits, dependency locks, configuration schema, and deployment target. Back up Restream data and TTPBot state/config without printing secrets. Confirm the next safe blackout, primary technical operator, Council go/no-go owner, and rollback authority.
 
 - [ ] **Step 8: Deploy Restream, then move the TTPBot scheduler** (`APPROVED_CATEGORY` only)
 
@@ -435,27 +435,27 @@ Create `docs/evidence/<date>-approved-category-cutover.md`, update the launch ch
 
 - [ ] **Step 1: Execute the G1 external-prerequisite section**
 
-Initialize `z1rr-production` at the recorded baseline, push/protect it with the prepared ruleset, set it as the repository default, merge the reviewed readiness feature through PR, and manually dispatch/verify `upstream-drift.yml`; its declared schedule is now active from the default branch. Expected: branch/default/protection evidence, reviewed OCI plan applied, distinct OAuth apps/secrets created, restricted staging available, and G1 checklist signed.
+Initialize `z1rr-production` at the recorded baseline, push/protect it with the prepared ruleset, set it as the repository default, merge the reviewed readiness feature through PR, and manually dispatch/verify `upstream-drift.yml`; its declared schedule is now active from the default branch. Expected: branch/default/protection evidence, the dedicated 1-OCPU/6-GB A1 plus 50-GB plan applied without changing Restream resources, canonical DNS/TLS-ALPN qualification, distinct qualification/production apps and state, recovery custody/account-access route, and G1 checklist evidence.
 
-- [ ] **Step 2: Deploy immutable release candidates to restricted staging**
+- [ ] **Step 2: Deploy immutable release candidates to restricted qualification**
 
-Expected: exact commit/image/DLL hashes recorded; no production scheduler or public announcement.
+Expected: exact same-commit ARM64/amd64 image and provider hashes recorded on disposable qualification volumes at `racetime.z1rracing.com`; no production scheduler, production credentials, public route, or public announcement.
 
-- [ ] **Step 3: Execute all G2 functional, security, load, recovery, and failure tests**
+- [ ] **Step 3: Execute pre-transition G2 functional, security, load, recovery, and failure tests**
 
-Expected: APP/PLT/RST/BOT/LS/OPS acceptance evidence complete and no P0/P1 finding.
+Expected: core/browser/server-side qualification, default-shape ARM64 plus amd64 fallback load/recovery, security, and failure evidence pass; programmatic-client evidence remains intentionally pending.
 
-- [ ] **Step 4: Rehearse cutover and rollback without changing production routing**
+- [ ] **Step 4: Execute fresh-production finalization and post-issuance integration**
 
-Expected: timing, owner, commands, old/new scheduler transitions, DNS rollback values, and communications are measured and recorded.
+Expected: qualification state is sealed and never promoted; fresh volumes/secrets/sessions are used; qualification credentials are revoked; production ACME is pinned and trusted; production Caddy state is backed up/restored; TTPBot, Restream, LiveSplit, and dress rehearsal pass with ordinary certificate validation.
 
-- [ ] **Step 5: Sign or hold G2**
+- [ ] **Step 5: Rehearse G3 restriction/scheduler cutover and rollback, then sign or hold G2**
 
-Unchecked mandatory item means hold. Risk acceptance is allowed only for documented P2 findings.
+DNS remains unchanged. Record timing, operator commands, Caddy restriction/HSTS changes, old/new scheduler transitions, rollback communications, and duplicate prevention. Unchecked mandatory item means hold; risk acceptance is allowed only for documented P2 findings.
 
 - [ ] **Step 6: Update the traceability matrix for G1/G2**
 
-Link each verified row to its immutable staging evidence. The gate validator must reject any G1/G2-due row still `Planned` or any accepted exception without its Council risk-acceptance ID.
+Link each verified row to immutable qualification, production-transition, production-certificate, post-issuance, load, and restore evidence. The gate validator must reject any G1/G2-due row still `Planned` or any accepted exception without its Council risk-acceptance ID.
 
 ## Task 9: Execute G3 public cutover (Plan B only)
 
@@ -470,7 +470,7 @@ Link each verified row to its immutable staging evidence. The gate validator mus
 
 - [ ] **Step 3: Complete the G3 checklist and Council go/no-go**
 
-- [ ] **Step 4: Execute the operations plan's cutover sequence exactly**
+- [ ] **Step 4: Remove only the canonical-host source restriction, raise HSTS, and execute the operations plan's scheduler/publication sequence exactly; do not change DNS**
 
 - [ ] **Step 5: Observe the first room end to end**
 

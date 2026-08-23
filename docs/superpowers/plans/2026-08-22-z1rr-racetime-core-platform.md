@@ -22,7 +22,7 @@
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
 - Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and immutable ARM64 production images; provider work must preserve its plan's declared runtime.
+- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
 - Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
@@ -32,7 +32,7 @@
 
 **Core → platform consumes:** `project.settings.production` and its complete env schema; additive migrations through `0082_externalidentity`; `/healthz` plus authenticated internal readiness; `deployment_preflight`; and idempotent `bootstrap_z1rr` with the exact flags recorded in the master plan.
 
-**Platform → integration produces:** immutable ARM64 web/racebot image digests, rendered Compose/Caddy configuration, migration/bootstrap output, and safe health/backup/deploy probes. The platform may not invent a second settings schema, health route, bootstrap signature, or authoritative active-race source.
+**Platform → integration produces:** same-commit immutable linux/arm64 and linux/amd64 web/racebot image digests, rendered Compose/Caddy configuration, migration/bootstrap output, and safe health/backup/deploy probes. The platform may not invent a second settings schema, health route, bootstrap signature, or authoritative active-race source.
 
 ---
 
@@ -73,7 +73,7 @@ Expected: no Terraform apply, OCI mutation, public DNS, production secret/app cr
 - Create: `docs/evidence/<execution-date>-core-platform-integration-rc.md`
 - Integration files: the master plan's Task 5
 
-- [ ] **Step 1: Build the immutable ARM64 application images from the accepted core commit**
+- [ ] **Step 1: Build and smoke the immutable linux/arm64 and linux/amd64 application images from the accepted core commit**
 
 - [ ] **Step 2: Start only the isolated integration Compose project with fixture credentials**
 
@@ -87,7 +87,7 @@ Expected: no Terraform apply, OCI mutation, public DNS, production secret/app cr
 
 - [ ] **Step 7: Run health and logging-redaction canary tests**
 
-- [ ] **Step 8: Confirm `manage.py check --deploy`, Compose/Caddy/Terraform validation, dependency/container/secret scans, and substantive test count pass**
+- [ ] **Step 8: Confirm `manage.py check --deploy`, Compose/Caddy/Terraform validation, both-architecture image smoke, dependency/container/secret scans, and substantive test count pass**
 
 - [ ] **Step 9: Request a combined review against APP-001–012 and PLT-001–008**
 

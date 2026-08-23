@@ -22,7 +22,7 @@
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
 - Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and immutable ARM64 production images; provider work must preserve its plan's declared runtime.
+- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
 - Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
@@ -402,15 +402,15 @@ Add a table-driven test that enumerates named URL patterns and fails when an aut
 
 - [ ] **Step 2: Write failing policy and concurrency tests**
 
-Set initial production policy to: Discord initiate/callback/name submission 10 per 10 minutes per IP and session; race creation 5 per 10 minutes per user plus 20 per hour per IP; search/autocomplete 60 per minute per user plus 120 per minute per IP; profile/Twitch mutations 10 per hour per user plus 30 per hour per IP; OAuth authorization decisions 30 per 10 minutes per user and IP. Tests cover the last allowed request, 429 plus bounded `Retry-After`, window reset, concurrent workers, user/IP isolation, IPv4/IPv6 normalization, missing session/user, and no raw identity in cache keys or logs.
+Set initial production policy to: Discord initiate/callback/name submission 10 per 10 minutes per IP and session; race creation 5 per 10 minutes per user plus 20 per hour per IP; search/autocomplete 60 per minute per user plus 120 per minute per IP; profile/Twitch mutations 10 per hour per user plus 30 per hour per IP; OAuth authorization decisions 30 per 10 minutes per user and IP. Tests cover the last allowed request, 429 plus bounded `Retry-After`, window reset, concurrent workers, user/IP isolation, IPv4/IPv6 normalization, missing session/user, and no raw identity in cache keys or logs. A Redis-loss matrix proves authentication, OAuth decisions, race creation, and account/admin mutations return a generic 503, while authoritative ready/start/done/DNF/DQ/split transitions continue against MariaDB under bounded per-process emergency controls with audit and alerting.
 
 - [ ] **Step 3: Implement one Redis-backed throttle service**
 
-Use atomic Redis counters with expiry and keys HMACed by the dedicated `RACETIME_THROTTLE_HMAC_KEY`; never reuse `DJANGO_SECRET_KEY`. Resolve client IP through one tested helper: accept exactly one normalized `HTTP_X_FORWARDED_FOR` address only when the immediate `REMOTE_ADDR` equals the configured Caddy `172.30.0.2/32`; otherwise ignore the header and use normalized `REMOTE_ADDR`. Caddy deletes inbound forwarding headers and sets the single client address. Production rejects locmem, a missing/invalid dedicated key, any trusted-proxy value other than the rendered fixed Caddy `/32`, and untrusted/multi-value forwarded input. Tests send two clients through that trusted proxy and prove distinct buckets, then prove direct spoofing and a different address in the same proxy subnet are ignored. Authentication and mutating endpoints fail closed with generic 503 plus an operational metric when Redis is unavailable.
+Use atomic Redis counters with expiry and keys HMACed by the dedicated `RACETIME_THROTTLE_HMAC_KEY`; never reuse `DJANGO_SECRET_KEY`. Resolve client IP through one tested helper: accept exactly one normalized `HTTP_X_FORWARDED_FOR` address only when the immediate `REMOTE_ADDR` equals the configured Caddy `172.30.0.2/32`; otherwise ignore the header and use normalized `REMOTE_ADDR`. Caddy deletes inbound forwarding headers and sets the single client address. Production rejects locmem, a missing/invalid dedicated key, any trusted-proxy value other than the rendered fixed Caddy `/32`, and untrusted/multi-value forwarded input. Tests send two clients through that trusted proxy and prove distinct buckets, then prove direct spoofing and a different address in the same proxy subnet are ignored. Limiter loss fails closed only for authentication, OAuth decisions, race creation, account/admin mutations, and non-authoritative protected lookups; it never makes Redis authoritative for in-race state.
 
 - [ ] **Step 4: Apply policies at the views, not only at Caddy**
 
-Replace Task 4's initial Discord fixed-window helper with this shared throttle service—do not stack two counters—then apply named policies before expensive/provider/database work. Return generic JSON/HTML appropriate to the route, never echo the throttle key. Keep Caddy request/body/connection limits as an independent outer layer in the platform plan.
+Replace Task 4's initial Discord fixed-window helper with this shared throttle service—do not stack two counters—then apply named policies before expensive/provider/database work. Classify the upstream in-race action routes explicitly: when Redis is unavailable they use a bounded per-process emergency counter, emit an audit/alert signal, and continue their authoritative MariaDB transaction. Return generic JSON/HTML appropriate to other routes, never echo the throttle key. Keep Caddy request/body/connection limits as an independent outer layer in the platform plan.
 
 - [ ] **Step 5: Run unit and MariaDB/Redis integration tests**
 
@@ -473,7 +473,7 @@ manage.py bootstrap_z1rr --site-domain DOMAIN [--site-name NAME]
                          [--goal NAME ...] [--reconcile-managed-fields] [--dry-run]
 ```
 
-Defaults: site name `Z1RR RaceTime`, slug `z1rr`, public/active, owner ceiling 20, moderator ceiling 50, bot ceiling 20, and goal `Beat the game`. The deployment/preflight contract requires production domain `racetime.z1rracing.com` plus `--exclusive-public-category`; staging supplies its own exact domain. Validate Site/category field names against the current models before coding. Never create users, Discord identities, OAuth secrets, or bot credentials.
+Defaults: site name `Z1RR RaceTime`, slug `z1rr`, public/active, owner ceiling 20, moderator ceiling 50, bot ceiling 20, and goal `Beat the game`. Restricted qualification and fresh production both require `racetime.z1rracing.com` plus `--exclusive-public-category`; the isolated local harness alone supplies `integration.racetime.test`. Validate Site/category field names against current models before coding. Never create users, Discord identities, OAuth secrets, or bot credentials.
 
 - [ ] **Step 4: Run tests and a two-run local smoke**
 

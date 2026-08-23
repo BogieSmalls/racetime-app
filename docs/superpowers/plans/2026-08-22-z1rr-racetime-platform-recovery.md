@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Package the Z1RR RaceTime core as an immutable ARM64 production stack with fail-closed settings, versioned OCI infrastructure, race-aware deployment, encrypted off-machine backups, monitoring, and rehearsable rollback/rebuild.
+**Goal:** Package the Z1RR RaceTime core as an immutable multi-platform production stack with fail-closed settings, dedicated versioned OCI infrastructure, race-aware deployment, encrypted off-machine backups, monitoring, and rehearsable rollback/rebuild.
 
-**Architecture:** Caddy is the only public container and proxies HTTP/WSS to non-root Daphne; web/racebot share an application image while MariaDB and Redis remain internal. Terraform defines/imports the selected OCI resources without applying before G1, and tested scripts gate every deploy on active-race status plus a verified backup.
+**Architecture:** Caddy is the only public container and proxies HTTP/WSS to non-root Daphne; web/racebot share same-commit ARM64/amd64 images while MariaDB and Redis remain internal. Terraform defines the dedicated `racetime` A1 instance and supporting resources without applying before G1, and tested scripts gate every deploy on active-race status plus a verified backup. Separate qualification and production Caddy/data state make the late-G2 fresh-production transition explicit.
 
 **Tech Stack:** Docker/BuildKit/Compose, Caddy 2, Django/Daphne, MariaDB, Redis, Bash, Python `unittest`, Terraform OCI provider, OCI CLI Instance Principal, age/zstd, GitHub Actions/Trivy/Syft
 
@@ -22,7 +22,7 @@
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
 - Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and immutable ARM64 production images; provider work must preserve its plan's declared runtime.
+- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
 - Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
@@ -35,16 +35,16 @@
 - Create `.env.production.example`: complete placeholder-free environment schema using documented sentinel values.
 - Create `deploy/env/ci.env`: non-secret CI fixture environment.
 - Create `deploy/validate-config.py`: validate rendered runtime contract without printing values.
-- Replace `Dockerfile`: Node/Python multi-stage ARM64-capable image with web/racebot targets.
+- Replace `Dockerfile`: Node/Python multi-stage linux/arm64 and linux/amd64 image with web/racebot targets.
 - Create `.docker/start-production`, `.docker/healthcheck`: explicit process entrypoints.
 - Create `deploy/compose.production.yml`: internal stack, volumes, healthchecks, resource limits.
-- Create `deploy/Caddyfile`: public HTTPS/WSS/static/media plus loopback-only admin listener.
+- Create `deploy/Caddyfile`: canonical HTTPS/WSS/static/media, restricted/public phases, pinned ACME issuer, plus loopback-only admin listener.
 - Create `racetime/management/commands/deployment_preflight.py`: authoritative active-race/migration/bootstrap checks.
 - Create `deploy/scripts/deploy.sh`, `preflight.sh`, `rollback.sh`: release orchestration and audit.
-- Create `deploy/backup/backup.sh`, `verify.sh`, `restore-test.sh`, `retention.py`: encrypted OCI backup lifecycle.
+- Create `deploy/backup/backup.sh`, `verify.sh`, `restore-test.sh`, `retention.py`: encrypted DB/media/production-Caddy-state OCI backup lifecycle.
 - Create `deploy/systemd/*.service`, `*.timer`: backup/verification/restore-test schedules.
-- Create `infra/oci/*.tf`, `*.tfvars.example`, `README.md`: import-first OCI definitions.
-- Create `deploy/monitoring/`: health/backup/cost alert definitions and secret-safe Discord adapter contract.
+- Create `infra/oci/*.tf`, `*.tfvars.example`, `README.md`: dedicated-instance OCI definitions and reviewed-plan guardrails.
+- Create `deploy/monitoring/`: health/backup/allowance/storage alert definitions and secret-safe Discord adapter contract.
 - Create `.github/workflows/container.yml`, `release.yml`: test/build/scan/SBOM/provenance/publish gates.
 - Create `tests/platform/`: settings/config/Compose/Caddy/deploy/backup/IaC contract tests.
 
@@ -88,7 +88,7 @@ Never include a value in an exception or repr.
 
 - [ ] **Step 4: Write failing production settings assertions**
 
-Assert `DEBUG=False`, no debug toolbar app/middleware, exact hosts/trusted origins, secure/HttpOnly/SameSite cookies, HTTPS redirect, HSTS include-subdomains/preload, proxy SSL header, restricted CORS, nosniff/referrer/frame policies, database/Redis credentials, dedicated throttle HMAC key, exact trusted-proxy CIDRs, static/media roots, body/upload limits, Discord flags, PKCE required, JSON logs, and no development secret/default credential.
+Assert `DEBUG=False`, no debug toolbar app/middleware, exact hosts/trusted origins, secure/HttpOnly/SameSite cookies, HTTPS redirect, phase-derived HSTS (`300` while restricted, at least `31536000` only when public, preload always false), proxy SSL header, restricted CORS, nosniff/referrer/frame policies, database/Redis credentials, dedicated throttle HMAC key, exact trusted-proxy CIDRs, static/media roots, body/upload limits, Discord flags, PKCE required, JSON logs, and no development secret/default credential.
 
 - [ ] **Step 5: Implement `production.py`**
 
@@ -102,9 +102,10 @@ RACETIME_TRUSTED_PROXY_CIDRS
 DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_REDIRECT_URI
 TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
 STATIC_ROOT, MEDIA_ROOT, LOG_LEVEL
+RACETIME_ACCESS_PHASE
 ```
 
-Set public password/category requests/Patreon and legacy LiveSplit PKCE bypass false. `RACETIME_THROTTLE_HMAC_KEY` is an independently generated base64 value decoding to at least 32 bytes and must differ from `DJANGO_SECRET_KEY`. Set `REAL_IP_HEADER="HTTP_X_FORWARDED_FOR"` and require `RACETIME_TRUSTED_PROXY_CIDRS=172.30.0.2/32`, the single fixed Caddy address on the Compose `proxy` network; Daphne is internal and the client-IP helper honors the header only for that immediate peer after Caddy overwrites it.
+Set public password/category requests/Patreon and legacy LiveSplit PKCE bypass false. `RACETIME_ACCESS_PHASE` accepts only `restricted` or `public`; settings derive HSTS from it and never enable preload. `RACETIME_THROTTLE_HMAC_KEY` is an independently generated base64 value decoding to at least 32 bytes and must differ from `DJANGO_SECRET_KEY`. Set `REAL_IP_HEADER="HTTP_X_FORWARDED_FOR"` and require `RACETIME_TRUSTED_PROXY_CIDRS=172.30.0.2/32`, the single fixed Caddy address on the Compose `proxy` network; Daphne is internal and the client-IP helper honors the header only for that immediate peer after Caddy overwrites it.
 
 - [ ] **Step 6: Implement JSON logging/redaction**
 
@@ -112,7 +113,7 @@ Emit timestamp, level, logger, message, request/correlation ID, and safe excepti
 
 - [ ] **Step 7: Write environment examples and validator**
 
-`.env.production.example` contains every name with empty or clearly invalid sentinel; never a usable secret. `ci.env` contains distinct valid non-production fixture keys, exact test proxy `/32`, and loopback/test domains. `deploy/validate-config.py` imports production settings, verifies the throttle key decodes to at least 32 bytes and differs from `DJANGO_SECRET_KEY`, and requires the trusted-proxy value to equal the rendered Caddy fixed address as a `/32`—not the whole subnet—while checking all other invariants/unknown variables. It prints only variable names plus PASS/FAIL.
+`.env.production.example` contains every name with empty or clearly invalid sentinel; never a usable secret. `ci.env` contains distinct valid non-production fixture keys, exact test proxy `/32`, loopback/test domains, and `RACETIME_ACCESS_PHASE=restricted`. `deploy/validate-config.py` imports production settings, verifies the throttle key decodes to at least 32 bytes and differs from `DJANGO_SECRET_KEY`, requires the trusted-proxy value to equal the rendered Caddy fixed address as a `/32`—not the whole subnet—and rejects an unknown access phase while checking all other invariants/unknown variables. It prints only variable names plus PASS/FAIL.
 
 - [ ] **Step 8: Run production deploy checks**
 
@@ -140,10 +141,11 @@ git commit -m "feat: add fail-closed production configuration"
 - Create: `.docker/healthcheck`
 - Create: `.dockerignore`
 - Create: `tests/platform/test_image_contract.py`
+- Create: `tests/platform/smoke_images.ps1`
 
 - [ ] **Step 1: Write failing Dockerfile contract tests**
 
-Assert production targets copy source rather than bind mount it, use `npm ci`, install pinned Python dependencies, run as non-root UID, use Daphne/racebot `--noreload`, expose only web 8000, include OCI CLI/age/zstd only in maintenance target, and contain no `runserver`, development secret, or production credential.
+Assert production targets copy source rather than bind mount it, use `npm ci`, install pinned Python dependencies, run as non-root UID, use Daphne/racebot `--noreload`, expose only web 8000, include OCI CLI/age/zstd only in maintenance target, and contain no `runserver`, development secret, or production credential. Build metadata and dependency locks must be architecture-neutral so one commit produces both required platforms.
 
 - [ ] **Step 2: Run and observe failure**
 
@@ -168,14 +170,17 @@ Pin base images by digest at release time. Use `COPY --chown`; no shell package 
 
 `web` runs `daphne -b 0.0.0.0 -p 8000 project.asgi:application`. `racebot` runs `python manage.py racebot --noreload`. Neither migrates automatically. A `collectstatic` mode writes the static volume as a one-shot deploy task.
 
-- [ ] **Step 5: Build ARM64 locally with BuildKit**
+- [ ] **Step 5: Build and smoke both platforms with BuildKit/QEMU**
 
 ```powershell
 docker buildx build --platform linux/arm64 --target web -t z1rr-racetime:web-test --load .
 docker buildx build --platform linux/arm64 --target racebot -t z1rr-racetime:racebot-test --load .
+docker buildx build --platform linux/amd64 --target web -t z1rr-racetime:web-amd64-test --load .
+docker buildx build --platform linux/amd64 --target racebot -t z1rr-racetime:racebot-amd64-test --load .
+.\tests\platform\smoke_images.ps1
 ```
 
-Expected: builds succeed; `docker image history --no-trunc` secret scan is clean.
+Expected: all four target/platform images start under the requested platform, report the same embedded commit, and pass health/process checks; `docker image history --no-trunc` secret scans are clean.
 
 - [ ] **Step 6: Run non-root/process tests**
 
@@ -184,8 +189,8 @@ Expected: `id -u` is 10001; web command contains Daphne; racebot contains `--nor
 - [ ] **Step 7: Commit**
 
 ```powershell
-git add Dockerfile .docker .dockerignore tests\platform\test_image_contract.py
-git commit -m "build: add immutable ARM64 racetime images"
+git add Dockerfile .docker .dockerignore tests\platform\test_image_contract.py tests\platform\smoke_images.ps1
+git commit -m "build: add immutable multi-platform racetime images"
 ```
 
 ## Task 3: Define the production Compose topology
@@ -196,7 +201,7 @@ git commit -m "build: add immutable ARM64 racetime images"
 
 - [ ] **Step 1: Write failing rendered-Compose tests**
 
-Parse `docker compose --env-file deploy/env/ci.env -f deploy/compose.production.yml config --format json`. Assert services `caddy`, `web`, `racebot`, `db`, `redis`; one-shot `migrate`, `collectstatic`; optional profile `maintenance`; a dedicated `proxy` bridge with IPAM `172.30.0.0/29`, fixed Caddy `172.30.0.2`, fixed web `172.30.0.3`, and no other members; a separate internal `data` network; no DB/Redis/web host ports; Caddy publishes public 80/443 plus exactly `127.0.0.1:8081:8081` for tunneled administration; no wildcard/non-loopback admin binding; healthchecks; restart policies; resource limits; read-only root filesystems where supported; named persistent volumes; log rotation; immutable image variables; and no `latest`/build/bind mount. Assert `RACETIME_TRUSTED_PROXY_CIDRS` is exactly `172.30.0.2/32`.
+Render once with `CADDY_STATE_VOLUME=caddy-qualification` and once with `caddy-production`. Assert services `caddy`, `web`, `racebot`, `db`, `redis`; one-shot `migrate`, `collectstatic`; optional profile `maintenance`; a dedicated `proxy` bridge with IPAM `172.30.0.0/29`, fixed Caddy `172.30.0.2`, fixed web `172.30.0.3`, and no other members; a separate internal `data` network; no DB/Redis/web host ports; Caddy publishes public 80/443 plus exactly `127.0.0.1:8081:8081` for tunneled administration; no wildcard/non-loopback admin binding; healthchecks; restart policies; resource limits; read-only root filesystems where supported; separately named qualification/production DB, Redis, media, secrets, and Caddy-state volumes; exactly the selected Caddy state volume is mounted; log rotation; immutable image variables; and no `latest`/build/bind mount. Assert `RACETIME_TRUSTED_PROXY_CIDRS` is exactly `172.30.0.2/32`.
 
 - [ ] **Step 2: Run and observe failure**
 
@@ -204,7 +209,7 @@ Expected: file absent.
 
 - [ ] **Step 3: Implement the stack**
 
-Use `RACETIME_IMAGE@RACETIME_IMAGE_DIGEST` or immutable SHA tag validated by deploy script. Pin Caddy/MariaDB/Redis by reviewed digest. Define a project-scoped `proxy` bridge with IPAM `172.30.0.0/29`; attach only Caddy at `172.30.0.2` and web at `172.30.0.3`. Attach web/racebot/DB/Redis as needed to a separate internal `data` network, with Caddy absent from it. Web receives media/static volumes; Caddy receives them read-only; database and Redis have separate data volumes. Publish container port 8081 only as host `127.0.0.1:8081`; OCI NSG/security lists expose no 8081 rule. Deployment preflight rejects overlap between `172.30.0.0/29` and host routes/existing Docker networks; any subnet/address change requires one reviewed change to Compose, trusted-proxy env, tests, and evidence—never widening trust to the subnet.
+Use `RACETIME_IMAGE@RACETIME_IMAGE_DIGEST` or immutable SHA tag validated by deploy script. Pin Caddy/MariaDB/Redis by reviewed digest. Define a project-scoped `proxy` bridge with IPAM `172.30.0.0/29`; attach only Caddy at `172.30.0.2` and web at `172.30.0.3`. Attach web/racebot/DB/Redis as needed to a separate internal `data` network, with Caddy absent from it. Web receives media/static volumes; Caddy receives them read-only; database and Redis have separate data volumes. Qualification and fresh-production state use distinct explicitly selected DB/Redis/media/secret/Caddy names; no Compose command copies or promotes qualification state. Publish container port 8081 only as host `127.0.0.1:8081`; OCI NSG/security lists expose no 8081 rule. Deployment preflight rejects overlap between `172.30.0.0/29` and host routes/existing Docker networks; any subnet/address change requires one reviewed change to Compose, trusted-proxy env, tests, and evidence—never widening trust to the subnet.
 
 - [ ] **Step 4: Add service healthchecks**
 
@@ -230,17 +235,19 @@ git commit -m "build: define racetime production stack"
 
 **Files:**
 - Create: `deploy/Caddyfile`
+- Create: `deploy/caddy/qualification.env.example`
+- Create: `deploy/caddy/production.env.example`
 - Create: `tests/platform/test_caddy_contract.py`
 
 - [ ] **Step 1: Write failing Caddy contract tests**
 
-Assert a public HTTPS host, HTTP redirect, WebSocket forwarding, overwritten forwarding headers, request body cap, static immutable caching, non-executable media headers, compression, security headers, `/healthz`, and explicit public 404 for `/admin*` and `/internal/*`. Assert Caddy listens on container `:8081` for admin/internal proxying while Compose publishes that port only to host `127.0.0.1:8081`; this is the sole SSH/Bastion tunnel target.
+Adapt both configurations to JSON and assert exactly one ACME issuer, `ca == test_ca`, staging endpoints only in qualification and production endpoints only in production, TLS-ALPN-01 enabled, HTTP-01 disabled, and no ZeroSSL issuer. Assert canonical HTTPS/WSS routing, overwritten forwarding headers, request body cap, static/media controls, HSTS matching the access phase, and a root-owned source-IP allowlist applied after the ACME handshake but before every application/static/media/OAuth/WebSocket route. Unlisted requests and public `/admin*` or `/internal/*` return generic denial without assets or WebSocket upgrade. Assert container `:8081` is the sole admin/internal proxy and Compose publishes it only to host `127.0.0.1:8081`.
 
 - [ ] **Step 2: Run and observe failure**
 
 - [ ] **Step 3: Implement routes**
 
-Public host order: admin/internal deny, static, media, application. The separate container `:8081` server accepts admin/internal paths and has no public DNS host; its reachability boundary is the loopback-only Compose publish. Use `header_up -X-Forwarded-For` then `header_up X-Forwarded-For {remote_host}` and corresponding host/proto. Do not trust a client-supplied proxy chain. For media, set attachment/nosniff where appropriate and never execute scripts.
+TLS/ACME completes before the ordinary HTTP handler. The root-owned allowlist record contains exact expiring CIDRs and is evaluated before admin denial, static, media, OAuth, application, and WebSocket routes; qualification and production issuer environments cannot fall back across endpoints. The separate container `:8081` server accepts admin/internal paths and has no public DNS host; its reachability boundary is the loopback-only Compose publish. Use `header_up -X-Forwarded-For` then `header_up X-Forwarded-For {remote_host}` and corresponding host/proto. Do not trust a client-supplied proxy chain. For media, set attachment/nosniff where appropriate and never execute scripts.
 
 - [ ] **Step 4: Validate Caddy syntax**
 
@@ -252,12 +259,12 @@ Expected: valid configuration.
 
 - [ ] **Step 5: Run HTTP/WSS integration smoke**
 
-Start the fixture stack. Assert public `/admin/` is 404, host `127.0.0.1:8081` reaches login, the admin listener is unreachable through the host's non-loopback address and has no OCI ingress rule, static/media headers are correct, and a race WebSocket upgrades/stays connected.
+Start the fixture stack in both access phases. Assert unlisted clients receive the generic denial for every route class, an allowlisted client receives static/media/application/WSS, public `/admin/` is 404, host `127.0.0.1:8081` reaches login, the admin listener is unreachable through the host's non-loopback address and has no OCI ingress rule, and the adapted issuer/challenge/HSTS assertions pass.
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-git add deploy\Caddyfile tests\platform\test_caddy_contract.py
+git add deploy\Caddyfile deploy\caddy tests\platform\test_caddy_contract.py
 git commit -m "feat: add secure racetime edge routing"
 ```
 
@@ -317,17 +324,17 @@ git commit -m "feat: block unsafe racetime deployments"
 
 - [ ] **Step 1: Write failing backup behavior tests**
 
-Use fake `docker`, `age`, `zstd`, and `oci` executables. Assert DB mode uses `mariadb-dump --single-transaction --routines --events --triggers --hex-blob`, verifies the dump in an empty disposable MariaDB, compresses, encrypts, decrypts/verifies, writes a manifest, uploads final+manifest atomically, and removes bounded plaintext scratch in `trap`. Media mode snapshots only the declared volume with safe paths.
+Use fake `docker`, `age`, `zstd`, and `oci` executables. Assert DB mode uses `mariadb-dump --single-transaction --routines --events --triggers --hex-blob`, verifies the dump in an empty disposable MariaDB, compresses, encrypts, decrypts/verifies, writes a manifest, uploads final+manifest atomically, and removes bounded plaintext scratch in `trap`. Media mode snapshots only the declared volume with safe paths. Caddy-state mode accepts only the production state volume after issuance/renewal/material change, excludes qualification state, and retains the current plus two previous verified generations.
 
 - [ ] **Step 2: Write failing retention tests**
 
-Given object timestamps, retain every recovery point for 14 days, one weekly for weeks 3–13, one monthly for months 4–12, all pinned predeploy backups inside their explicit retention, and never delete the newest verified DB/media point. Dry-run is default; malformed/unverified manifests are quarantined/alerted, not silently deleted.
+Given object timestamps, retain every DB/media recovery point for 14 days, one weekly for weeks 3–13, one monthly for months 4–12, all pinned predeploy backups inside their explicit retention, the current plus two prior verified production Caddy-state generations, and never delete the newest verified point of any type. Dry-run is default; malformed/unverified manifests are quarantined/alerted, not silently deleted.
 
 - [ ] **Step 3: Run and observe failure**
 
 - [ ] **Step 4: Implement backup/manifest**
 
-Manifest fields: schema, type, start/end UTC, release SHA, database schema/migration set, source bytes/counts, plaintext SHA-256, encrypted SHA-256/bytes, encryption recipient/key ID, verification result/time, Object Storage namespace/bucket/object, and tool versions. It contains no password/key/token.
+Manifest fields: schema, type (`database`, `media`, or `production-caddy-state`), start/end UTC, release SHA, database schema/migration set when applicable, source volume/generation identifier, source bytes/counts, plaintext SHA-256, encrypted SHA-256/bytes, encryption recipient/key ID, verification result/time, Object Storage namespace/bucket/object, and tool versions. It contains no password/key/token.
 
 - [ ] **Step 5: Implement OCI transport**
 
@@ -335,11 +342,11 @@ Use `oci os object put/get/list/delete --auth instance_principal`; bucket/prefix
 
 - [ ] **Step 6: Implement restore test**
 
-Download selected point, verify encrypted hash, decrypt/decompress, restore to isolated database/media volumes under a unique Compose project, start an isolated web stack, and verify migrations, user/category/race/leaderboard row samples and media references. It refuses production database/volume names and accepts production replacement only through a separate documented command not present in this script.
+Download selected point, verify encrypted hash, decrypt/decompress, restore to isolated database/media/Caddy-state volumes under a unique Compose project, start an isolated web stack, and verify migrations, user/category/race/leaderboard row samples, media references, and Caddy configuration/certificate state without contacting production ACME. It refuses production database/volume names and accepts production replacement only through a separate documented command not present in this script.
 
 - [ ] **Step 7: Add schedules**
 
-Database timer every six hours; media nightly; restore test quarterly with randomized delay. Services use hardening, root-owned env, bounded runtime/disk scratch, failure status file, and alert hook.
+Database timer runs every six hours; media runs nightly; production Caddy state is captured after initial issuance, renewal, or material configuration change; restore test runs quarterly with randomized delay. Services use hardening, root-owned env, bounded runtime/disk scratch, failure status file, and alert hook.
 
 - [ ] **Step 8: Run all backup/retention tests**
 
@@ -389,7 +396,7 @@ git add deploy\scripts deploy\release-manifest.schema.json tests\platform\test_d
 git commit -m "feat: orchestrate safe racetime releases"
 ```
 
-## Task 8: Define import-first OCI infrastructure
+## Task 8: Define the dedicated OCI infrastructure
 
 **Files:**
 - Create: `infra/oci/versions.tf`
@@ -408,21 +415,21 @@ git commit -m "feat: orchestrate safe racetime releases"
 
 - [ ] **Step 1: Write failing Terraform contract tests**
 
-Assert pinned OCI provider constraint, non-empty `activation_record` validation, current-resource import blocks/instructions, `prevent_destroy` on instance/boot volume/bucket, selected A1 1-OCPU/6-GB target, only 80/443 public NSG ingress, no public SSH, Bastion path, private bucket/public-access prevention/versioning, instance-principal dynamic group/IAM limited to backup prefix/monitoring, Discord notification adapter target, $1/$3 budget alarms, CPU/memory/disk/availability alarms, and sensitive outputs.
+Assert pinned OCI provider constraint, non-empty `activation_record` validation, a newly created instance named `racetime` at `VM.Standard.A1.Flex` 1 OCPU/6 GB, a new 50-GB Balanced (10 VPUs/GB) boot volume, and `prevent_destroy` on instance/boot volume/bucket. Existing Restream instances/volumes are data-only inventory and receive no create/update/delete action. Assert public TCP 443 remains open to `0.0.0.0/0` and optional `::/0` for TLS-ALPN-01, only 80/443 are public, no public SSH, Bastion path, private bucket/versioning, instance-principal IAM limited to backup prefix/monitoring, sensitive outputs, and the exact allowance/storage alarms from NFR-COST-001.
 
 - [ ] **Step 2: Run and observe failure**
 
 - [ ] **Step 3: Implement provider/variables/data sources**
 
-Require explicit tenancy/compartment/region/AD/VCN/subnet/existing instance/boot-volume IDs and dated activation record. Do not discover resources by mutable display name during apply. Remote state configuration and state encryption/access are documented; secrets never enter tfvars.
+Require explicit tenancy/compartment/region/AD/VCN/subnet/image IDs and dated activation record. Existing instance/volume IDs are optional read-only inventory inputs used only to prove the plan leaves them unchanged; never discover mutable resources by display name during apply. Remote state encryption/access is documented; secrets never enter tfvars.
 
-- [ ] **Step 4: Implement import-first compute**
+- [ ] **Step 4: Implement dedicated compute and recovery shape contract**
 
-Model `z1rr-restream-control-staging` only after importing the exact instance and attached 47-GB volume. Keep `prevent_destroy`; update shape to 1 OCPU/6 GB only in a reviewed saved plan. Preserve Restream staging data first and use separately named Compose projects. Do not create an additional retained boot volume by default.
+Create only the dedicated `racetime` A1 instance and 50-GB volume after G1. Keep `z1rr-restream-control-staging` and every retained 47-GB volume unchanged. Document `VM.Standard.E5.Flex` 1 OCPU/6 GB as the default paid amd64 recovery target without provisioning it; any production/recovery resize is operator-authorized but must update Terraform, cost forecast, and replacement load/restore evidence.
 
 - [ ] **Step 5: Implement network/storage/IAM/monitoring**
 
-Prefer NSGs over broad security-list changes. Restrict Object Storage policy to the dedicated bucket/prefix using the narrowest OCI-accepted statement; document any tenancy-scope exception. Alerts route through OCI Notifications to the authenticated/redacting adapter on `coop-relay` or approved email fallback.
+Prefer NSGs over broad security-list changes, but never source-restrict TCP 443 at OCI or the host firewall: the pre-G3 source filter lives only in Caddy after the TLS handshake. Restrict Object Storage policy to the dedicated bucket/prefix using the narrowest OCI-accepted statement; document any tenancy-scope exception. Alerts route through OCI Notifications to the authenticated/redacting adapter on `coop-relay` or email fallback.
 
 - [ ] **Step 6: Validate without applying at G0**
 
@@ -436,7 +443,7 @@ Expected: PASS. `terraform plan` without `activation_record` fails before propos
 
 - [ ] **Step 7: Write exact import/plan/apply/rollback runbook**
 
-README includes read-only inventory, backup of staging data, import commands, `plan -out`, JSON plan review for create/update/delete/replace, two-person approval, apply, post-apply inventory/cost check, and state recovery. Any delete/replace means stop unless explicitly intended and approved.
+README includes read-only existing-resource inventory, `plan -out`, JSON plan review for create/update/delete/replace, primary-operator review/record, apply, post-apply inventory/cost check, state recovery, and verified OCI/GitHub/registry/DNS account-recovery route. Expected actions are only the dedicated instance/volume/supporting resources; any action against existing Restream resources stops this plan and requires a separate migration decision.
 
 - [ ] **Step 8: Commit**
 
@@ -457,7 +464,7 @@ git commit -m "infra: define guarded OCI racetime platform"
 
 - [ ] **Step 1: Write failing probe/alert tests**
 
-Cover HTTPS, WSS handshake, public admin denial, internal readiness, container restart count, disk/inode/database growth, backup freshness/status, TLS expiry, OAuth error rate, and OCI/billing normalized events. Assert dedupe, recovery notices, bounded retries, redaction, webhook host allowlist, and secret canary absence.
+Cover HTTPS, WSS handshake, public admin denial, internal readiness, container restart count, disk/inode/database growth, backup freshness/status including production Caddy state, TLS expiry, OAuth error rate, tenancy A1 OCPU-hour usage/slope, Object Storage byte/request entitlements, retained-volume cost, and billing normalized events. Assert dedupe, recovery notices, bounded retries, redaction, webhook host allowlist, and secret canary absence.
 
 - [ ] **Step 2: Run and observe failure**
 
@@ -467,7 +474,7 @@ Probe returns stable status codes/metrics, never response bodies from OAuth/inte
 
 - [ ] **Step 4: Document thresholds**
 
-Set actionable defaults: HTTPS/WSS consecutive failures, restart loops, memory/disk/inode headroom, DB growth trend, backup age > 7 hours DB/> 26 hours media, TLS < 21 days, auth abuse, and OCI $1/$3. Avoid per-user PII in alerts.
+Set actionable service thresholds plus the exact cost model: below a 2,650-hour active A1 forecast, warn when projected month-end exceeds forecast by max(100 hours, 5%) or slope crosses that buffer within 72 hours; at or above 2,650, record expected utilization/overage and suppress that relative warning; always escalate at 2,900 actual/projected hours. Direct A1 alerts to inspect Restream duty-cycling first. Monitor retained boot-volume cost independently from the $3.61 baseline at +$1/+$3 and Object Storage at 75%/90% of verified byte/request entitlements. Include HTTPS/WSS consecutive failures, restart loops, memory/disk/inode headroom, DB growth, backup age >7 hours DB/>26 hours media, Caddy-state generation, TLS <21 days, and auth abuse. Avoid per-user PII.
 
 - [ ] **Step 5: Run fake-sink alert tests and commit**
 
@@ -485,7 +492,7 @@ git commit -m "feat: monitor and alert on racetime health"
 
 - [ ] **Step 1: Write failing workflow-policy tests**
 
-Assert read-only default permissions, pinned action commit SHAs, PR test/build without push, ARM64 release build, digest output, unit/integration gate, Trivy high/critical threshold, Syft SPDX SBOM, provenance attestation, source commit/license link, immutable SHA tag, protected `production` environment, and no `latest` deployment.
+Assert read-only default permissions, pinned action commit SHAs, PR test/build without push, same-commit linux/arm64 and linux/amd64 manifest entries, per-platform smoke/digest output, unit/integration gate, Trivy high/critical threshold on both variants, Syft SPDX SBOM, provenance attestation, source commit/license link, immutable SHA tag, protected `production` environment, and no `latest` deployment.
 
 - [ ] **Step 2: Run and observe failure**
 
@@ -495,7 +502,7 @@ Build all targets with cache, run image contract/health tests, scan, and upload 
 
 - [ ] **Step 4: Implement release workflow**
 
-On signed version tag/manual protected dispatch, rebuild from commit, publish digest-tagged images, SBOM/provenance/release manifest, and attach corresponding-source metadata. Deployment remains a separate manually approved operation.
+On signed version tag/manual protected dispatch, rebuild both platforms from one commit, publish one digest-addressed multi-platform manifest plus per-platform SBOM/provenance/release identities, and attach corresponding-source metadata. Deployment remains a separate explicit operator action.
 
 - [ ] **Step 5: Run workflow tests and local Actions lint**
 
@@ -521,9 +528,9 @@ git commit -m "ci: build attest and scan racetime images"
 
 Expected: PASS.
 
-- [ ] **Step 2: Build and start the isolated ARM64-compatible stack**
+- [ ] **Step 2: Build/smoke both architectures and start the isolated ARM64-compatible stack**
 
-Use local integration hostname/ports and fixture env. Run migrations/bootstrap/static, HTTP/WSS, racebot, DB, Redis, media write/read, and controlled restart smoke.
+Build and smoke same-commit linux/arm64 and linux/amd64 web/racebot images. Then use local integration hostname/ports, restricted-phase fixture env, and the ARM64-compatible stack to run migrations/bootstrap/static, HTTP/WSS, racebot, DB, Redis, media write/read, and controlled restart smoke.
 
 - [ ] **Step 3: Rehearse backup/decrypt/restore and deploy/rollback locally**
 
@@ -544,4 +551,4 @@ git add docs\evidence
 git commit -m "docs: qualify racetime platform release candidate"
 ```
 
-**G0 stop line:** Do not run `terraform apply`, reconfigure the selected OCI VM, create DNS, create production apps/secrets, publish images as production, or start the public service. Those actions begin only in the operations plan after G1.
+**G0 stop line:** Do not run `terraform apply`, create the dedicated OCI resources, create DNS or external apps/secrets, publish images as production, or start the public service. Those actions begin only in the operations plan after G1.
