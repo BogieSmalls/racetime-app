@@ -273,25 +273,21 @@ and the Council records the revised decision.
 A continuously running 1-OCPU/6-GB VM consumes 744 OCPU-hours and 4,464
 GB-hours in a 31-day month. Under 3,000/18,000 it leaves 2,256 OCPU-hours and
 13,536 GB-hours: at most 188 aggregate hours for a 12-OCPU/16-GB Restream
-encoder, with OCPU-hours binding before memory. A 2-OCPU/6-GB RaceTime resize
-still consumes 4,464 GB-hours but consumes 1,488 OCPU-hours, leaving 1,512, or
-126 aggregate encoder-hours.
+encoder, with OCPU-hours binding before memory.
 
 The pessimistic 1,500/9,000 case leaves 756 OCPU-hours and 4,536 GB-hours with
-the 1-OCPU deployment: 63 aggregate encoder-hours. A 2-OCPU/6-GB RaceTime
-deployment leaves only 12 OCPU-hours and 4,536 GB-hours: one aggregate
-12-OCPU encoder-hour. If the performance gate requires that resize under the
-lower entitlement, G2 cannot complete until the Council approves a Restream
-capacity or rehosting decision. At current A1 list rates of $0.01/OCPU-hour and
-$0.0015/GB-hour, a fully unallowanced 31-day compute line is approximately
-$14.14 for 1 OCPU/6 GB or $21.58 for 2 OCPUs/6 GB; these are bounded repricing
-cases, not the expected budget.
+the locked deployment: 63 aggregate encoder-hours. At current A1 list rates of
+$0.01/OCPU-hour and $0.0015/GB-hour, a fully unallowanced 31-day compute line is
+approximately $14.14; this is a bounded repricing case, not the expected budget.
 
-The 1-OCPU/6-GB allocation remains the initial target. Run the full load gate
-early in G2, before the fresh-production transition. Failure requires a
-graceful stop and in-place flex-shape resize to 2 OCPUs/6 GB, which reboots the
-VM but retains its boot volume and network attachments, followed by a complete
-retest. G3 cannot waive this gate.
+The 1-OCPU/6-GB allocation is locked for launch. Run the full load gate early in
+G2, before the fresh-production transition, using the greater of twice the
+largest expected TTP-room load or the realistic aggregate peak across four
+simultaneous race rooms. Failure blocks G2/G3
+and requires profiling, optimization, and a complete retest on the same shape.
+It does not authorize a resize or launch waiver. Any future CPU increase must
+return to the Council as a new architecture decision with revised RaceTime
+cost, Restream headroom, and amd64 recovery evidence.
 
 After provisioning, G1 evidence records an expected A1 compute line of exactly
 $0.00, the approximately $3.61 retained-storage forecast, and the resulting
@@ -313,7 +309,6 @@ References:
 - <https://www.oracle.com/cloud/compute/arm/>
 - <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resource-billing-stopped-instances.htm>
 - <https://www.oracle.com/cloud/free/faq/>
-- <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resizinginstances.htm>
 
 ## 9. Site identity, public accounts, and governance
 
@@ -782,18 +777,16 @@ The disaster-recovery package consists of:
 - a rehearsed rebuild/restore runbook.
 
 If A1 capacity is unavailable, the primary paid fallback is
-`VM.Standard.E5.Flex` using the release's `linux/amd64` variant, 6 GB RAM, and
-the same OCPU count that passed the production load gate: initially 1 OCPU, or
-2 OCPUs if G2 required the A1 resize. At G1, a capacity report and
-image-compatibility check must verify that shape in the home region; if
-unavailable, operators record an equivalent paid amd64 shape before G2 can
-complete. Before G3, the selected amd64 shape must pass the same load/headroom
-gate at the qualified OCPU count and restore within four hours. A quarterly
+`VM.Standard.E5.Flex` at 1 OCPU/6 GB using the release's `linux/amd64` variant.
+At G1, a capacity report and image-compatibility check must verify that shape in
+the home region; if unavailable, operators record an equivalent paid amd64
+shape at 1 OCPU/6 GB before G2 can complete. Before G3, the selected amd64 shape
+must pass the same load/headroom gate and restore within four hours. A quarterly
 isolated recovery exercise restores the amd64 image and encrypted production
 data/Caddy state and proves the target four-hour RTO. Any different temporary
-performance target requires a separately recorded Council exception; it is not
-implied by invoking DR. Cost alerts remain active, and the service can move back
-to A1 after capacity returns.
+CPU count or performance target requires a new Council-approved architecture
+decision; it is not implied by invoking DR. Cost alerts remain active, and the
+service can move back to A1 after capacity returns.
 
 ## 15. Monitoring, alerting, and logs
 
@@ -938,7 +931,7 @@ Verify:
 - full restore to an empty isolated ARM64 environment and quarterly restore to
   the recorded paid amd64 fallback within the target RTO;
 - the recorded paid amd64 fallback passes the same load/headroom gate at the
-  same qualified OCPU count and 6 GB RAM before G3;
+  fixed 1-OCPU/6-GB configuration before G3;
 - staging-ACME qualification, test-only trust, adapted-config issuer pinning,
   a hermetic no-cross-environment fallback test, a bounded transition deadline,
   TLS-ALPN-only validation, HTTP-01 denial, one late-G2 production issuance,
@@ -947,14 +940,14 @@ Verify:
 - OCI/host/service/billing alerts reach operations Discord, and launch/rollback
   public communications meet the independent-path timing and cadence contract;
 - the paid-tenancy entitlement record resolves the official-source discrepancy;
-  expected A1 compute is $0.00, any nonzero compute line alerts, and 1-OCPU plus
-  conditional 2-OCPU Restream headroom is recorded under both entitlement cases;
+  expected A1 compute is $0.00, any nonzero compute line alerts, and locked
+  1-OCPU Restream headroom is recorded under both entitlement cases;
 - OCI/host ingress leaves public TCP 443 available for TLS-ALPN-01 while Caddy's
   post-handshake source-IP policy denies unapproved HTTP and WebSocket traffic;
 - logs omit credentials and rotate before filling disk; and
-- early-G2 concurrent race/chat/reconnect load at least twice the largest
-  expected TTP room with required headroom on 1 OCPU/6 GB, or an in-place
-  2-OCPU/6-GB resize followed by the complete gate again.
+- the greater of twice the largest expected TTP-room browser/chat/reconnect load
+  or the realistic aggregate peak across four simultaneous rooms passes early
+  G2 with the required headroom on the locked 1-OCPU/6-GB shape.
 
 ### 18.4 Launch definition
 

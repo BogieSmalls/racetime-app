@@ -98,7 +98,7 @@ This register is the definition of deliverables. An artifact is not complete bec
 | OPS-003 | G0 | `docs/runbooks/identity-recovery.md`, `access-review.md` | Account recovery and least-privilege review | Sample transfer audit and quarterly checklist review |
 | OPS-004 | G0 | `docs/runbooks/incidents.md`, `status-comms.md` | Severity, escalation, Discord/status templates | Tabletop for DB, Discord, racebot, disk, and provider failures |
 | OPS-005 | G0 | `deploy/monitoring/` | Health probes, metrics/log rules, redaction, Discord adapter contract | Synthetic alert reaches test sink; secret canaries never appear in logs |
-| OPS-006 | G2 | `docs/evidence/<date>-load.json` | Twice-expected-room load evidence manifest | Thresholds and 20% CPU/30% memory headroom met or capacity revised |
+| OPS-006 | G2 | `docs/evidence/<date>-load.json` | Locked 1-OCPU four-room/2x load evidence manifest | Thresholds and 20% CPU/30% memory headroom pass on 1 OCPU/6 GB; failure blocks G2 for profiling, optimization, and retest rather than resize |
 | OPS-007 | G2 | `docs/evidence/<date>-restore.json` | Isolated full restore evidence manifest | Accounts/category/race/media samples verified; measured RPO/RTO recorded |
 | OPS-008 | G2 | `docs/evidence/<date>-dress-rehearsal.json` | Cross-system private-race evidence manifest | TTPBot → Discord → browser/LiveSplit → Restream → recorded leaderboard succeeds |
 | OPS-009 | G3 | private secret/access inventory | Current operators, owners, clients, webhooks, policies, recovery copies | Primary and backup operator sign-off; stale access removed |

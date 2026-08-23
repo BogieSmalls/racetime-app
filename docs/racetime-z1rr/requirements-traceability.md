@@ -82,7 +82,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | NFR-SEC-004 distributed abuse controls | Core Task 5A; Platform Task 4 | APP-005, PLT-003 | route inventory, exact policy, concurrent real-Redis, unavailable-limiter tests | G0/G2 | Planned |
 | NFR-REL-001 migration/rollback safety | Core Task 2; Platform Task 7; Operations Task 1 | APP-003, PLT-007, OPS-001 | migration round trip, rollback-class tests, and runbook contract/tabletop | G0/G2 | Planned |
 | NFR-REL-002 Redis non-authority | Operations Tasks 6–7 | APP-011, OPS-008 | Redis restart race lifecycle evidence | G2 | Planned |
-| NFR-PERF-001 2x load/headroom | Operations Task 7 | OPS-006 | k6 plus resource/correctness report | G2 | Planned |
+| NFR-PERF-001 locked 1-OCPU four-room/2x load/headroom | Operations Task 7 | OPS-006 | k6 plus resource/correctness report; failure blocks G2 for optimize/retest, not resize | G2 | Planned |
 | NFR-PRIV-001 data minimization/disclosure | Core Tasks 2–5, 10 | APP-003–APP-005, APP-009 | model/session/log/content tests | G0/G2 | Planned |
 | NFR-OSS-001 GPL/source attribution | Source plan; Core Task 10; Platform Task 10 | SRC-001–006, APP-009, PLT-005 | attribution/source-link/archive tests | G0/G3 | Planned |
 | NFR-TEST-001 substantive CI | Core Tasks 1, 11; all subsystem RC tasks | APP-001, APP-011 | deterministic test settings plus separate non-zero SQLite and MariaDB/Redis jobs and ARM64 CI | G0 | Planned |
