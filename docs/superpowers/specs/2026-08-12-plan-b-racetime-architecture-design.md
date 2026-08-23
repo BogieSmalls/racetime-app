@@ -257,7 +257,8 @@ approved migration moves that work elsewhere. RaceTime production does not
 share a host, Compose project, networks, volumes, or secrets with Restream
 staging.
 
-The Council accepts the intentional cost of the new boot volume. At current
+The primary technical operator accepts the intentional cost of the new boot
+volume. At current
 published US list prices of $0.0255 per GB-month for storage plus $0.017 per
 GB-month for Balanced performance, 50 GB costs $2.125, approximately $2.13 per
 month. Read-only inventory on 2026-08-23 verified that all five retained boot
@@ -267,22 +268,20 @@ the new volume raises retained storage to 285 GB, 85 GB above the documented
 approximately $3.61 per month. OCI Cost Analysis remains billing authority.
 
 The accepted paid storage overage requires this deployment to use a paid OCI
-tenancy. Oracle's current official sources are inconsistent: the price list
-explicitly gives each paid tenancy 3,000 A1 OCPU-hours and 18,000 GB-hours per
-month, while the Always Free resource page says all accounts receive 1,500/9,000
-and that paid accounts retain Always Free resources. The G1 preflight records
-the account's billing status, Limits, Quotas and Usage output, Cost Analysis,
-and current-month A1 usage before Terraform apply. The 3,000/18,000 published
-price-list allowance is the planning case, but the tenancy record is operational
-authority. A mismatch requires a documented reprice and refreshed Restream
-headroom forecast before apply; it does not require a second Council approval
-for routine metered costs already authorized by Plan B.
+tenancy, which the operator confirmed on 2026-08-23. Oracle's paid-tenancy price
+list and A1-specific Compute documentation both state that 3,000 A1 OCPU-hours
+and 18,000 GB-hours are free monthly. The older general Always Free page remains
+inconsistent at 1,500/9,000; the product-specific and paid-tenancy sources are
+the verified planning basis. G1 confirms that account status and current terms
+have not changed and records Limits, Quotas and Usage, Cost Analysis, and
+current-month A1 usage before Terraform apply. It does not re-adjudicate the
+entitlement.
 
 RaceTime is the only A1 workload in this tenancy that cannot sleep. A
 continuously running 1-OCPU/6-GB VM consumes 744 OCPU-hours and 4,464 GB-hours
 in a 31-day month: 24.8% of the 3,000-hour planning allowance. A 2-OCPU
-deployment would consume 1,488 hours, 49.6%, before Restream runs. The hard
-1-OCPU ceiling therefore keeps the non-elastic workload at roughly one quarter
+deployment would consume 1,488 hours, 49.6%, before Restream runs. The
+1-OCPU default therefore keeps the non-elastic workload at roughly one quarter
 of the shared allowance and leaves 2,256 OCPU-hours for the duty-cycled,
 revenue-generating Restream workload before planning-case compute billing.
 
@@ -298,20 +297,27 @@ tournament growth and its resulting metered cost are accepted operating
 expenses supported by Restream advertising/subscription revenue, not a launch
 or Council-approval gate.
 
-The 1-OCPU/6-GB allocation is the hard production and recovery maximum under
-this architecture. Run the full load gate early in G2, before the
+The 1-OCPU/6-GB allocation is the documented production and recovery default.
+Run the full load gate early in G2, before the
 fresh-production transition, using the greater of twice the largest expected
 TTP-room load or the realistic aggregate peak across four simultaneous race
-rooms. Failure blocks G2/G3 and requires profiling, optimization, and a complete
-retest on the same shape; it never authorizes a resize or launch waiver.
+rooms. If the default misses, the primary technical operator chooses
+optimization or resize and records which and why. A resize updates Terraform,
+the combined A1/Restream forecast, and the paid recovery target. G2/G3 remain
+blocked until the complete load and recovery gates pass on the recorded shapes;
+there is no performance waiver.
 
-After provisioning, record the 744-hour RaceTime floor, dated Restream forecast,
-and expected A1 compute. Monitor the tenancy-wide A1 meter and usage slope,
-warning at 2,600 OCPU-hours and escalating at 2,900. Because OCI cannot
+At the default shape, record the 744-hour RaceTime floor, dated combined A1
+forecast, and expected compute. The allowance-utilization warning is not a
+spend alert: it fires when projected month-end A1 OCPU-hours exceed the active
+forecast by the greater of 100 hours or 5%, or when the observed slope projects
+crossing that buffer within 72 hours. Utilization escalates at 2,900 actual or
+projected hours, before billing begins at 3,000. Because OCI cannot
 attribute a shared-allowance overage to one service, first inspect Restream
-sleep automation, encoders, and control planes. A planned tournament window
-may replace the normal forecast with a dated operator note; threshold crossings
-require diagnosis, reconciliation, and reforecasting, not Council approval.
+sleep automation, encoders, and control planes. The operator may replace the
+normal forecast with a dated tournament forecast. Threshold crossings require
+diagnosis, reconciliation, and reforecasting, not approval.
+
 Monitor retained-volume cost separately: approximately $3.61 is the baseline,
 baseline plus $1 warns, and baseline plus $3 escalates. Reconcile the first
 complete billing cycle against entitlement and forecast.
@@ -802,11 +808,12 @@ If A1 capacity is unavailable, the primary paid fallback is
 At G1, a capacity report and image-compatibility check must verify that shape in
 the home region; if unavailable, operators record an equivalent paid amd64
 shape at 1 OCPU/6 GB before G2 can complete. Before G3, the selected amd64 shape
-must pass the same load/headroom gate and restore within four hours. A quarterly
+must match the operator-recorded recovery target, pass the same load/headroom
+gate, and restore within four hours. A quarterly
 isolated recovery exercise restores the amd64 image and encrypted production
-data/Caddy state and proves the target four-hour RTO. Any different temporary
-CPU count is outside this architecture; invoking DR never authorizes more than
-1 OCPU. Cost alerts remain active, and the service can move back to A1 after
+data/Caddy state and proves the target four-hour RTO. The primary technical
+operator records any shape change and resulting cost forecast. Cost alerts
+remain active, and the service can move back to A1 after
 capacity returns.
 
 ## 15. Monitoring, alerting, and logs
@@ -953,7 +960,7 @@ Verify:
 - full restore to an empty isolated ARM64 environment and quarterly restore to
   the recorded paid amd64 fallback within the target RTO;
 - the recorded paid amd64 fallback passes the same load/headroom gate at the
-  fixed 1-OCPU/6-GB configuration before G3;
+  operator-recorded recovery shape before G3;
 - staging-ACME qualification, test-only trust, adapted-config issuer pinning,
   a hermetic no-cross-environment fallback test, a bounded transition deadline,
   TLS-ALPN-only validation, HTTP-01 denial, one late-G2 production issuance,
@@ -961,11 +968,12 @@ Verify:
   WebSocket proxy behavior;
 - OCI/host/service/billing alerts reach operations Discord, and launch/rollback
   public communications meet the independent-path timing and cadence contract;
-- the paid-tenancy entitlement record resolves the official-source discrepancy;
-  the 744-hour RaceTime floor and dated Restream forecast are recorded; A1
-  consumption/slope alerts at 2,600/2,900 hours and separate retained-volume
-  and Object Storage alarms reach operators; and routine overage is reconciled
-  without being treated as a launch or CPU-resize authorization gate;
+- the verified 3,000/18,000 paid-tenancy entitlement is confirmed at G1; the
+  default 744-hour RaceTime floor and dated combined A1 forecast are recorded;
+  forecast-relative utilization/slope warnings, the 2,900-hour escalation, and
+  separate retained-volume and Object Storage alarms reach operators; routine
+  overage and operator-recorded shape changes are reconciled without Council
+  approval;
 - OCI/host ingress leaves public TCP 443 available for TLS-ALPN-01 while Caddy's
   post-handshake source-IP policy denies unapproved HTTP and WebSocket traffic;
 - logs omit credentials and rotate before filling disk; and

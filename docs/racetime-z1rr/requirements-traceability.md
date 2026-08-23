@@ -70,7 +70,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | FR-OPS-004 RPO/RTO | Operations Task 7 | OPS-007 | measured isolated restore report | G2 | Planned |
 | FR-OPS-005 monitoring coverage | Platform Task 9 | OPS-005 | synthetic probe/rule/alert suite | G0/G2 | Planned |
 | FR-OPS-006 Discord/email alerts | Platform Task 9; Operations Task 4 | OPS-005 | authenticated redacted fake/live test sink | G2 | Planned |
-| FR-OPS-007 empty-host rebuild | Platform Tasks 2, 6, 8; Operations Task 7 | PLT-001, PLT-005, PLT-006, PLT-008, OPS-002, OPS-006, OPS-007 | same-commit ARM64/amd64 manifest, dual-architecture 1-OCPU load evidence, and empty-host amd64 restore/RTO evidence | G2 | Planned |
+| FR-OPS-007 empty-host rebuild | Platform Tasks 2, 6, 8; Operations Task 7 | PLT-001, PLT-005, PLT-006, PLT-008, OPS-002, OPS-006, OPS-007 | same-commit ARM64/amd64 manifest, dual-architecture load evidence at recorded shapes, and empty-host amd64 restore/RTO evidence | G2 | Planned |
 
 ## Non-functional requirements
 
@@ -82,11 +82,11 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | NFR-SEC-004 distributed abuse controls | Core Task 5A; Platform Task 4 | APP-005, PLT-003 | route inventory, exact policy, concurrent real-Redis, unavailable-limiter tests | G0/G2 | Planned |
 | NFR-REL-001 migration/rollback safety | Core Task 2; Platform Task 7; Operations Task 1 | APP-003, PLT-007, OPS-001 | migration round trip, rollback-class tests, and runbook contract/tabletop | G0/G2 | Planned |
 | NFR-REL-002 Redis non-authority | Operations Tasks 6–7 | APP-011, OPS-008 | Redis restart race lifecycle evidence | G2 | Planned |
-| NFR-PERF-001 locked 1-OCPU four-room/2x load/headroom | Operations Task 7 | OPS-006 | Same workload and k6 resource/correctness report pass on ARM64 production and amd64 recovery at 1 OCPU/6 GB; failure blocks G2 for optimize/retest, not resize | G2 | Planned |
+| NFR-PERF-001 default-shape four-room/2x load/headroom | Operations Task 7 | OPS-006 | Same workload and k6 resource/correctness report pass on recorded ARM64 production and amd64 recovery shapes; failure records operator optimization-or-resize choice and blocks G2 until full retest passes | G2 | Planned |
 | NFR-PRIV-001 data minimization/disclosure | Core Tasks 2–5, 10 | APP-003–APP-005, APP-009 | model/session/log/content tests | G0/G2 | Planned |
 | NFR-OSS-001 GPL/source attribution | Source plan; Core Task 10; Platform Task 10 | SRC-001–006, APP-009, PLT-005 | attribution/source-link/archive tests | G0/G3 | Planned |
 | NFR-TEST-001 substantive CI | Core Tasks 1, 11; Platform Task 2; all subsystem RC tasks | APP-001, APP-011, PLT-001, PLT-005 | deterministic test settings, separate non-zero SQLite and MariaDB/Redis jobs, and same-commit `linux/arm64` plus `linux/amd64` build/smoke artifacts | G0 | Planned |
-| NFR-COST-001 fixed-VM/resource-consumption controls | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-005, OPS-011 | Exactly 1-OCPU/6-GB A1 and 50-GB volume plan/inventory; dated Restream forecast; 2,600/2,900-hour A1 usage/slope alerts; separate retained-volume and Object Storage alarms; standing-overage authorization and reconciliation evidence | G1/G4 | Planned |
+| NFR-COST-001 operator-owned resource/consumption controls | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-005, OPS-011 | Initial 1-OCPU/6-GB A1 and 50-GB volume plan/inventory; verified entitlement and dated combined forecast; forecast-relative/slope warning and 2,900-hour escalation; separate storage alarms; standing-overage and recorded-shape-change evidence | G1/G4 | Planned |
 
 ## Architecture coverage not represented by a single requirement ID
 

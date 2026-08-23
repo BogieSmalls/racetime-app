@@ -22,8 +22,8 @@
 
 - [ ] Council activation record states the reason, date, target launch window, primary operator, backup operator, and rollback authority.
 - [ ] OCI inventory, actual A1 usage, and the dated Restream forecast are refreshed; July/August measurements and the next three-to-four-month forecast are reconciled to OCI evidence.
-- [ ] Terraform plan creates only the dedicated `racetime` A1 at exactly 1 OCPU/6 GB and one new 50-GB Balanced boot volume; `z1rr-restream-control-staging` and existing retained volumes remain unchanged.
-- [ ] Terraform plan has human review; destructive replacement, CPU above 1 OCPU, and unexpected retained resources are absent.
+- [ ] Terraform plan creates only the dedicated `racetime` A1 initially at 1 OCPU/6 GB and one new 50-GB Balanced boot volume; `z1rr-restream-control-staging` and existing retained volumes remain unchanged.
+- [ ] Terraform plan has human review; destructive replacement and unexpected retained resources are absent.
 - [ ] Public IP, NSG/Bastion, private backup bucket, dynamic group/policy, notifications, and alarms exist and match reviewed definitions.
 - [ ] TCP 443 is open to `0.0.0.0/0` (and `::/0` if enabled) for TLS-ALPN-01; source-IP restriction exists only in Caddy's post-handshake HTTP handler.
 - [ ] Canonical `racetime.z1rracing.com` DNS resolves to the reserved RaceTime public IP before either staging or production ACME issuance; launch requires no later DNS promotion.
@@ -31,8 +31,8 @@
 - [ ] Distinct qualification/production Discord, Twitch, TTPBot, LiveSplit, alert, and OAuth credentials use exact reviewed redirect URIs and scopes.
 - [ ] Root-owned production secrets, backup key, operator recovery copy, and two-person access are verified.
 - [ ] No secret appears in Git history, CI logs, image layers, Compose rendering, or evidence.
-- [ ] Cost evidence records the 744-hour RaceTime floor, current Restream forecast, 2,600/2,900-hour A1 usage/slope alarms, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms.
-- [ ] Operators understand that routine metered overage is pre-authorized and requires diagnosis/reforecasting, while no cost alert authorizes RaceTime above 1 OCPU.
+- [ ] Cost evidence confirms the 3,000/18,000 entitlement and records the default 744-hour RaceTime floor, dated combined forecast, forecast-relative/slope utilization warning, 2,900-hour escalation, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms.
+- [ ] Routine metered overage and technically justified shape changes are operator-authorized; each requires a dated reason, updated forecast, and replacement load/recovery evidence.
 
 **G1 decision:** [ ] Pass [ ] Hold
 **Evidence:**
@@ -74,10 +74,10 @@
 - [ ] Route inventory covers every public mutation/lookup; authentication, race creation, OAuth, profile/Twitch, search, and autocomplete limits pass concurrent real-Redis and unavailable-limiter tests.
 - [ ] The throttle HMAC key is independently generated and differs from the Django key; only fixed Caddy `172.30.0.2/32` is trusted, the declared proxy subnet has no overlap, proxied clients retain separate buckets, and spoofed/multi-value forwarding headers fail safely.
 - [ ] Six-hour DB and nightly media backups plus production Caddy state encrypt, decrypt-verify, upload, retain, prune, and alert correctly.
-- [ ] Isolated ARM64 and paid amd64 restores verify accounts, category configuration, a completed race, leaderboard, media, and production Caddy state; amd64 meets the four-hour RTO at exactly 1 OCPU/6 GB.
-- [ ] The greater of twice the largest expected TTP-room load or the realistic aggregate peak across four simultaneous rooms meets 20% CPU/30% memory headroom on ARM64 and amd64 at exactly 1 OCPU/6 GB.
-- [ ] A failed load gate blocks G2/G3 for profiling, optimization, and complete retest; no resize or waiver path exists.
-- [ ] Service, host, backup, TLS, auth-abuse, OCI allowance, A1 usage/slope, Restream duty-cycle, retained-volume, Object Storage, and billing test alerts reach the private operations channel/email fallback.
+- [ ] Isolated ARM64 and paid amd64 restores verify accounts, category configuration, a completed race, leaderboard, media, and production Caddy state; amd64 meets the four-hour RTO at the recorded recovery shape.
+- [ ] The greater of twice the largest expected TTP-room load or the realistic aggregate peak across four simultaneous rooms meets 20% CPU/30% memory headroom on the recorded ARM64 and amd64 shapes.
+- [ ] A failed default-shape load gate records the operator's optimize-or-resize decision and blocks G2/G3 until Terraform, cost forecast, load evidence, and recovery evidence are updated and pass; no waiver path exists.
+- [ ] Service, host, backup, TLS, auth-abuse, OCI allowance, forecast-relative A1 utilization/slope, 2,900-hour utilization, Restream duty-cycle, retained-volume, Object Storage, and billing test alerts reach the private operations channel/email fallback.
 - [ ] Log canaries prove no codes, tokens, cookies, secrets, synthetic emails, or unnecessary Discord IDs are emitted.
 
 ### Fresh-production finalization
@@ -151,7 +151,7 @@
 - [ ] Backup/restore proof is current and the first weekly retention point exists.
 - [ ] Access and OAuth-client review removes temporary launch access.
 - [ ] Actual OCI A1 usage/slope, retained-volume cost, and Object Storage consumption are reconciled to the dated forecast; anomalies have an owner and routine authorized overage is recorded without a new approval gate.
-- [ ] RaceTime production and amd64 recovery definitions remain capped at exactly 1 OCPU/6 GB.
+- [ ] RaceTime production and amd64 recovery definitions match the latest dated operator resource record and verified load/recovery evidence.
 - [ ] Findings are assigned as P2/P3 backlog items with owner/date.
 - [ ] Council approves normal operations and may authorize the separate legacy archive design.
 
