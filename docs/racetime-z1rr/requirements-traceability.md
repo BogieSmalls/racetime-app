@@ -56,7 +56,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | Requirement | Plan/task | Artifacts | Primary automated verification | Gate | Status |
 | --- | --- | --- | --- | --- | --- |
 | FR-LS-001 side-by-side identity | LiveSplit Tasks 2, 7–8 | LS-002, LS-006 | reflection/load/settings/credential collision smoke | G0/G2 | Planned |
-| FR-LS-002 race/chat/action lifecycle | LiveSplit Tasks 3, 6, 8 | LS-005, LS-006, LS-008 | mock server plus staging timer lifecycle | G0/G2 | Planned |
+| FR-LS-002 race/chat/action lifecycle | LiveSplit Tasks 3, 6, 8 | LS-005, LS-006, LS-008 | mock server plus late-G2 restricted-production timer lifecycle after production issuance, using ordinary certificate validation with no override/bypass | G0/G2 | Planned |
 | FR-LS-003 correct public PKCE | Core Task 8; LiveSplit Tasks 4–5 | APP-010, LS-003, LS-004 | RFC vector/adversarial server+client E2E | G0/G2 | Planned |
 | FR-LS-004 reproducible signed release | LiveSplit Tasks 1, 9–10 | LS-001, LS-007 | clean-room, double build, SBOM, signed hash/update tests | G0/G3 | Planned |
 
@@ -70,7 +70,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | FR-OPS-004 RPO/RTO | Operations Task 7 | OPS-007 | measured isolated restore report | G2 | Planned |
 | FR-OPS-005 monitoring coverage | Platform Task 9 | OPS-005 | synthetic probe/rule/alert suite | G0/G2 | Planned |
 | FR-OPS-006 Discord/email alerts | Platform Task 9; Operations Task 4 | OPS-005 | authenticated redacted fake/live test sink | G2 | Planned |
-| FR-OPS-007 empty-host rebuild | Platform Tasks 6, 8; Operations Task 7 | PLT-006, PLT-008, OPS-002, OPS-007 | empty-host restore/rebuild evidence | G2 | Planned |
+| FR-OPS-007 empty-host rebuild | Platform Tasks 2, 6, 8; Operations Task 7 | PLT-001, PLT-005, PLT-006, PLT-008, OPS-002, OPS-006, OPS-007 | same-commit ARM64/amd64 manifest, dual-architecture 1-OCPU load evidence, and empty-host amd64 restore/RTO evidence | G2 | Planned |
 
 ## Non-functional requirements
 
@@ -82,11 +82,11 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | NFR-SEC-004 distributed abuse controls | Core Task 5A; Platform Task 4 | APP-005, PLT-003 | route inventory, exact policy, concurrent real-Redis, unavailable-limiter tests | G0/G2 | Planned |
 | NFR-REL-001 migration/rollback safety | Core Task 2; Platform Task 7; Operations Task 1 | APP-003, PLT-007, OPS-001 | migration round trip, rollback-class tests, and runbook contract/tabletop | G0/G2 | Planned |
 | NFR-REL-002 Redis non-authority | Operations Tasks 6–7 | APP-011, OPS-008 | Redis restart race lifecycle evidence | G2 | Planned |
-| NFR-PERF-001 locked 1-OCPU four-room/2x load/headroom | Operations Task 7 | OPS-006 | k6 plus resource/correctness report; failure blocks G2 for optimize/retest, not resize | G2 | Planned |
+| NFR-PERF-001 locked 1-OCPU four-room/2x load/headroom | Operations Task 7 | OPS-006 | Same workload and k6 resource/correctness report pass on ARM64 production and amd64 recovery at 1 OCPU/6 GB; failure blocks G2 for optimize/retest, not resize | G2 | Planned |
 | NFR-PRIV-001 data minimization/disclosure | Core Tasks 2–5, 10 | APP-003–APP-005, APP-009 | model/session/log/content tests | G0/G2 | Planned |
 | NFR-OSS-001 GPL/source attribution | Source plan; Core Task 10; Platform Task 10 | SRC-001–006, APP-009, PLT-005 | attribution/source-link/archive tests | G0/G3 | Planned |
-| NFR-TEST-001 substantive CI | Core Tasks 1, 11; all subsystem RC tasks | APP-001, APP-011 | deterministic test settings plus separate non-zero SQLite and MariaDB/Redis jobs and ARM64 CI | G0 | Planned |
-| NFR-COST-001 reuse/cost alarms | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-011 | Terraform plan/inventory/budget evidence | G1/G4 | Planned |
+| NFR-TEST-001 substantive CI | Core Tasks 1, 11; Platform Task 2; all subsystem RC tasks | APP-001, APP-011, PLT-001, PLT-005 | deterministic test settings, separate non-zero SQLite and MariaDB/Redis jobs, and same-commit `linux/arm64` plus `linux/amd64` build/smoke artifacts | G0 | Planned |
+| NFR-COST-001 dedicated-VM/cost alarms | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-011 | Dedicated 1-OCPU/6-GB A1 and 50-GB volume Terraform plan/inventory plus $0.00 compute, retained-volume, Object Storage, and budget evidence | G1/G4 | Planned |
 
 ## Architecture coverage not represented by a single requirement ID
 
@@ -96,7 +96,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | OCI placement/cost §8 | Platform Task 8; Operations Tasks 3–4; PLT-006/009 |
 | Break-glass §9.4 | Core Task 5; Platform Task 4; Operations Tasks 5–7 |
 | Branding/policies §9.6 | Core Task 10; APP-009 |
-| Staging/build/release §13 | Master Tasks 5–9; Platform Tasks 2–3, 7, 10; Operations Tasks 4–10 |
+| Qualification/build/release §13 | Master Tasks 5–9; Platform Tasks 2–3, 7, 10; Operations Tasks 4–10 |
 | Failure handling §17 | Operations Tasks 1, 7, 11; OPS-004/005/008 |
 | Verification gates §18 | Launch checklist, GOV-001–004 control documents/validator, Master Tasks 6–10, Operations Tasks 1 and 6–10 |
 | Activation/cutover §19 | Requirements gates plus Master Tasks 7–10, Operations Tasks 8–12, and OPS-010 signed go/no-go evidence |

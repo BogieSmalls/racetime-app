@@ -1033,7 +1033,7 @@ Each subproject receives its own implementation plan, tests, and release gate:
 4. **Discord identity and Z1RR site bootstrap** (`racetime-app`)
 5. **TTPBot provider-safe destination configuration** (`TTPBot`)
 6. **Z1RR LiveSplit provider** (new repository, Plan B only)
-7. **End-to-end staging, cutover, and operations runbooks** (cross-repository)
+7. **End-to-end qualification, cutover, and operations runbooks** (cross-repository)
 8. **Legacy TTP archive** (post-launch follow-up)
 
 The dependency order under Plan B is:

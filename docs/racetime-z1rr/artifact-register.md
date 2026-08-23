@@ -41,15 +41,15 @@ This register is the definition of deliverables. An artifact is not complete bec
 
 | ID | Gate | Repository/path | Artifact | Acceptance evidence |
 | --- | --- | --- | --- | --- |
-| PLT-001 | G0 | `Dockerfile`, `.docker/start-production`, `.docker/healthcheck` | Multi-stage ARM64 web/racebot image | Runs non-root, contains no dev server/debug toolbar activation, healthcheck passes |
+| PLT-001 | G0 | `Dockerfile`, `.docker/start-production`, `.docker/healthcheck` | Multi-stage `linux/arm64` and `linux/amd64` web/racebot images from one commit | Both variants run non-root, contain no dev server/debug toolbar activation, and pass the same healthcheck |
 | PLT-002 | G0 | `deploy/compose.production.yml` | Internal web/racebot/MariaDB/Redis/Caddy/maintenance stack | `docker compose config` clean; fixed two-member proxy IPAM and separate data network; no DB/Redis host ports |
 | PLT-003 | G0 | `deploy/Caddyfile` | HTTPS/WebSocket/static/media ingress and loopback-only admin listener | Caddy validation plus HTTP/WSS tests; `/admin` is unavailable publicly |
 | PLT-004 | G0 | `.env.production.example`, `deploy/env/ci.env`, `deploy/validate-config.py` | Secret-free environment contracts and validator | Placeholder/unknown/insecure values fail; fixture production config and fixed Caddy `/32` match pass |
-| PLT-005 | G0 | `.github/workflows/container.yml`, `.github/workflows/release.yml` | ARM64 immutable build, scan, SBOM, provenance and release metadata | SHA-tagged image, digest, SBOM, scan threshold, provenance attestation |
+| PLT-005 | G0 | `.github/workflows/container.yml`, `.github/workflows/release.yml` | Multi-platform immutable build, scan, SBOM, provenance and release metadata | One SHA-tagged manifest references verified `linux/arm64` and `linux/amd64` digests from the same commit; SBOM, scan threshold, and provenance attestation pass for both |
 | PLT-006 | G0 | `infra/oci/*.tf`, `infra/oci/*.tfvars.example`, `infra/oci/README.md` | Versioned OCI network/instance/import/bucket/IAM/alarms definitions | `terraform fmt/check/validate`; saved plan reviewed; no apply before G1 |
 | PLT-007 | G0 | `deploy/scripts/preflight.sh`, `deploy/scripts/deploy.sh`, `deploy/scripts/rollback.sh` | Race-aware release and rollback tooling | Shell tests cover active-race refusal, backup gate, migration failure, smoke failure, override audit |
 | PLT-008 | G0 | `deploy/backup/backup.sh`, `verify.sh`, `restore-test.sh`, retention tests | Encrypted DB/media backup and isolated restore automation | Local fake-OCI tests plus decrypt/integrity/retention tests pass |
-| PLT-009 | G1 | OCI resource inventory/evidence | Reused A1 VM/47-GB volume, NSG, Bastion, private bucket, dynamic group/policy, alarms | Read-only inventory matches reviewed Terraform plan; unexpected resources/costs absent |
+| PLT-009 | G1 | OCI resource inventory/evidence | Dedicated `racetime` A1 VM at 1 OCPU/6 GB with new 50-GB Balanced boot volume, NSG, Bastion, private bucket, dynamic group/policy, and alarms | Read-only inventory matches the reviewed Terraform plan; A1 compute forecast is $0.00, retained-volume forecast is approximately $3.61, and unexpected resources/costs are absent |
 | PLT-010 | G1 | DNS/OAuth/secrets inventories (private) | Production secret and external-app records | Two-operator access, redirect URI review, secret scan and recovery-copy confirmation |
 
 ## 4. Restream artifacts (`Z1RR.Restream`)
@@ -73,8 +73,8 @@ This register is the definition of deliverables. An artifact is not complete bec
 | BOT-002 | G0 | `ttpbot/__init__.py`, `ttpbot/bot.py` | Provider-derived racetime-bot configuration and URL resolution | Both outcome fixtures create the expected API request and absolute room link |
 | BOT-003 | G0 | `ttpbot/state.py`, state migration/tests | Destination-bound, versioned idempotency state | Same-destination restart preserves state; mismatch fails closed; explicit migration tested |
 | BOT-004 | G0 | `deploy/ttpbot.env.example`, service/runbook | Destination and one-scheduler operations contract | Config validator and systemd security analysis pass |
-| BOT-005 | G0 | `deploy/ttpbot-preflight` | Read-only credentials/category/scheduler/collision preflight | Mock integration and staging dry-run pass; no room created in check mode |
-| BOT-006 | G2 | staging evidence | Exactly-once scheduled room and announcement rehearsal | Restart injected before/after creation; only one room and one webhook observed |
+| BOT-005 | G0 | `deploy/ttpbot-preflight` | Read-only credentials/category/scheduler/collision preflight | Mock integration and qualification dry-run pass; no room created in check mode |
+| BOT-006 | G2 | late-G2 restricted-production evidence | Exactly-once scheduled room and announcement rehearsal after production certificate issuance and normal G2 allowlist restoration | Ordinary certificate validation with no CA override/bypass; restart injected before/after creation; only one room and one webhook observed |
 
 ## 6. LiveSplit artifacts (`LiveSplit.Racetime.Z1RR`, Plan B only)
 
@@ -87,7 +87,7 @@ This register is the definition of deliverables. An artifact is not complete bec
 | LS-005 | G0 | REST/WebSocket protocol client | Z1RR RaceTime race/chat/action protocol | Mock-server contract suite and reconnect/idempotency tests pass |
 | LS-006 | G0 | provider factory/API/settings/info/UI | LiveSplit integration with distinct identity | Stock and Z1RR DLL load side by side; settings/credentials do not collide |
 | LS-007 | G0 | CI/release scripts, update XML, SBOM, signed checksums | Reproducible distributable | Two clean builds match, manifest verifies, update feed resolves pinned release |
-| LS-008 | G2 | staging E2E evidence | Browser authorize plus complete timer race lifecycle | Login/join/ready/start/split/done/forfeit/reconnect/revoke cases pass |
+| LS-008 | G2 | late-G2 restricted-production E2E evidence | Browser authorize plus complete timer race lifecycle after production certificate issuance and normal G2 allowlist restoration | Ordinary certificate validation with no CA override/bypass; login/join/ready/start/split/done/forfeit/reconnect/revoke cases pass |
 
 ## 7. Operations, evidence, and launch artifacts
 
@@ -98,9 +98,9 @@ This register is the definition of deliverables. An artifact is not complete bec
 | OPS-003 | G0 | `docs/runbooks/identity-recovery.md`, `access-review.md` | Account recovery and least-privilege review | Sample transfer audit and quarterly checklist review |
 | OPS-004 | G0 | `docs/runbooks/incidents.md`, `status-comms.md` | Severity, escalation, Discord/status templates | Tabletop for DB, Discord, racebot, disk, and provider failures |
 | OPS-005 | G0 | `deploy/monitoring/` | Health probes, metrics/log rules, redaction, Discord adapter contract | Synthetic alert reaches test sink; secret canaries never appear in logs |
-| OPS-006 | G2 | `docs/evidence/<date>-load.json` | Locked 1-OCPU four-room/2x load evidence manifest | Thresholds and 20% CPU/30% memory headroom pass on 1 OCPU/6 GB; failure blocks G2 for profiling, optimization, and retest rather than resize |
-| OPS-007 | G2 | `docs/evidence/<date>-restore.json` | Isolated full restore evidence manifest | Accounts/category/race/media samples verified; measured RPO/RTO recorded |
-| OPS-008 | G2 | `docs/evidence/<date>-dress-rehearsal.json` | Cross-system private-race evidence manifest | TTPBot → Discord → browser/LiveSplit → Restream → recorded leaderboard succeeds |
+| OPS-006 | G2 | `docs/evidence/<date>-load.json` | Locked 1-OCPU four-room/2x load evidence manifest for ARM64 production and amd64 recovery | Same-commit `linux/arm64` A1 and `linux/amd64` paid-fallback runs both meet thresholds and 20% CPU/30% memory headroom on 1 OCPU/6 GB; failure blocks G2 for profiling, optimization, and retest rather than resize |
+| OPS-007 | G2 | `docs/evidence/<date>-restore.json` | Isolated ARM64 and 1-OCPU/6-GB amd64 full-restore evidence manifest | Accounts/category/race/media samples verify on both architectures; measured RPO is recorded and the paid amd64 fallback restores within the four-hour RTO |
+| OPS-008 | G2 | `docs/evidence/<date>-dress-rehearsal.json` | Late-G2 restricted-production cross-system race evidence manifest | After production issuance and normal G2 allowlist restoration, TTPBot → Discord → browser/LiveSplit → Restream → recorded leaderboard succeeds with ordinary certificate validation and no CA override/bypass |
 | OPS-009 | G3 | private secret/access inventory | Current operators, owners, clients, webhooks, policies, recovery copies | Primary and backup operator sign-off; stale access removed |
 | OPS-010 | G3 | `docs/evidence/<date>-go-no-go.md` | Launch decision and rollback trigger sheet | Council, technical, operations, and integrity approvals |
 | OPS-011 | G4 | `docs/evidence/<date>-stabilization.md` | Seven-day post-launch report | Availability/incidents/cost/backup/access review; no open P0/P1 issue |
