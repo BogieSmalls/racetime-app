@@ -177,6 +177,13 @@ OCI security rules so port 22 is not publicly reachable. Operators use OCI
 Bastion or another short-lived OCI-managed session for SSH access. MariaDB and
 Redis are not published from the Compose network.
 
+Inbound TCP 443 remains open to `0.0.0.0/0` in the OCI security list/NSG and
+host firewall; if public IPv6 is enabled, it is also open to `::/0`.
+Let's Encrypt's multi-perspective TLS-ALPN-01 validators are not assigned to the
+operator allowlist. The G2 source-IP restriction is implemented only in Caddy's
+ordinary HTTP handler after the TLS handshake, never at the OCI or host-network
+layer.
+
 ### 7.2 Containers
 
 The normal production stack contains:
@@ -253,18 +260,32 @@ the new volume raises retained storage to 285 GB, 85 GB above the documented
 approximately $3.61 per month. OCI Cost Analysis remains billing authority.
 
 The accepted paid storage overage requires this deployment to use a paid OCI
-tenancy. Oracle's current paid-tenancy price list includes 3,000 A1 OCPU-hours
-and 18,000 GB-hours per month; the separate Always Free-only page currently
-lists 1,500/9,000. The G1 preflight must record the account's billing status,
-effective entitlement, and current-month A1 usage before Terraform apply. A
-mismatch blocks apply until the cost/headroom calculation is revised.
+tenancy. Oracle's current official sources are inconsistent: the price list
+explicitly gives each paid tenancy 3,000 A1 OCPU-hours and 18,000 GB-hours per
+month, while the Always Free resource page says all accounts receive 1,500/9,000
+and that paid accounts retain Always Free resources. The G1 preflight records
+the account's billing status, Limits, Quotas and Usage output, Cost Analysis,
+and current-month A1 usage before Terraform apply. The paid price-list allowance
+is the planning case, but the tenancy record is operational authority. A
+mismatch blocks apply only until compute cost and Restream headroom are repriced
+and the Council records the revised decision.
 
 A continuously running 1-OCPU/6-GB VM consumes 744 OCPU-hours and 4,464
-GB-hours in a 31-day month, leaving 2,256 OCPU-hours and 13,536 GB-hours under
-the currently advertised paid-tenancy allowance. Before other A1 consumers,
-that is at most 188 aggregate hours for a 12-OCPU encoder. A 2-OCPU/6-GB
-RaceTime fallback consumes 1,488 OCPU-hours and leaves 1,512, or 126 aggregate
-12-OCPU encoder-hours. OCPU-hours remain the first allowance exhausted.
+GB-hours in a 31-day month. Under 3,000/18,000 it leaves 2,256 OCPU-hours and
+13,536 GB-hours: at most 188 aggregate hours for a 12-OCPU/16-GB Restream
+encoder, with OCPU-hours binding before memory. A 2-OCPU/6-GB RaceTime resize
+still consumes 4,464 GB-hours but consumes 1,488 OCPU-hours, leaving 1,512, or
+126 aggregate encoder-hours.
+
+The pessimistic 1,500/9,000 case leaves 756 OCPU-hours and 4,536 GB-hours with
+the 1-OCPU deployment: 63 aggregate encoder-hours. A 2-OCPU/6-GB RaceTime
+deployment leaves only 12 OCPU-hours and 4,536 GB-hours: one aggregate
+12-OCPU encoder-hour. If the performance gate requires that resize under the
+lower entitlement, G2 cannot complete until the Council approves a Restream
+capacity or rehosting decision. At current A1 list rates of $0.01/OCPU-hour and
+$0.0015/GB-hour, a fully unallowanced 31-day compute line is approximately
+$14.14 for 1 OCPU/6 GB or $21.58 for 2 OCPUs/6 GB; these are bounded repricing
+cases, not the expected budget.
 
 The 1-OCPU/6-GB allocation remains the initial target. Run the full load gate
 early in G2, before the fresh-production transition. Failure requires a
@@ -272,9 +293,13 @@ graceful stop and in-place flex-shape resize to 2 OCPUs/6 GB, which reboots the
 VM but retains its boot volume and network attachments, followed by a complete
 retest. G3 cannot waive this gate.
 
-After provisioning, record OCI Cost Analysis's forecasted monthly
-retained-storage baseline as an exact dollar value in G1 evidence. Usage and
-billing alarms warn above baseline plus $1 and escalate above baseline plus $3.
+After provisioning, G1 evidence records an expected A1 compute line of exactly
+$0.00, the approximately $3.61 retained-storage forecast, and the resulting
+combined monthly baseline as an exact dollar value. Any nonzero A1 compute line
+causes an immediate entitlement/reforecast warning. Combined forecast or actual
+spend above baseline plus $1 warns and above baseline plus $3 escalates. The
+first complete billing cycle is reconciled against the entitlement evidence and
+forecast.
 The platform must not assume that an Always Free
 VM has an SLA. OCI documents possible idle-instance reclamation and temporary
 shape-capacity shortages, so rebuild onto a temporary paid shape is part of the
@@ -285,6 +310,7 @@ References:
 - <https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm>
 - <https://registry.terraform.io/providers/oracle/oci/latest/docs/resources/core_instance.html>
 - <https://www.oracle.com/cloud/price-list/>
+- <https://www.oracle.com/cloud/compute/arm/>
 - <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resource-billing-stopped-instances.htm>
 - <https://www.oracle.com/cloud/free/faq/>
 - <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resizinginstances.htm>
@@ -601,8 +627,9 @@ Qualification certificate automation is explicit:
   `caddy-qualification` data volume. Its `dir` and CertMagic `test_dir` are both
   pinned to Let's Encrypt's staging endpoint, so automatic fallback/retry stays
   in staging. No production or ZeroSSL issuer is configured. Staging roots are
-  installed only in dedicated test trust stores, never ordinary operator/client
-  trust stores.
+  available only through process-scoped CA bundles or disposable browser-
+  automation profiles that are destroyed after the run, never ordinary
+  operator/client OS trust stores.
 - Staging certificates use test CT logs and are not reliably discoverable
   through production CT monitoring. This reduces but does not promise zero
   hostname disclosure during qualification.
@@ -611,6 +638,9 @@ Qualification certificate automation is explicit:
   `/.well-known/acme-challenge/` is not a public allowlist exemption. Port 80
   serves no application or challenge path while restricted; it redirects only
   allowlisted sources and gives unlisted sources the generic denial.
+  The OCI security list/NSG and host firewall keep TCP 443 open to
+  `0.0.0.0/0` and, when enabled, `::/0`; neither layer applies the qualification
+  CIDRs. Source-IP denial occurs only in Caddy after TLS-ALPN-01 can complete.
 - After fresh production application state is active behind the transition
   barrier in late G2, operators create `caddy-production` exactly once. Its one
   explicit ACME issuer pins both `dir` and `test_dir` to Let's Encrypt's
@@ -633,9 +663,14 @@ OAuth callback, and cannot receive a WebSocket `101`. Before either issuance,
 CI adapts the Caddyfile to JSON and rejects anything other than exactly one
 issuer with `ca == test_ca ==` the expected environment endpoint, HTTP-01
 disabled, and TLS-ALPN-01 enabled. A hermetic issuer-failure test proves retries
-cannot cross environments. G2 evidence includes those config/failure tests;
-denial probes from at least three unlisted public sources; successful allowed
-browser/OAuth/TTPBot/Restream/LiveSplit/WSS flows; staging and production issuer
+cannot cross environments. Pre-production-certificate evidence is limited to
+those config/failure tests, denial probes from at least three unlisted public
+sources, and browser/server-side checks using only process-scoped CA bundles or
+disposable automation profiles. It does not count TTPBot, Restream, or LiveSplit
+end-to-end integration evidence. After the production certificate is issued and
+the hard barrier returns to the normal G2 allowlist, final evidence includes
+successful allowed browser/OAuth/TTPBot/Restream/LiveSplit/WSS flows using
+ordinary certificate validation with no bypass; staging and production issuer
 identity; HTTP-01 denial; exactly one production issuance; and persistence of
 the production Caddy state across an application redeploy.
 
@@ -683,8 +718,10 @@ References:
 
 - <https://letsencrypt.org/docs/staging-environment/>
 - <https://letsencrypt.org/docs/rate-limits/>
+- <https://letsencrypt.org/docs/challenge-types/#tls-alpn-01>
 - <https://caddyserver.com/docs/automatic-https>
 - <https://caddyserver.com/docs/caddyfile/directives/tls>
+- <https://docs.oracle.com/en-us/iaas/Content/Network/Concepts/securitylists.htm>
 
 ## 14. Backups and disaster recovery
 
@@ -862,6 +899,16 @@ Verify:
 
 ### 18.2 Integrations
 
+The order is mandatory. Before step 8 in Section 13.2 issues the production
+certificate, run only the ACME/configuration, denial, and browser/server-side
+checks that use process-scoped CA bundles (for example `REQUESTS_CA_BUNDLE` or
+`NODE_EXTRA_CA_CERTS`) or a disposable browser-automation profile. Do not add
+the staging root to Windows, Linux, container-base, or other ordinary trust
+stores, and do not count a trust bypass as final integration evidence. After
+step 9 restores the normal G2 allowlist, run every end-to-end item below against
+the production certificate with ordinary certificate validation and no CA
+override or bypass.
+
 Verify:
 
 - TTPBot creates exactly one scheduled room on the selected host/category;
@@ -899,8 +946,11 @@ Verify:
   WebSocket proxy behavior;
 - OCI/host/service/billing alerts reach operations Discord, and launch/rollback
   public communications meet the independent-path timing and cadence contract;
-- paid-tenancy A1 entitlement/current usage and both 1-OCPU and conditional
-  2-OCPU Restream-headroom calculations are recorded;
+- the paid-tenancy entitlement record resolves the official-source discrepancy;
+  expected A1 compute is $0.00, any nonzero compute line alerts, and 1-OCPU plus
+  conditional 2-OCPU Restream headroom is recorded under both entitlement cases;
+- OCI/host ingress leaves public TCP 443 available for TLS-ALPN-01 while Caddy's
+  post-handshake source-IP policy denies unapproved HTTP and WebSocket traffic;
 - logs omit credentials and rotate before filling disk; and
 - early-G2 concurrent race/chat/reconnect load at least twice the largest
   expected TTP room with required headroom on 1 OCPU/6 GB, or an in-place
@@ -997,9 +1047,11 @@ The dependency order under Plan B is:
 
 - complete source preservation before contacting Dyn;
 - after Plan B activation, establish deployment foundations;
-- implement core application/identity and deploy staging;
+- implement core application/identity and deploy the restricted qualification
+  environment on the canonical hostname;
 - implement Restream, TTPBot, and LiveSplit integrations in parallel against
-  staging;
+  that restricted environment, but defer their final end-to-end evidence until
+  late-G2 production-certificate issuance;
 - complete backups, monitoring, security, load, and restore verification;
 - execute the dress rehearsal and public cutover; and
 - add the legacy archive after stabilization.
