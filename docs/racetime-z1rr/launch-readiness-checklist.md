@@ -20,7 +20,7 @@
 
 ## G1 — Plan B activation and external prerequisites
 
-- [ ] Council activation record states the reason, date, target launch window, primary operator, backup operator, and rollback authority.
+- [ ] Council activation record states the reason, date, target launch window, primary technical operator, recovery custodian, and rollback authority.
 - [ ] OCI inventory, actual A1 usage, and the dated Restream forecast are refreshed; July/August measurements and the next three-to-four-month forecast are reconciled to OCI evidence.
 - [ ] Terraform plan creates only the dedicated `racetime` A1 initially at 1 OCPU/6 GB and one new 50-GB Balanced boot volume; `z1rr-restream-control-staging` and existing retained volumes remain unchanged.
 - [ ] Terraform plan has human review; destructive replacement and unexpected retained resources are absent.
@@ -29,9 +29,9 @@
 - [ ] Canonical `racetime.z1rracing.com` DNS resolves to the reserved RaceTime public IP before either staging or production ACME issuance; launch requires no later DNS promotion.
 - [ ] Caddy qualification config has exactly one Let's Encrypt staging issuer, pins `dir == test_dir`, enables TLS-ALPN-01, disables HTTP-01, and uses separate qualification state that persists across issuance/restarts, is never promoted to production, and is retired only after qualification completes.
 - [ ] Distinct qualification/production Discord, Twitch, TTPBot, LiveSplit, alert, and OAuth credentials use exact reviewed redirect URIs and scopes.
-- [ ] Root-owned production secrets, backup key, operator recovery copy, and two-person access are verified.
+- [ ] Root-owned production secrets and backup key, the primary operator's working recovery copy, and the tested sealed offline recovery package are verified; package version/fingerprints/seal date and custodian receipt are current without exposing secrets.
 - [ ] No secret appears in Git history, CI logs, image layers, Compose rendering, or evidence.
-- [ ] Cost evidence confirms the 3,000/18,000 entitlement and records the default 744-hour RaceTime floor, dated combined forecast, forecast-relative/slope utilization warning, 2,900-hour escalation, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms.
+- [ ] Cost evidence confirms the 3,000/18,000 entitlement and records the default 744-hour RaceTime floor and dated combined forecast; below 2,650 hours the forecast-relative/slope warning is active, while at or above 2,650 forecast acceptance records utilization/expected cost and suppresses that near-duplicate warning; the 2,900-hour escalation, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms remain active.
 - [ ] Routine metered overage and technically justified shape changes are operator-authorized; each requires a dated reason, updated forecast, and replacement load/recovery evidence.
 
 **G1 decision:** [ ] Pass [ ] Hold
@@ -69,7 +69,7 @@
 - [ ] Empty-host deployment and idempotent bootstrap complete successfully.
 - [ ] Normal deployment refuses an active room; emergency override is explicit and audited.
 - [ ] Failed migration/smoke rehearsal stops promotion and follows the schema-aware rollback path.
-- [ ] Public admin is unreachable; Bastion/SSH-tunneled admin works for both break-glass operators.
+- [ ] Public admin is unreachable; Bastion/SSH-tunneled admin works for the primary operator; the distinct escrow SSH/admin credentials were tested before sealing and their non-secret fingerprints match the current custody record.
 - [ ] HTTPS, WSS, TLS renewal rehearsal, cookies/CSRF/HSTS/proxy headers/CORS/body limits and media non-execution pass.
 - [ ] Route inventory covers every public mutation/lookup; authentication, race creation, OAuth, profile/Twitch, search, and autocomplete limits pass concurrent real-Redis and unavailable-limiter tests.
 - [ ] The throttle HMAC key is independently generated and differs from the Django key; only fixed Caddy `172.30.0.2/32` is trusted, the declared proxy subnet has no overlap, proxied clients retain separate buckets, and spoofed/multi-value forwarding headers fail safely.
@@ -77,7 +77,7 @@
 - [ ] Isolated ARM64 and paid amd64 restores verify accounts, category configuration, a completed race, leaderboard, media, and production Caddy state; amd64 meets the four-hour RTO at the recorded recovery shape.
 - [ ] The greater of twice the largest expected TTP-room load or the realistic aggregate peak across four simultaneous rooms meets 20% CPU/30% memory headroom on the recorded ARM64 and amd64 shapes.
 - [ ] A failed default-shape load gate records the operator's optimize-or-resize decision and blocks G2/G3 until Terraform, cost forecast, load evidence, and recovery evidence are updated and pass; no waiver path exists.
-- [ ] Service, host, backup, TLS, auth-abuse, OCI allowance, forecast-relative A1 utilization/slope, 2,900-hour utilization, Restream duty-cycle, retained-volume, Object Storage, and billing test alerts reach the private operations channel/email fallback.
+- [ ] Service, host, backup, TLS, auth-abuse, OCI allowance, below-2,650 forecast-relative A1 utilization/slope, at-or-above-2,650 forecast-record suppression, 2,900-hour utilization, Restream duty-cycle, retained-volume, Object Storage, and billing test cases reach the private operations channel/email fallback as applicable.
 - [ ] Log canaries prove no codes, tokens, cookies, secrets, synthetic emails, or unnecessary Discord IDs are emitted.
 
 ### Fresh-production finalization
@@ -105,7 +105,7 @@
 ### Documentation and people
 
 - [ ] User login/LiveSplit/migration instructions, privacy, acceptable use, deletion/contact, status and support routes are reviewed.
-- [ ] Deploy, rollback, backup/restore, VM loss, identity recovery, incident, access review, and cutover runbooks have primary/backup operator tabletops.
+- [ ] The primary operator has table-topped deploy, rollback, backup/restore, VM loss, identity recovery, incident, access review, and cutover runbooks; the recovery custodian has acknowledged possession and the package-release instructions.
 - [ ] On-call contacts and incident severity/escalation are current for launch week.
 
 **G2 decision:** [ ] Pass [ ] Hold
@@ -170,4 +170,4 @@ Rollback or halt promotion when any of these occurs and cannot be corrected insi
 - Restream resolving a self-hosted race against racetime.gg or rewriting historical URLs;
 - secrets in logs/artifacts, public MariaDB/Redis, unauthorized retained OCI resources, or an unexplained unbounded consumption slope;
 - capacity exhaustion threatening active races;
-- inability to reach both the primary and backup operator.
+- loss of primary-operator access while the sealed recovery package cannot be obtained or fails validation.

@@ -77,7 +77,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | Requirement | Plan/task | Artifacts | Primary automated verification | Gate | Status |
 | --- | --- | --- | --- | --- | --- |
 | NFR-SEC-001 Django/web security | Core Task 5A; Platform Tasks 1, 4; Operations Task 7 | APP-002, APP-005, PLT-003 | `check --deploy`, route-inventory/Redis throttle, Caddy/ZAP/proxy/cookie tests | G0/G2 | Planned |
-| NFR-SEC-002 network/secrets | Platform Tasks 1, 3, 8; Operations Tasks 5, 7, 9 | PLT-002, PLT-004, PLT-006, PLT-010 | Compose/IaC/port/secret scans plus external-app/secret inventory validation | G0/G1/G2/G3 | Planned |
+| NFR-SEC-002 network/secrets and sealed recovery custody | Platform Tasks 1, 3, 8; Operations Tasks 5, 7, 9 | PLT-002, PLT-004, PLT-006, PLT-010 | Compose/IaC/port/secret scans plus primary-access and sealed-package version/fingerprint/custody validation | G0/G1/G2/G3 | Planned |
 | NFR-SEC-003 pin/scan and js-cookie | Core Task 1; Platform Tasks 2, 10 | APP-012, PLT-001, PLT-005 | npm/container/dependency audit thresholds | G0/G3 | Planned |
 | NFR-SEC-004 distributed abuse controls | Core Task 5A; Platform Task 4 | APP-005, PLT-003 | route inventory, exact policy, concurrent real-Redis, unavailable-limiter tests | G0/G2 | Planned |
 | NFR-REL-001 migration/rollback safety | Core Task 2; Platform Task 7; Operations Task 1 | APP-003, PLT-007, OPS-001 | migration round trip, rollback-class tests, and runbook contract/tabletop | G0/G2 | Planned |
@@ -86,7 +86,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | NFR-PRIV-001 data minimization/disclosure | Core Tasks 2–5, 10 | APP-003–APP-005, APP-009 | model/session/log/content tests | G0/G2 | Planned |
 | NFR-OSS-001 GPL/source attribution | Source plan; Core Task 10; Platform Task 10 | SRC-001–006, APP-009, PLT-005 | attribution/source-link/archive tests | G0/G3 | Planned |
 | NFR-TEST-001 substantive CI | Core Tasks 1, 11; Platform Task 2; all subsystem RC tasks | APP-001, APP-011, PLT-001, PLT-005 | deterministic test settings, separate non-zero SQLite and MariaDB/Redis jobs, and same-commit `linux/arm64` plus `linux/amd64` build/smoke artifacts | G0 | Planned |
-| NFR-COST-001 operator-owned resource/consumption controls | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-005, OPS-011 | Initial 1-OCPU/6-GB A1 and 50-GB volume plan/inventory; verified entitlement and dated combined forecast; forecast-relative/slope warning and 2,900-hour escalation; separate storage alarms; standing-overage and recorded-shape-change evidence | G1/G4 | Planned |
+| NFR-COST-001 operator-owned resource/consumption controls | Platform Task 8; Operations Tasks 3–4, 12 | PLT-006, PLT-009, OPS-005, OPS-011 | Initial 1-OCPU/6-GB A1 and 50-GB volume plan/inventory; verified entitlement and dated combined forecast; below-2,650 forecast-relative/slope warning or at-or-above-2,650 forecast record, plus 2,900-hour escalation; separate storage alarms; standing-overage and recorded-shape-change evidence | G1/G4 | Planned |
 
 ## Architecture coverage not represented by a single requirement ID
 
@@ -94,7 +94,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | --- | --- |
 | Source/branch strategy §6 | Master Task 1 protected `master` mirror/`z1rr-production` promotion; source preservation plan; SRC-001–006 |
 | OCI placement/cost §8 | Platform Task 8; Operations Tasks 3–4; PLT-006/009 |
-| Break-glass §9.4 | Core Task 5; Platform Task 4; Operations Tasks 5–7 |
+| Break-glass and sealed recovery custody §9.4 | Core Task 5; Platform Task 4; Operations Tasks 5–7 |
 | Branding/policies §9.6 | Core Task 10; APP-009 |
 | Qualification/build/release §13 | Master Tasks 5–9; Platform Tasks 2–3, 7, 10; Operations Tasks 4–10 |
 | Failure handling §17 | Operations Tasks 1, 7, 11; OPS-004/005/008 |

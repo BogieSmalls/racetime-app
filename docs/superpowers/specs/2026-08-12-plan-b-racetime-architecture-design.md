@@ -63,9 +63,10 @@ Plan B must:
   display names.
 - Let any registered user create races in the `z1rr` category, matching normal
   Racetime behavior.
-- Give all Z1RR Council members category-owner rights while limiting server,
-  database, secrets, and Django superuser access to the primary operator and
-  one backup operator.
+- Give all Z1RR Council members category-owner rights while limiting routine
+  server, database, secrets, and Django superuser access to the primary
+  technical operator. A distinct sealed offline recovery package is held by a
+  designated non-technical Council custodian solely for loss-of-access recovery.
 - Support TTPBot, Z1RR.Restream, LiveSplit, Discord announcements, Twitch
   linking, and streaming-required rooms before production cutover.
 - Keep recurring cost bounded and observable, preserving the shared A1 allowance
@@ -308,11 +309,16 @@ blocked until the complete load and recovery gates pass on the recorded shapes;
 there is no performance waiver.
 
 At the default shape, record the 744-hour RaceTime floor, dated combined A1
-forecast, and expected compute. The allowance-utilization warning is not a
-spend alert: it fires when projected month-end A1 OCPU-hours exceed the active
-forecast by the greater of 100 hours or 5%, or when the observed slope projects
-crossing that buffer within 72 hours. Utilization escalates at 2,900 actual or
-projected hours, before billing begins at 3,000. Because OCI cannot
+forecast, and expected compute. For an active forecast below 2,650 hours, the
+allowance-utilization warning is not a spend alert: it fires when projected
+month-end A1 OCPU-hours exceed the forecast by the greater of 100 hours or 5%,
+or when the observed slope projects crossing that buffer within 72 hours. When
+an accepted forecast is 2,650 hours or higher, forecast acceptance itself is
+the warning signal: record expected allowance utilization, overage/cost if any,
+and the Restream duty-cycle assumption, and suppress the near-duplicate
+forecast-relative warning for that forecast. Utilization always escalates at
+2,900 actual or projected hours, before billing begins at 3,000. Because OCI
+cannot
 attribute a shared-allowance overage to one service, first inspect Restream
 sleep automation, encoders, and control planes. The operator may replace the
 normal forecast with a dated tournament forecast. Threshold crossings require
@@ -392,10 +398,19 @@ and Twitch channel identity must not be conflated.
 
 ### 9.4 Break-glass access and recovery
 
-One primary and one backup infrastructure operator retain local superuser
-accounts with strong, unique passwords. Their staff login and Django admin are
-not part of the public login flow and are reachable only through a restricted
-operator path such as Bastion/SSH tunneling or tightly constrained ingress.
+The primary technical operator retains the only routinely accessible local
+superuser and infrastructure credentials. A distinct escrow-only recovery
+superuser, SSH key, backup decryption key, and required recovery instructions
+are tested and then stored in a tamper-evident sealed offline package held by a
+designated non-technical Council recovery custodian. The custodian has no
+routine system access, technical approval role, or expectation to operate the
+service; they release the package to the primary operator or a formally
+designated replacement only for recovery. The package record contains its
+version, non-secret credential fingerprints, seal date, and custodian receipt.
+Use or relevant credential rotation requires prompt rotation, retest, and
+resealing. Staff login and Django admin are not part of the public login flow
+and are reachable only through a restricted operator path such as Bastion/SSH
+tunneling or tightly constrained ingress.
 
 If a racer loses a Discord account, account transfer is a manual, audited
 operator procedure with identity verification. There is no weaker email or
@@ -636,11 +651,12 @@ hostname/DNS promotion at G3.
 The restriction is a Caddy default-deny source-IP allowlist implemented as the
 first ordinary HTTP handler after the TLS handshake and before every
 application, static, media, OAuth, and WebSocket route. A root-owned file
-outside Git contains exact CIDRs for the primary and backup infrastructure
-operators, approved scheduled testers, `coop-relay`, and the required Z1RR
-Restream hosts. Each entry records owner, purpose, approving operators, and an
-expiry no later than the end of its scheduled test window. Two operators
-approve every change. There is no shared HTTP password.
+outside Git contains exact CIDRs for the primary technical operator, approved
+scheduled testers, `coop-relay`, and the required Z1RR Restream hosts. Each
+entry records owner, purpose, the operator who added it, and an expiry no later
+than the end of its scheduled test window. The recovery custodian receives no
+routine allowlist entry or infrastructure access. There is no shared HTTP
+password.
 
 Qualification certificate automation is explicit:
 
@@ -762,8 +778,9 @@ bucket:
 
 A deduplicating/encrypted backup tool may implement the policy as long as
 restore points and retention are independently verifiable. Encryption keys
-must have an operator-held recovery copy outside the VM and outside the backup
-bucket. OCI-side encryption and private bucket policy remain enabled even when
+must have a working operator copy outside the VM and backup bucket plus a
+separate copy in the sealed offline recovery package. OCI-side encryption and
+private bucket policy remain enabled even when
 client-side encryption is used.
 
 The approximately $3.61 monthly projection in §8.2 covers retained boot-volume
@@ -798,7 +815,8 @@ The disaster-recovery package consists of:
 - production Compose/Caddy configuration;
 - encrypted production Caddy state;
 - pinned multi-platform application image/source;
-- operator-held secrets and backup key;
+- operator-held working secrets and backup key plus the sealed offline recovery
+  package and its non-secret custody record;
 - encrypted Object Storage backups;
 - DNS update instructions; and
 - a rehearsed rebuild/restore runbook.
@@ -970,8 +988,9 @@ Verify:
   public communications meet the independent-path timing and cadence contract;
 - the verified 3,000/18,000 paid-tenancy entitlement is confirmed at G1; the
   default 744-hour RaceTime floor and dated combined A1 forecast are recorded;
-  forecast-relative utilization/slope warnings, the 2,900-hour escalation, and
-  separate retained-volume and Object Storage alarms reach operators; routine
+  the forecast-relative warning below 2,650 hours, high-forecast record at or
+  above 2,650, 2,900-hour escalation, and separate retained-volume and Object
+  Storage alarms reach operators; routine
   overage and operator-recorded shape changes are reconciled without Council
   approval;
 - OCI/host ingress leaves public TCP 443 available for TLS-ALPN-01 while Caddy's
