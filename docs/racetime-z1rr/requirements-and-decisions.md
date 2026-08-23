@@ -15,9 +15,9 @@ The Council must record an explicit **Plan B activation decision** before any ex
 | Gate | Decision owner | Entry condition | Permitted work | Exit evidence |
 | --- | --- | --- | --- | --- |
 | G0 — Request pending | Z1RR Council | Current state | Plans, source preservation, local code/build/test artifacts, provider-neutral Restream/TTPBot work | Reviewed plan bundle and green local CI |
-| G1 — Plan B activated | Z1RR Council, recorded in Council minutes | Racetime.gg declines, cannot meet the required date, or Council otherwise explicitly activates | Dedicated OCI production-candidate resources, restricted canonical DNS/TLS, production app registrations and secrets | Dated activation record naming primary and backup operators |
-| G2 — Staging qualified | Primary operator + Competitive Integrity representative | All component builds green; restricted production candidate available | Private dress rehearsals, load/restore/security tests on the production-sized host | Signed staging evidence packet with no open P0/P1 findings |
-| G3 — Public launch approved | Z1RR Council | Every mandatory launch gate passes and rollback is rehearsed | Remove canonical-host access restriction, publish user documentation and LiveSplit release, cut over TTPBot destination | Go/no-go record, verified backups, current contact roster |
+| G1 — Plan B activated | Z1RR Council, recorded in Council minutes | Racetime.gg declines, cannot meet the required date, or Council otherwise explicitly activates | Dedicated OCI production-candidate resources, restricted canonical DNS/TLS, production app registrations and secrets | Dated activation record naming primary and backup operators plus the reviewed qualification allowlist |
+| G2 — Restricted qualification complete | Primary operator + Competitive Integrity representative | All component builds green; restricted production candidate available | Private qualification; sealed qualification evidence; fresh production-state initialization; qualification-credential revocation; final restricted smoke/dress rehearsal | Signed evidence packet proving production-state transition, public denial, and no open P0/P1 findings |
+| G3 — Public launch approved | Z1RR Council | G2 finalization is complete, every mandatory launch gate passes, and rollback is rehearsed | Remove canonical-host access restriction, publish user documentation and LiveSplit release, cut over TTPBot destination | Go/no-go record, verified backups, current contact roster |
 | G4 — Stabilized | Primary operator + Council | Seven monitored days and at least one completed scheduled TTP slate | Normal operations; legacy archive project may begin | Stabilization report and access review |
 
 No implementer may infer a later gate from completion of an earlier gate.
@@ -71,15 +71,19 @@ RaceTime `master` remains the default, upstream-only mirror throughout G0. `z1rr
 
 ### ADR-009: Production uses a new dedicated OCI VM and one canonical hostname
 
-After G1 activation, create a new Terraform-managed Compute instance named `racetime` using `VM.Standard.A1.Flex`, 1 OCPU, 6 GB RAM, and a new 47-GB Balanced boot volume. This is a Council-approved intentional storage cost of approximately $2 per month. Do not repurpose `z1rr-restream-control-staging`; it remains available for its existing staging purpose until a separate migration decision is approved.
+After G1 activation, create a new Terraform-managed Compute instance named `racetime` using `VM.Standard.A1.Flex`, 1 OCPU, 6 GB RAM, and a new 50-GB Balanced boot volume. This is a Council-approved intentional storage cost of approximately $2.13 per month at the current published US list price. Do not repurpose `z1rr-restream-control-staging`; it remains available for its existing staging purpose until a separate migration decision is approved.
 
-The first restricted deployment and public production both use `https://racetime.z1rracing.com`. There is no `staging.racetime.z1rracing.com` hostname or DNS-promotion step. Before G3, the canonical hostname is operator-restricted and uses qualification-only data and non-production integration credentials. G3 replaces qualification state with the approved production state, verifies the same hostname and release, and removes the access restriction without changing DNS.
+The first restricted deployment and public production both use `https://racetime.z1rracing.com`. There is no `staging.racetime.z1rracing.com` hostname or DNS-promotion step. Before G3, the canonical hostname is operator-restricted; G3 only removes that restriction and cuts over integrations after the Council go decision.
+
+While the host is still restricted under G2, operators stop qualification schedulers, seal qualification backups under a restore-ineligible `qualification/` prefix, create fresh production volumes and secrets, atomically switch the Compose deployment to them, revoke qualification OAuth/bot/alert credentials, invalidate qualification sessions and tokens, bootstrap final production state, and rerun final smoke and dress-rehearsal checks. Only then may the Council grant G3. Rollback must never restore qualification data, backups, sessions, tokens, or credentials.
+
+Pre-G3 access is a Caddy default-deny source-IP allowlist applied before every application, static, media, and WebSocket route. A root-owned expiring record contains exact CIDRs for the primary and backup operators, approved scheduled testers, `coop-relay`, and required Restream hosts; it has no shared HTTP password. Two operators approve every entry and its expiry. Caddy's internal ACME handling remains available only as required for certificate issuance. Unlisted public probes must receive a generic denial and cannot fetch assets, reach OAuth callbacks, or upgrade WebSockets.
 
 ## 4. Functional requirements
 
 ### Core service
 
-- **FR-CORE-001:** Serve `https://racetime.z1rracing.com` and WebSocket upgrades through Caddy with only ports 80/443 public. Use that canonical hostname for restricted qualification and production; do not create a staging subdomain or perform a hostname promotion at launch.
+- **FR-CORE-001:** Serve `https://racetime.z1rracing.com` and WebSocket upgrades through Caddy with only ports 80/443 public. Use that canonical hostname for restricted qualification and production; do not create a staging subdomain or perform a hostname promotion at launch. Before G3, default-deny source-IP controls protect every HTTP/static/media/OAuth/WebSocket route and admit only approved expiring CIDRs.
 - **FR-CORE-002:** Preserve upstream race creation, joining, ready/start/done/DNF/DQ, chat, moderation, recording, rating, leaderboard, API, OAuth, and racebot semantics.
 - **FR-CORE-003:** Expose one active public category, `z1rr`; any active authenticated user can create a race.
 - **FR-CORE-004:** Give all Council members category-owner rights without Django staff, shell, database, secret, backup, or OCI access.
@@ -141,18 +145,18 @@ The first restricted deployment and public production both use `https://racetime
 - **NFR-PRIV-001:** Collect only Discord ID and minimum transient profile data; document Discord/Twitch data, logs, deletion, and backup expiry.
 - **NFR-OSS-001:** Preserve GPL-3.0 and upstream attribution; publish corresponding source for every deployed build.
 - **NFR-TEST-001:** Add an automated test baseline because the fork currently discovers zero Django tests. Pull requests must run unit/integration tests, migrations, static checks, dependency audit, and ARM64 image build.
-- **NFR-COST-001:** Create one Council-approved 47-GB Balanced boot volume for the dedicated `racetime` VM, with an expected incremental cost of approximately $2 per month; do not create further retained volumes without Council approval. Record the observed retained-storage baseline after provisioning, warn when forecast spend exceeds that baseline by $1, and escalate when it exceeds the baseline by $3.
+- **NFR-COST-001:** Create one Council-approved 50-GB Balanced boot volume for the dedicated `racetime` VM, with expected incremental storage/performance cost of approximately $2.13 per month at the current published US list price; do not create further retained volumes without Council approval. Record OCI Cost Analysis's forecasted monthly retained-storage baseline as an exact dollar value in G1 evidence, warn above baseline plus $1, and escalate above baseline plus $3.
 
 ## 6. Current verified baseline
 
-Verified read-only on 2026-08-22:
+Compute was verified read-only on 2026-08-22; boot-volume `size_in_gbs` and `vpus_per_gb` were reverified on 2026-08-23:
 
 - `coop-relay`: running E2 micro, 1 OCPU / 1 GB.
 - `z1rr-restream-control`: stopped A1, 2 OCPUs / 6 GB.
 - `z1rr-restream-control-staging`: stopped A1, 2 OCPUs / 6 GB.
 - `z1rr-restream-encoder-a1` and `z1rr2-restream-encoder-a1`: stopped A1, 12 OCPUs / 16 GB each.
 - Five retained 47-GB boot volumes total 235 GB.
-- Approved but not provisioned at G0: one new dedicated `racetime` A1 instance at 1 OCPU/6 GB with a new 47-GB Balanced boot volume. After G1 creation, retained boot storage will total 282 GB; `z1rr-restream-control-staging` remains unchanged.
+- Approved but not provisioned at G0: one new dedicated `racetime` A1 instance at 1 OCPU/6 GB with a new 50-GB Balanced boot volume. After G1 creation, retained boot storage will total 285 GB, 85 GB above the documented free allocation; at current published prices and 10 VPUs/GB, the projected retained-volume charge is approximately $3.61 per month. `z1rr-restream-control-staging` remains unchanged.
 - The RaceTime fork has no substantive automated tests (`manage.py test` found zero) but its Django system check is clean.
 - `npm audit` reports one high-severity `js-cookie <=3.0.5` advisory with a fix available.
 - Current LiveSplit 1.8.37 targets .NET Framework 4.8.1 and exposes `IRaceProviderFactory`, `RaceProviderAPI`, `RaceProviderSettings`, and `IRaceInfo` in `LiveSplit.Core`.

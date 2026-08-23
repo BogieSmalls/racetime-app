@@ -1,7 +1,7 @@
 # Z1RR RaceTime Plan B Architecture Design
 
-**Date:** 2026-08-12
-**Status:** Approved design; implementation is conditional on Plan B activation
+**Date:** 2026-08-12; revised 2026-08-23
+**Status:** Approved for G0 local contingency-readiness work; external deployment remains conditional on G1 Plan-B activation
 **Primary repository:** `BogieSmalls/racetime-app`
 **Related repositories:** `Z1RR.Restream`, `TTPBot`, and a future `LiveSplit.Racetime.Z1RR`
 
@@ -41,13 +41,15 @@ approximately 5–15 minutes is acceptable when no race is active.
 | TTPBot change | Category changes to `z1rr`; host remains racetime.gg | Host and category change |
 | Z1RR.Restream | Adds logical `z1rr` source on racetime.gg | Adds logical `z1rr` source on Z1RR RaceTime |
 | LiveSplit | Stock Racetime provider is sufficient | Separate Z1RR provider is required |
-| Independent site work | Canceled | Activated |
+| Independent site work | G0 artifacts canceled | Local readiness at G0; external deployment at G1 |
 | Legacy TTP archive | Optional Council archive | Post-launch read-only site archive |
 
-Source preservation and the Restream work are outcome-independent. They may
-proceed before Dyn's decision. Z1RR-specific application changes, the OCI
-production platform, Discord login, and the separate LiveSplit provider are
-Plan-B-only.
+Source preservation and the Restream work are outcome-independent. G0 also
+permits local implementation and verification of the contingency application,
+container images, IaC definitions, Discord login, integration adapters,
+LiveSplit provider, release packages, and runbooks. These Plan-B-only artifacts
+are canceled if Dyn approves the requested category. G0 never permits Terraform
+apply, OCI/DNS/external-app mutation, deployment, publication, or cutover.
 
 ## 3. Goals
 
@@ -126,14 +128,16 @@ The neutral public fork is `https://github.com/BogieSmalls/racetime-app`, with:
 The fork was created from upstream commit
 `4dbe61fb06d2a132f2e1212e34ac2ae3a6d18069` on 2026-08-12.
 
-`master` remains an unmodified mirror of `upstream/master`. Plan B application
-changes live on a long-lived `z1rr-production` branch. Upstream changes are
-merged deliberately, tested in staging, and manually promoted. Production
-never deploys an unreviewed upstream commit automatically.
-The `z1rr-production` branch and Z1RR-specific application changes are not
-created until Plan B is activated. Creating and preserving the neutral fork is
-not a Plan-B deployment decision; it is an outcome-independent precaution that
-is already authorized.
+`master` remains an unmodified mirror of `upstream/master`. At G0, Plan B
+application changes may be implemented and tested on reviewed readiness feature
+branches and worktrees, but no deployable production branch or environment is
+activated. After G1, the approved changes move through review into the
+long-lived `z1rr-production` branch. Upstream changes are merged deliberately,
+tested under the applicable gate, and manually promoted. Production never
+deploys an unreviewed upstream commit automatically.
+
+The `z1rr-production` branch is not created or made default until Plan B is
+activated. Creating and preserving the neutral fork remains authorized at G0.
 
 Before contacting Dyn, source preservation should also include:
 
@@ -223,7 +227,7 @@ After G1 activation, create a new Terraform-managed Compute instance named
 - `VM.Standard.A1.Flex`;
 - 1 OCPU;
 - 6 GB RAM; and
-- a new 47 GB Balanced boot volume.
+- a new 50 GB Balanced boot volume, the current Terraform/image-source minimum.
 
 Z1RR RaceTime owns this VM exclusively. `z1rr-restream-control-staging` remains
 unchanged and available for its existing staging purpose until a separately
@@ -232,12 +236,13 @@ share a host, Compose project, networks, volumes, or secrets with Restream
 staging.
 
 The Council accepts the intentional cost of the new boot volume. At current
-published US list prices, 47 GB of storage plus 10 Balanced performance units
-per GB is approximately $2 per month. Creating it raises retained boot storage
-from 235 GB to 282 GB, or 82 GB above the documented 200 GB Always Free
-allocation. The actual retained-storage baseline must be captured from OCI
-after provisioning because existing volumes can have different performance
-settings.
+published US list prices of $0.0255 per GB-month for storage plus $0.017 per
+GB-month for Balanced performance, 50 GB costs $2.125, approximately $2.13 per
+month. Read-only inventory on 2026-08-23 verified that all five retained boot
+volumes report `size_in_gbs=47` and `vpus_per_gb=10`, totaling 235 GB. Creating
+the new volume raises retained storage to 285 GB, 85 GB above the documented
+200 GB allocation, for a projected retained-volume charge of $3.6125,
+approximately $3.61 per month. OCI Cost Analysis remains billing authority.
 
 OCI currently documents 1,500 A1 OCPU-hours and 9,000 GB-hours per month for
 the tenancy. A continuously running 1-OCPU/6-GB Plan B VM consumes roughly 744
@@ -245,9 +250,10 @@ OCPU-hours and 4,464 GB-hours in a 31-day month. The remaining A1 allowance can
 continue supporting on-demand Restream sessions; compute OCPU-hours are likely
 to be the first free allowance exhausted.
 
-After provisioning, OCI usage and billing alarms warn when forecast spend
-exceeds the observed retained-storage baseline by $1 and escalate when it
-exceeds that baseline by $3. The platform must not assume that an Always Free
+After provisioning, record OCI Cost Analysis's forecasted monthly
+retained-storage baseline as an exact dollar value in G1 evidence. Usage and
+billing alarms warn above baseline plus $1 and escalate above baseline plus $3.
+The platform must not assume that an Always Free
 VM has an SLA. OCI documents possible idle-instance reclamation and temporary
 shape-capacity shortages, so rebuild onto a temporary paid shape is part of the
 recovery plan.
@@ -255,6 +261,7 @@ recovery plan.
 References:
 
 - <https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm>
+- <https://registry.terraform.io/providers/oracle/oci/latest/docs/resources/core_instance.html>
 - <https://www.oracle.com/cloud/price-list/>
 - <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resource-billing-stopped-instances.htm>
 - <https://www.oracle.com/cloud/free/faq/>
@@ -547,25 +554,46 @@ expand/migrate/contract sequencing across releases.
 
 The new `racetime` VM is the production candidate used for G2 qualification.
 Its first externally reachable deployment uses the final canonical hostname,
-`racetime.z1rracing.com`, behind an operator-only Caddy access restriction.
-There is no `staging.racetime.z1rracing.com` record and no hostname or DNS
-promotion at G3.
+`racetime.z1rracing.com`. There is no `staging.racetime.z1rracing.com` record or
+hostname/DNS promotion at G3.
+
+The restriction is a Caddy default-deny source-IP allowlist evaluated before
+every application, static, media, OAuth, and WebSocket route. A root-owned file
+outside Git contains exact CIDRs for the primary and backup infrastructure
+operators, approved scheduled testers, `coop-relay`, and the required Z1RR
+Restream hosts. Each entry records owner, purpose, approving operators, and an
+expiry no later than the end of its scheduled test window. Two operators approve
+every change. There is no shared HTTP password. Caddy's internal ACME handling
+remains reachable only as needed for certificate issue/renewal; it exposes no
+application route. An unlisted source receives a generic `404`, cannot fetch
+assets or reach an OAuth callback, and cannot receive a WebSocket `101`. G2
+evidence must include denial probes from at least three unlisted public sources
+and allowed browser, OAuth, TTPBot, Restream, LiveSplit, and WebSocket flows.
 
 Qualification runs the exact immutable production image and production Compose
-topology with:
+topology with final hostname/TLS/proxy/security configuration, qualification-
+only MariaDB/Redis/media volumes, non-production integration credentials, and
+no production scheduler or production Discord announcement.
 
-- final hostname, TLS, proxy, and security configuration;
-- qualification-only MariaDB, Redis, and media state;
-- non-production Discord, Twitch, TTPBot, LiveSplit, and alert credentials;
-- no production scheduler or production Discord announcements; and
-- access limited to approved operators and test participants.
+While the canonical host is still restricted under G2, operators:
 
-Before G3, operators take the required qualification evidence and backup,
-replace qualification data and credentials with freshly initialized production
-state, rerun deployment and integration smoke tests, and keep the canonical
-hostname restricted. Public launch removes that restriction only after the
-go/no-go decision. `z1rr-restream-control-staging` remains a separate Restream
-staging host and is not part of the RaceTime qualification deployment.
+1. Stop all qualification schedulers and writes.
+2. Seal qualification backups beneath a distinct `qualification/` object prefix;
+   production restore tooling rejects that prefix.
+3. Create fresh production MariaDB, Redis, media, and operational volumes plus
+   the approved production secret bundle.
+4. Atomically switch the Compose deployment to the fresh production state.
+5. Revoke qualification Discord/Twitch/OAuth/bot/alert credentials and
+   invalidate qualification sessions and tokens before restarting public paths.
+6. Bootstrap final production site/category/owner state.
+7. Rerun deployment, login, HTTP/WSS, integration smoke, and restricted dress
+   rehearsal checks against the fresh production state.
+8. Obtain the Council's G3 go/no-go decision only after that evidence passes.
+
+Rollback may use the last valid production backup/release, but never
+qualification data, backups, sessions, tokens, or credentials.
+`z1rr-restream-control-staging` remains a separate Restream staging host and is
+not part of the RaceTime qualification deployment.
 
 ## 14. Backups and disaster recovery
 
@@ -751,33 +779,48 @@ without depending on racetime.gg administration.
 ## 19. Activation and cutover
 
 Source preservation is already active and must finish before the Council
-contacts Dyn. Restream's provider/category abstraction is also
-outcome-independent and may be planned and implemented before Dyn's response.
-All other Plan-B-only implementation begins only after Dyn declines the
-Council's request or the Council explicitly activates Plan B. The self-hosted
-service remains operator-only until every launch gate passes.
+contacts Dyn. Restream's provider/category abstraction is outcome-independent.
+During G0, the team may also implement and verify all contingency application,
+image, IaC-definition, integration, release, and runbook artifacts locally or
+with hermetic test doubles. This work creates no public or billable Plan-B
+resource and is discarded if the Racetime.gg category request succeeds.
 
-Public cutover occurs in a historically quiet, race-free window. The canonical
+Terraform apply, OCI resource creation or mutation, DNS changes, external app
+registration, secret creation, any restricted deployment, and publication are
+forbidden until the Council explicitly records G1 activation. The canonical
+host remains operator-restricted through G2 finalization and becomes public
+only after G3 approval.
+
+Public cutover occurs in a historically quiet, race-free window. Before the
+Council votes on G3, G2 has already sealed the qualification evidence, switched
+the deployment to fresh production state and secrets, revoked qualification
+credentials and sessions, verified a production backup, and completed the
+restricted production smoke test and dress rehearsal. The canonical
 `racetime.z1rracing.com` DNS record and TLS configuration are already present
 and operator-restricted; G3 does not change the hostname or promote a staging
-record:
+record.
 
-1. Freeze the qualified release and create final verified backups.
-2. Replace qualification data and credentials with approved production state.
-3. Confirm the existing canonical DNS, TLS, health checks, and alert delivery.
-4. Create Council accounts and grant category ownership.
-5. Verify production Discord, Twitch, TTPBot, and LiveSplit OAuth clients.
-6. Run a restricted dress-rehearsal race through TTPBot, LiveSplit, and Restream.
-7. Publish user instructions and the Z1RR LiveSplit provider.
-8. Disable TTPBot's scheduler for the old destination.
-9. Remove the canonical-host access restriction, enable the new destination,
-   and observe the first scheduled room.
-10. Monitor the first week closely and retain rollback configuration.
+After the Council records G3 Go:
 
-No old TTPBot state or credentials are deleted during the rollback window. The
-cutover procedure must ensure only one scheduler can create production rooms.
-Early rollback re-applies the canonical-host access restriction and restores
-the old scheduler destination; it does not change DNS.
+1. Verify the signed G2 evidence, G3 decision record, frozen release hashes,
+   eligible production backup, and existing canonical DNS, TLS, health checks,
+   and alert delivery.
+2. Publish the launch instructions and Z1RR LiveSplit provider.
+3. Disable TTPBot's scheduler for the old destination and verify that it has no
+   active room or pending creation job.
+4. Through the cutover state machine, remove the canonical-host source-IP
+   restriction and enable the new scheduler destination while enforcing that
+   exactly one production scheduler is enabled.
+5. Observe the first scheduled room and its TTPBot, LiveSplit, Restream, OAuth,
+   WebSocket, and audit-log flows.
+6. Monitor the first week closely and retain rollback configuration.
+
+Qualification state, backups, sessions, and credentials are never rollback
+assets. Early rollback re-applies the canonical-host restriction, disables the
+new scheduler, and restores the old Racetime.gg destination only after the
+single-scheduler and room-integrity checks pass. Application rollback may use
+only eligible production backups and frozen production releases; it never
+changes DNS or restores qualification state.
 
 If Dyn approves `racetime.gg/z1rr`, self-hosting work is canceled:
 
