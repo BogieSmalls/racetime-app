@@ -147,8 +147,15 @@ Before contacting Dyn, source preservation should also include:
 - enough restoration notes to recreate the public fork if GitHub changes its
   fork relationship or upstream availability.
 
-The GPL-3.0 license and upstream attribution remain intact. Z1RR-specific
-commits should be kept focused so upstream merges remain reviewable.
+The GPL-3.0 license and upstream attribution remain intact. Ordinary GPL-3.0
+does not impose an AGPL-style source-publication requirement merely because a
+modified service is reachable over a network. G2 source and release artifacts
+may be visible under ADR-008's reviewed branch policy, but that visibility is
+not launch authorization. The team meets corresponding-source duties whenever
+object code is conveyed and, as Council policy, publishes the exact source for
+the public deployment at G3. Z1RR-specific commits remain focused for review.
+
+License reference: <https://www.gnu.org/licenses/gpl-faq.en.html#UnreleasedMods>
 
 ## 7. Production topology
 
@@ -184,8 +191,9 @@ The normal production stack contains:
 - **Backup/maintenance jobs:** database export, media backup, retention,
   integrity verification, and scheduled health tasks.
 
-Persistent storage is limited to the MariaDB volume, media, Caddy state,
-operational state, and logs with enforced rotation. Static assets and
+Persistent storage is limited to the MariaDB volume, media, separate
+qualification/production Caddy state, operational state, and logs with enforced
+rotation. Static assets and
 application code are replaceable build artifacts.
 
 ### 7.3 External dependencies
@@ -244,11 +252,25 @@ the new volume raises retained storage to 285 GB, 85 GB above the documented
 200 GB allocation, for a projected retained-volume charge of $3.6125,
 approximately $3.61 per month. OCI Cost Analysis remains billing authority.
 
-OCI currently documents 1,500 A1 OCPU-hours and 9,000 GB-hours per month for
-the tenancy. A continuously running 1-OCPU/6-GB Plan B VM consumes roughly 744
-OCPU-hours and 4,464 GB-hours in a 31-day month. The remaining A1 allowance can
-continue supporting on-demand Restream sessions; compute OCPU-hours are likely
-to be the first free allowance exhausted.
+The accepted paid storage overage requires this deployment to use a paid OCI
+tenancy. Oracle's current paid-tenancy price list includes 3,000 A1 OCPU-hours
+and 18,000 GB-hours per month; the separate Always Free-only page currently
+lists 1,500/9,000. The G1 preflight must record the account's billing status,
+effective entitlement, and current-month A1 usage before Terraform apply. A
+mismatch blocks apply until the cost/headroom calculation is revised.
+
+A continuously running 1-OCPU/6-GB VM consumes 744 OCPU-hours and 4,464
+GB-hours in a 31-day month, leaving 2,256 OCPU-hours and 13,536 GB-hours under
+the currently advertised paid-tenancy allowance. Before other A1 consumers,
+that is at most 188 aggregate hours for a 12-OCPU encoder. A 2-OCPU/6-GB
+RaceTime fallback consumes 1,488 OCPU-hours and leaves 1,512, or 126 aggregate
+12-OCPU encoder-hours. OCPU-hours remain the first allowance exhausted.
+
+The 1-OCPU/6-GB allocation remains the initial target. Run the full load gate
+early in G2, before the fresh-production transition. Failure requires a
+graceful stop and in-place flex-shape resize to 2 OCPUs/6 GB, which reboots the
+VM but retains its boot volume and network attachments, followed by a complete
+retest. G3 cannot waive this gate.
 
 After provisioning, record OCI Cost Analysis's forecasted monthly
 retained-storage baseline as an exact dollar value in G1 evidence. Usage and
@@ -265,6 +287,7 @@ References:
 - <https://www.oracle.com/cloud/price-list/>
 - <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resource-billing-stopped-instances.htm>
 - <https://www.oracle.com/cloud/free/faq/>
+- <https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resizinginstances.htm>
 
 ## 9. Site identity, public accounts, and governance
 
@@ -300,9 +323,11 @@ accounts receive a unique, internal, non-deliverable address such as
 - is never used for mail; and
 - remains an implementation detail, not a recovery credential.
 
-A unique indexed `discord_id` (or a tightly scoped external-identity model)
-links Discord to the Racetime user. The implementation plan must choose the
-smaller upstream-compatible migration after tests prove lifecycle behavior.
+As decided by ADR-001, an `ExternalIdentity` model links Discord to the
+Racetime user. It stores `provider`, immutable provider `subject`, owning
+`User`, and timestamps, with unique constraints on `(provider, subject)` and
+`(provider, user)`. No Z1RR-specific `discord_id` field is added to the upstream
+`User` table.
 
 Public password login, password creation, password reset, email editing,
 registration mail, public category requests, and Patreon UI are disabled.
@@ -521,13 +546,17 @@ The raw export is reproducible and versioned or checksummed. The presentation
 can be static data/templates or a bounded archive model, chosen during its own
 design/plan after launch.
 
-## 13. Deployment and staging
+## 13. Deployment and qualification
 
 ### 13.1 Build and release
 
-GitHub Actions builds and tests a multi-stage ARM64 production image. Releases
-are immutable and identified by Git commit SHA. Production Compose pins exact
-image digests or immutable tags; it never follows `latest`.
+GitHub Actions builds and smoke-tests `linux/arm64` and `linux/amd64` variants
+from one multi-stage Dockerfile and publishes a single multi-platform manifest
+for each Git commit SHA. Releases are immutable. A1 production selects the
+ARM64 digest; paid x86 disaster recovery selects the amd64 digest. Production
+Compose pins exact digests or immutable tags and never follows `latest`.
+
+Build reference: <https://docs.docker.com/build/building/multi-platform/>
 
 Deployment is manual and performs:
 
@@ -557,18 +586,48 @@ Its first externally reachable deployment uses the final canonical hostname,
 `racetime.z1rracing.com`. There is no `staging.racetime.z1rracing.com` record or
 hostname/DNS promotion at G3.
 
-The restriction is a Caddy default-deny source-IP allowlist evaluated before
-every application, static, media, OAuth, and WebSocket route. A root-owned file
+The restriction is a Caddy default-deny source-IP allowlist implemented as the
+first ordinary HTTP handler after the TLS handshake and before every
+application, static, media, OAuth, and WebSocket route. A root-owned file
 outside Git contains exact CIDRs for the primary and backup infrastructure
 operators, approved scheduled testers, `coop-relay`, and the required Z1RR
 Restream hosts. Each entry records owner, purpose, approving operators, and an
-expiry no later than the end of its scheduled test window. Two operators approve
-every change. There is no shared HTTP password. Caddy's internal ACME handling
-remains reachable only as needed for certificate issue/renewal; it exposes no
-application route. An unlisted source receives a generic `404`, cannot fetch
-assets or reach an OAuth callback, and cannot receive a WebSocket `101`. G2
-evidence must include denial probes from at least three unlisted public sources
-and allowed browser, OAuth, TTPBot, Restream, LiveSplit, and WebSocket flows.
+expiry no later than the end of its scheduled test window. Two operators
+approve every change. There is no shared HTTP password.
+
+Qualification certificate automation is explicit:
+
+- Caddy initially uses Let's Encrypt's staging ACME endpoint as its only issuer
+  and a persistent `caddy-qualification` data volume. No production, ZeroSSL,
+  or test-directory fallback issuer is configured. Staging roots are installed
+  only in dedicated test trust stores, never ordinary operator/client trust
+  stores.
+- Staging certificates use test CT logs and are not reliably discoverable
+  through production CT monitoring. This reduces but does not promise zero
+  hostname disclosure during qualification.
+- TLS-ALPN-01 is the only enabled challenge. Caddy completes it during the TLS
+  handshake before the source-IP HTTP handler; HTTP-01 is disabled, so
+  `/.well-known/acme-challenge/` is not a public allowlist exemption. Port 80
+  serves no application or challenge path while restricted; it redirects only
+  allowlisted sources and gives unlisted sources the generic denial.
+- After fresh production application state is active in late G2, operators
+  create `caddy-production` exactly once, switch to the production ACME
+  endpoint as the only issuer, and obtain the publicly trusted certificate. A
+  failed issuance blocks G2 rather than falling back to another CA or staging.
+  Issuance makes `racetime.z1rracing.com` visible in public CT logs;
+  the Council accepts this narrowly timed disclosure after G1 activation.
+- The production Caddy state volume persists across application-state resets,
+  deployments, and rollbacks and is included in encrypted recovery artifacts.
+  Preflight rejects accidental recreation without incident approval and an
+  explicit certificate-rate-limit check; the current exact-identifier limit is
+  five new certificates per seven days and must be reverified at G1.
+
+An unlisted source receives a generic `404`, cannot fetch assets or reach an
+OAuth callback, and cannot receive a WebSocket `101`. G2 evidence includes
+denial probes from at least three unlisted public sources; successful allowed
+browser/OAuth/TTPBot/Restream/LiveSplit/WSS flows; staging and production issuer
+identity; HTTP-01 denial; exactly one production issuance; and persistence of
+the production Caddy state across an application redeploy.
 
 Qualification runs the exact immutable production image and production Compose
 topology with final hostname/TLS/proxy/security configuration, qualification-
@@ -580,20 +639,32 @@ While the canonical host is still restricted under G2, operators:
 1. Stop all qualification schedulers and writes.
 2. Seal qualification backups beneath a distinct `qualification/` object prefix;
    production restore tooling rejects that prefix.
-3. Create fresh production MariaDB, Redis, media, and operational volumes plus
-   the approved production secret bundle.
-4. Atomically switch the Compose deployment to the fresh production state.
+3. Create fresh production MariaDB, Redis, media, and application-operational
+   volumes plus the approved production secret bundle. These do not reuse or
+   replace either Caddy state volume.
+4. Stop the Compose application, repoint it to the fresh production volumes,
+   and start it. This is a controlled stop/repoint/start, not an atomic volume
+   primitive.
 5. Revoke qualification Discord/Twitch/OAuth/bot/alert credentials and
    invalidate qualification sessions and tokens before restarting public paths.
 6. Bootstrap final production site/category/owner state.
-7. Rerun deployment, login, HTTP/WSS, integration smoke, and restricted dress
+7. Create the persistent production Caddy state once, switch to production
+   ACME, issue the public certificate, and retain short G2 HSTS.
+8. Rerun deployment, login, HTTP/WSS, TLS/issuer, integration smoke, and dress
    rehearsal checks against the fresh production state.
-8. Obtain the Council's G3 go/no-go decision only after that evidence passes.
+9. Obtain the Council's G3 go/no-go decision only after that evidence passes.
 
 Rollback may use the last valid production backup/release, but never
 qualification data, backups, sessions, tokens, or credentials.
 `z1rr-restream-control-staging` remains a separate Restream staging host and is
 not part of the RaceTime qualification deployment.
+
+References:
+
+- <https://letsencrypt.org/docs/staging-environment/>
+- <https://letsencrypt.org/docs/rate-limits/>
+- <https://caddyserver.com/docs/automatic-https>
+- <https://caddyserver.com/docs/caddyfile/directives/tls>
 
 ## 14. Backups and disaster recovery
 
@@ -602,6 +673,8 @@ not part of the RaceTime qualification deployment.
 Encrypted off-machine backups are written to a private OCI Object Storage
 bucket:
 
+- encrypted production Caddy state after initial issuance, renewal, or material
+  change, retaining the current and two previous verified generations;
 - compressed MariaDB logical export every six hours;
 - media snapshot nightly;
 - additional database backup before each deployment;
@@ -615,11 +688,20 @@ must have an operator-held recovery copy outside the VM and outside the backup
 bucket. OCI-side encryption and private bucket policy remain enabled even when
 client-side encryption is used.
 
+The approximately $3.61 monthly projection in §8.2 covers retained boot-volume
+overage only. Object Storage is a separate, usage-dependent cost surface: fixed
+retention-point counts do not cap bytes as MariaDB and media grow. At G1,
+operators record the tenancy's applicable free byte/request entitlements,
+current tier usage, and the compressed/encrypted size of the first full backup.
+Monitoring alarms at 75% and 90% of the verified byte and request entitlements;
+forecast charges or a retention expansion require Council approval. Lifecycle
+pruning is tested so expired points release storage rather than grow forever.
+
 Expected objectives are:
 
 - database RPO: no more than six hours;
 - media RPO: no more than 24 hours; and
-- service RTO: target four hours when OCI capacity is available.
+- service RTO: target four hours when compatible OCI capacity is available.
 
 ### 14.2 Restore assurance
 
@@ -635,15 +717,21 @@ The disaster-recovery package consists of:
 
 - infrastructure and firewall configuration in Git;
 - production Compose/Caddy configuration;
-- pinned application image/source;
+- encrypted production Caddy state;
+- pinned multi-platform application image/source;
 - operator-held secrets and backup key;
 - encrypted Object Storage backups;
 - DNS update instructions; and
 - a rehearsed rebuild/restore runbook.
 
-If A1 Always Free capacity is unavailable, operators may restore temporarily
-to a paid compatible shape. Cost alerts remain active, and the service can be
-moved/down-sized after capacity returns.
+If A1 capacity is unavailable, the primary paid fallback is
+`VM.Standard.E5.Flex` at 1 OCPU/6 GB using the release's `linux/amd64` variant.
+At G1, a capacity report and image-compatibility check must verify that shape in
+the home region; if unavailable, operators record an equivalent paid amd64
+shape before G2 can complete. A quarterly isolated recovery exercise restores
+the amd64 image and encrypted production data/Caddy state and proves the target
+four-hour RTO. Cost alerts remain active, and the service can move back to A1
+after capacity returns.
 
 ## 15. Monitoring, alerting, and logs
 
@@ -658,6 +746,7 @@ Monitoring covers:
 - CPU, memory, disk, inode, and database growth;
 - active-room and racebot anomalies;
 - backup freshness and retention failure;
+- Object Storage bytes, request count, lifecycle pruning, and spend forecast;
 - TLS renewal;
 - Discord and Twitch integration failures;
 - repeated authentication/rate-limit abuse;
@@ -679,26 +768,36 @@ events, and manual identity recovery.
 Required controls include:
 
 - root-owned environment files or OCI Vault for secrets; never Git;
-- separate production and staging credentials;
+- separate production and qualification credentials;
 - least-privilege OCI dynamic groups/policies for backup upload and monitoring;
 - no public MariaDB or Redis listeners;
 - non-root containers and dropped Linux capabilities where supported;
 - read-only application filesystems except declared volumes;
 - pinned dependencies/base images and automated vulnerability reporting;
-- secure proxy headers, cookies, CSRF, allowed hosts/origins, and HSTS;
+- secure proxy headers, cookies, CSRF, and allowed hosts/origins; HSTS is
+  `max-age=300` through G2 and at least `31536000` after G3, without preload;
 - OAuth `state`, exact redirect-URI allowlists, short-lived codes, and mandatory
   S256 PKCE for public clients;
-- rate limiting for Discord login initiation/callback failures, race creation,
-  search, and other abuse-prone endpoints;
+- distributed rate limiting for Discord login initiation/callback failures,
+  OAuth decisions, race creation, account/admin mutations, search, and other
+  abuse-prone endpoints;
 - upload type/size validation and non-executable media delivery;
 - key-only restricted SSH and patched host/container runtime;
 - protected GitHub branches and reviewed production changes; and
 - periodic access review for superusers, Council owners, bots, OAuth clients,
   Discord webhooks, and OCI policies.
 
+Limiter loss fails closed for authentication, OAuth decisions, race creation,
+and account/admin mutations. Ready/start/done/DNF/DQ/split requests are
+authoritative in-race state transitions: during limiter loss they continue
+against MariaDB under bounded per-process emergency controls and emit an audit
+event plus operations alert. Ordinary chat/search may remain unavailable. Raw
+identity never appears in keys or logs.
+
 Security controls must not make an active race depend on Discord availability
-after login. Revocation, bans, and manual account transfer require documented,
-audited behavior.
+after login or on Redis limiter availability for authoritative state changes.
+Revocation, bans, and manual account transfer require documented, audited
+behavior.
 
 ## 17. Failure handling
 
@@ -706,7 +805,7 @@ audited behavior.
 | --- | --- |
 | Discord unavailable | Existing sessions and active races continue; new login shows a clear retryable error. |
 | Twitch unavailable | Existing race data remains safe; linking/stream checks fail closed with a clear message. |
-| Redis restarts | Clients reconnect with bounded backoff; authoritative state reloads from MariaDB. |
+| Redis/limiter restarts | Clients reconnect with bounded backoff; authoritative state reloads from MariaDB; core in-race state transitions use bounded audited emergency controls instead of being denied. |
 | MariaDB unavailable | Mutating requests fail safely; services do not fabricate or partially record results. |
 | Racebot crashes | Container restarts and alerts; room state remains authoritative in the database. |
 | One Restream provider fails | Only that provider's section/connection errors; the other source remains usable. |
@@ -714,7 +813,7 @@ audited behavior.
 | Backup fails | Production remains available; an immediate operations alert identifies the missing recovery point. |
 | Deployment smoke test fails | Stop promotion and pin the previous image; follow the migration-specific rollback procedure. |
 | Disk approaches limit | Alert before exhaustion; halt nonessential staging/backups locally while preserving off-machine backups. |
-| VM is lost/reclaimed | Rebuild from Git and Object Storage, using a temporary paid shape if necessary. |
+| VM is lost/reclaimed | Rebuild from Git and Object Storage on A1 or the recorded paid amd64 fallback. |
 
 ## 18. Verification and launch gates
 
@@ -757,17 +856,25 @@ Verify:
 
 Verify:
 
-- production image builds for ARM64 and starts from an empty host;
+- one immutable manifest builds and smoke-tests both `linux/arm64` and
+  `linux/amd64`, and the ARM64 variant starts from an empty A1 host;
 - migrations and bootstrap are repeatable;
 - active-race deployment refusal;
 - successful deployment and application rollback;
-- database/media backup, retention, encryption, and alerting;
-- full restore to an empty isolated environment;
-- TLS renewal and WebSocket proxy behavior;
+- database/media/Caddy-state backup, retention, encryption, restore eligibility,
+  Object Storage lifecycle pruning, byte/request alarms, and cost forecast;
+- full restore to an empty isolated ARM64 environment and quarterly restore to
+  the recorded paid amd64 fallback within the target RTO;
+- staging-ACME qualification, test-only trust, TLS-ALPN-only validation,
+  HTTP-01 denial, one late-G2 production issuance, production Caddy-state
+  persistence, TLS renewal, HSTS transition, and WebSocket proxy behavior;
 - OCI/host/service/billing alerts reach operations Discord;
+- paid-tenancy A1 entitlement/current usage and both 1-OCPU and conditional
+  2-OCPU Restream-headroom calculations are recorded;
 - logs omit credentials and rotate before filling disk; and
-- concurrent race/chat/reconnect load at least twice the largest expected TTP
-  room, with resource headroom on 1 OCPU/6 GB.
+- early-G2 concurrent race/chat/reconnect load at least twice the largest
+  expected TTP room with required headroom on 1 OCPU/6 GB, or an in-place
+  2-OCPU/6-GB resize followed by the complete gate again.
 
 ### 18.4 Launch definition
 
@@ -805,12 +912,14 @@ After the Council records G3 Go:
 1. Verify the signed G2 evidence, G3 decision record, frozen release hashes,
    eligible production backup, and existing canonical DNS, TLS, health checks,
    and alert delivery.
-2. Publish the launch instructions and Z1RR LiveSplit provider.
+2. Publish the exact corresponding RaceTime source, launch instructions, and
+   Z1RR LiveSplit provider.
 3. Disable TTPBot's scheduler for the old destination and verify that it has no
    active room or pending creation job.
 4. Through the cutover state machine, remove the canonical-host source-IP
-   restriction and enable the new scheduler destination while enforcing that
-   exactly one production scheduler is enabled.
+   restriction, raise HSTS to at least one year without preload, and enable the
+   new scheduler destination while enforcing that exactly one production
+   scheduler is enabled.
 5. Observe the first scheduled room and its TTPBot, LiveSplit, Restream, OAuth,
    WebSocket, and audit-log flows.
 6. Monitor the first week closely and retain rollback configuration.
@@ -821,6 +930,13 @@ new scheduler, and restores the old Racetime.gg destination only after the
 single-scheduler and room-integrity checks pass. Application rollback may use
 only eligible production backups and frozen production releases; it never
 changes DNS or restores qualification state.
+
+Before a non-emergency rollback hides the canonical host, operations announces
+the rollback, impact, fallback destination, and next-update time in the public
+Z1RR Discord. A security/integrity emergency may restrict first but must announce
+within five minutes through the independent Discord path. Operations posts
+updates on the promised cadence and a resolution notice after service or the old
+destination is verified.
 
 If Dyn approves `racetime.gg/z1rr`, self-hosting work is canceled:
 
