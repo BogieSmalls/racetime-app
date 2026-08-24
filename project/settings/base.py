@@ -207,6 +207,13 @@ RT_PUBLIC_PASSWORD_AUTH = True
 RT_PUBLIC_CATEGORY_REQUESTS = True
 RT_PATREON_ENABLED = True
 
+# Distributed public-endpoint throttling is opt-in for upstream development.
+# Service-backed and production profiles enable it with a dedicated secret.
+RT_THROTTLING_ENABLED = False
+RT_THROTTLING_REQUIRE_REDIS = False
+RACETIME_THROTTLE_HMAC_KEY = None
+RACETIME_TRUSTED_PROXY_CIDR = None
+
 
 RT_SITE_URI = 'http://localhost:8000'
 # Discord OAuth is fail-closed in base/development settings. Deployments that

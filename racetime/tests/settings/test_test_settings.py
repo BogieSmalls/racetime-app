@@ -45,6 +45,10 @@ class TestSettingsTests(SimpleTestCase):
         self.assertTrue(settings.RT_DISCORD_AUTH_ENABLED)
         self.assertFalse(settings.RT_ENABLE_LEGACY_LIVESPLIT_PKCE_BYPASS)
         self.assertFalse(settings.RT_SERVICE_BACKED_CI)
+        self.assertTrue(settings.RT_THROTTLING_ENABLED)
+        self.assertFalse(settings.RT_THROTTLING_REQUIRE_REDIS)
+        self.assertGreaterEqual(len(settings.RACETIME_THROTTLE_HMAC_KEY), 32)
+        self.assertEqual(settings.RACETIME_TRUSTED_PROXY_CIDR, "172.30.0.2/32")
 
 
 class TestWorkflowContractTests(SimpleTestCase):

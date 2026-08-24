@@ -21,6 +21,7 @@ CI_VARIABLES = (
     "RACETIME_CI_DB_HOST",
     "RACETIME_CI_DB_PORT",
     "RACETIME_CI_REDIS_URL",
+    "RACETIME_CI_THROTTLE_HMAC_KEY",
 )
 
 
@@ -65,6 +66,12 @@ class CISettingsContractTests(TransactionTestCase):
         self.assertEqual(
             settings.CHANNEL_LAYERS["default"]["BACKEND"],
             "racetime.utils.RedisChannelLayer",
+        )
+        self.assertTrue(settings.RT_THROTTLING_ENABLED)
+        self.assertTrue(settings.RT_THROTTLING_REQUIRE_REDIS)
+        self.assertGreaterEqual(len(settings.RACETIME_THROTTLE_HMAC_KEY), 32)
+        self.assertEqual(
+            settings.RACETIME_TRUSTED_PROXY_CIDR, "172.30.0.2/32"
         )
 
     def test_database_transaction_round_trip(self):

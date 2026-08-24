@@ -1,18 +1,14 @@
 """Discord authentication and first-account creation views."""
 
-import hashlib
-import secrets
 import time
 
 from django.conf import settings
 from django.contrib.auth import login
-from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.cache import patch_cache_control
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_protect
@@ -26,14 +22,10 @@ from racetime.discord import (
     consume_discord_callback,
     issue_discord_oauth_state,
 )
-from racetime.utils import determine_ip
 
 
 PENDING_IDENTITY_SESSION_KEY = "discord_pending_identity"
 PENDING_IDENTITY_MAX_AGE_SECONDS = 600
-_RATE_SESSION_KEY = "discord_rate_session"
-_RATE_LIMIT = 10
-_RATE_WINDOW_SECONDS = 600
 _AUTH_BACKEND = "django.contrib.auth.backends.ModelBackend"
 
 
@@ -64,47 +56,6 @@ def _safe_next(request, next_url):
     ):
         return "/"
     return next_url
-
-
-def _rate_counter(key, timeout):
-    if cache.add(key, 1, timeout=timeout):
-        return 1
-    try:
-        return cache.incr(key)
-    except ValueError:
-        cache.set(key, 1, timeout=timeout)
-        return 1
-
-
-def _rate_limited(request, scope):
-    session_marker = request.session.get(_RATE_SESSION_KEY)
-    if not isinstance(session_marker, str) or not session_marker:
-        session_marker = secrets.token_urlsafe(16)
-        request.session[_RATE_SESSION_KEY] = session_marker
-
-    window = int(time.time()) // _RATE_WINDOW_SECONDS
-    timeout = _RATE_WINDOW_SECONDS + 1
-    dimensions = (
-        ("ip", determine_ip(request) or "unavailable"),
-        ("session", session_marker),
-    )
-    blocked = False
-    for dimension, value in dimensions:
-        digest = hashlib.sha256(str(value).encode("utf-8")).hexdigest()
-        key = f"discord-auth:{scope}:{dimension}:{digest}:{window}"
-        if _rate_counter(key, timeout) > _RATE_LIMIT:
-            blocked = True
-    return blocked
-
-
-def _throttled_response():
-    response = HttpResponse(
-        "Too many authentication attempts. Please retry later.",
-        status=429,
-    )
-    response["Retry-After"] = str(_RATE_WINDOW_SECONDS)
-    patch_cache_control(response, no_store=True, private=True)
-    return response
 
 
 def _pending_identity(request):
@@ -181,8 +132,6 @@ def _create_or_find_account(request, subject, name):
 @require_GET
 def discord_initiate(request):
     _require_discord_auth()
-    if _rate_limited(request, "initiate"):
-        return _throttled_response()
     try:
         state = issue_discord_oauth_state(request, request.GET.get("next", "/"))
         location = DiscordOAuthClient().authorization_url(state)
@@ -195,8 +144,6 @@ def discord_initiate(request):
 @require_GET
 def discord_callback(request):
     _require_discord_auth()
-    if _rate_limited(request, "callback"):
-        return _throttled_response()
     try:
         code, next_url = consume_discord_callback(request)
         oauth_client = DiscordOAuthClient()
@@ -229,8 +176,6 @@ def discord_callback(request):
 @require_http_methods(["GET", "POST"])
 def discord_create_account(request):
     _require_discord_auth()
-    if _rate_limited(request, "create"):
-        return _throttled_response()
     pending = _pending_identity(request)
     if pending is None:
         return _generic_error(request)

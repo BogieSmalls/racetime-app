@@ -81,6 +81,7 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     env:
+      RACETIME_CI_THROTTLE_HMAC_KEY: ci-only-dedicated-throttle-key-0123456789abcdef
       DJANGO_SETTINGS_MODULE: project.settings.ci
       RACETIME_CI_DB_NAME: racetime_ci
       RACETIME_CI_DB_USER: root
