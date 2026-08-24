@@ -203,6 +203,16 @@ OAUTH2_PROVIDER = {
 EMAIL_FROM = 'hello@racetime.dev'
 
 RT_SITE_URI = 'http://localhost:8000'
+# Discord OAuth is fail-closed in base/development settings. Deployments that
+# enable it must supply credentials through their environment-backed profile.
+RT_DISCORD_AUTH_ENABLED = False
+DISCORD_AUTHORIZE_URL = 'https://discord.com/oauth2/authorize'
+DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token'
+DISCORD_USER_URL = 'https://discord.com/api/users/@me'
+DISCORD_REDIRECT_URI = RT_SITE_URI + '/account/discord/callback'
+DISCORD_HTTP_TIMEOUT = (3.05, 10.0)
+DISCORD_CLIENT_ID = None
+DISCORD_CLIENT_SECRET = None
 
 RT_SITE_INFO = {
     'title': 'racetime.dev',
