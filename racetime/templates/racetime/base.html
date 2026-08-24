@@ -3,6 +3,7 @@
 <html lang="en">
     <head>
         <title>{% block title %}{% endblock %}{{ site_info.title }}</title>
+        <link rel="icon" href="{% static 'racetime/image/favicon.svg' %}" type="image/svg+xml">
         <link href="https://fonts.googleapis.com/css?family=Roboto+Slab:400,700|Roboto:400,700&display=swap" rel="stylesheet">
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
         <link href="{% static 'jquery-ui.structure.css' %}" rel="stylesheet">
@@ -11,7 +12,7 @@
 
         {% block site_head %}{% endblock %}
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="theme-color" content="#26dd9a">
+        <meta name="theme-color" content="{{ site_info.theme_color }}">
         <meta property="og:type" content="website">
         <meta property="og:site_name" content="{{ site_info.meta_site_name }}">
         {% block meta %}
@@ -26,7 +27,7 @@
                 <header>
                     <div class="title">
                         <h1><a href="/">
-                            <img src="{% static 'racetime/image/logo.svg' %}" alt="">
+                            <img src="{% static site_info.header_logo %}" alt="{{ site_info.title }}">
                             <span>{{ site_info.header_text|safe }}</span>
                         </a></h1>
                     </div>
@@ -100,7 +101,7 @@
                             <ul>
                                 {% for item in group %}
                                     <li>
-                                        <a class="{{ item.class }}" href="{{ item.link }}" target="_blank">
+                                        <a class="{{ item.class }}" href="{{ item.link }}"{% if item.external %} target="_blank" rel="noopener noreferrer"{% endif %}>
                                             {% if item.icon %}
                                                 <i class="material-icons">{{ item.icon }}</i>
                                             {% endif %}
@@ -115,7 +116,8 @@
                         {% endfor %}
                     </div>
                     <span class="tagline">
-                        {{ site_info.footer_text|random }}
+                        {{ site_info.operator_text }}<br>
+                        <a href="{{ site_info.upstream_url }}" target="_blank" rel="noopener noreferrer">{{ site_info.upstream_text }}</a>
                     </span>
                 </footer>
             {% endblock %}

@@ -7,11 +7,17 @@
 {% block main %}
     <h2>Delete account</h2>
     <p>
-        Are you sure you want to delete your Z1RR RaceTime account? All your
-        data will be immediately and <strong>permanently</strong> erased.
+        Are you sure you want to delete your Z1RR RaceTime account? This
+        permanently removes your live account and connected identity from the
+        service. Your profile will no longer be available.
     </p>
     <p>
-        This action cannot be undone.
+        Historical race results and system messages are retained only in
+        anonymized form where the service needs the race record to remain
+        coherent. Deleted records may remain in encrypted backups until their
+        retention period expires, for up to one year. See the
+        <a href="{% url 'account_deletion_policy' %}">account-deletion policy</a>
+        for details. This action cannot be undone through the site.
     </p>
     <ul style="margin: 1em">
         <li>Account name: <strong>{{ user.name }}</strong></li>

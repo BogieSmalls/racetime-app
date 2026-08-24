@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.http import Http404
 from django.urls import path, include
+from django.views.generic import TemplateView
 from oauth2_provider import views as oauth2_views
 
 from . import views
@@ -118,6 +119,30 @@ request_category_view = (
 urlpatterns = [
     path('healthz', views.healthz, name='healthz'),
     path('internal/readyz', views.internal_readyz, name='internal_readyz'),
+    path(
+        'privacy',
+        TemplateView.as_view(template_name='racetime/policy/privacy.html'),
+        name='privacy_policy',
+    ),
+    path(
+        'acceptable-use',
+        TemplateView.as_view(
+            template_name='racetime/policy/acceptable_use.html'
+        ),
+        name='acceptable_use_policy',
+    ),
+    path(
+        'account-deletion',
+        TemplateView.as_view(
+            template_name='racetime/policy/account_deletion.html'
+        ),
+        name='account_deletion_policy',
+    ),
+    path(
+        'contact',
+        TemplateView.as_view(template_name='racetime/policy/contact.html'),
+        name='contact_policy',
+    ),
 
     path(
         'account',

@@ -2,7 +2,6 @@
 Quick-start development settings - unsuitable for production
 See https://docs.djangoproject.com/en/2.2/howto/deployment/checklist/
 """
-from datetime import datetime
 import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -238,15 +237,45 @@ DISCORD_CLIENT_ID = None
 DISCORD_CLIENT_SECRET = None
 
 RT_SITE_INFO = {
-    'title': 'racetime.dev',
-    'header_text': 'racetime<span class="dot">.</span>dev',
-    'meta_site_name': 'racetime.dev',
-    'meta_description': 'racetime development environment',
-    'footer_text': ['Development environment. Last restart: ' + datetime.now().isoformat()],
+    'title': 'Z1RR RaceTime',
+    'header_text': 'Z1RR <span class="dot">.</span> RaceTime',
+    'header_logo': 'racetime/image/favicon.svg',
+    'theme_color': '#21d48e',
+    'meta_site_name': 'Z1RR RaceTime',
+    'meta_description': (
+        'Organized Zelda 1 Randomizer racing, operated by Z1Rracing.'
+    ),
+    'operator_text': 'Operated by Z1Rracing',
+    'upstream_text': 'Powered by the open-source Racetime project',
+    'source_url': 'https://github.com/BogieSmalls/racetime-app',
+    'license_url': (
+        'https://github.com/BogieSmalls/racetime-app/'
+        'blob/z1rr-production/LICENSE'
+    ),
+    'upstream_url': 'https://github.com/racetimeGG/racetime-app',
     'footer_links': (
         (
-            {'text': 'Discord', 'link': 'https://discord.racetime.gg', 'img': 'racetime/image/social/discord.svg'},
-            {'text': 'GitHub', 'link': 'https://github.com/racetimeGG/racetime-app', 'img': 'racetime/image/social/github.svg'},
+            {'text': 'Privacy', 'link': '/privacy'},
+            {'text': 'Acceptable use', 'link': '/acceptable-use'},
+            {'text': 'Account deletion', 'link': '/account-deletion'},
+            {'text': 'Contact', 'link': '/contact'},
+        ),
+        (
+            {
+                'text': 'Source code',
+                'link': 'https://github.com/BogieSmalls/racetime-app',
+                'icon': 'code',
+                'external': True,
+            },
+            {
+                'text': 'GPL-3.0 license',
+                'link': (
+                    'https://github.com/BogieSmalls/racetime-app/'
+                    'blob/z1rr-production/LICENSE'
+                ),
+                'icon': 'description',
+                'external': True,
+            },
         ),
     ),
     'extra_scripts': [],
