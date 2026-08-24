@@ -1,5 +1,5 @@
 {
-  "captured_at_utc": "2026-08-24T00:05:23Z",
+  "captured_at_utc": "2026-08-24T00:36:10Z",
   "upstream_url": "https://github.com/racetimeGG/racetime-app.git",
   "fork_url": "https://github.com/BogieSmalls/racetime-app.git",
   "default_branch": "master",
@@ -17,14 +17,14 @@
   },
   "tags": {},
   "source_bundle": {
-    "file": "racetime-app-fixture.bundle",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-    "bytes": 1
+    "file": "racetime-app-20260824T003609Z.bundle",
+    "sha256": "f5d57276f281a7ed80c322aab8bf874df95d03366649329daf3e74b42644cb1e",
+    "bytes": 1859653
   },
   "wiki": {
     "status": "archived",
-    "file": "racetime-app-wiki-fixture.bundle",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-    "bytes": 1
+    "file": "racetime-app-wiki-20260824T003609Z.bundle",
+    "sha256": "d462e141ad5e772561251098e3a93110d56a5519bbeaedd40375b35dfee668b4",
+    "bytes": 545227
   }
 }

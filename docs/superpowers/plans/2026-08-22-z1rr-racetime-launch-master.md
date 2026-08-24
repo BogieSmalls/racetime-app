@@ -220,7 +220,7 @@ git commit -am "docs: accept racetime source preservation artifacts"
 
 - [ ] **Step 1: Execute the RaceTime core/platform plan through its G0 stop line**
 
-Expected: APP-001–012 and PLT-001–008 are locally verified; no Terraform apply, public DNS, production app registration, or OCI mutation occurs.
+Expected: APP-001–012 and PLT-001–008 are locally verified; no Terraform apply, public DNS, production app registration, or OCI mutation occurs except the separately authorized private G0 source-custody bucket and its four source-preservation objects.
 
 - [ ] **Step 2: Execute the Restream provider plan**
 
@@ -236,7 +236,7 @@ Expected: LS-001–007 build/test locally; no public OAuth app, release, or upda
 
 - [ ] **Step 5: Execute Operations Tasks 1–2 through its explicit G0 stop line**
 
-Expected: GOV-004 and OPS-001–004 are locally verified; `validate-evidence.py`, `validate-traceability.py`, the release-identity collector, and the qualification/fresh-production state machines exist and pass hermetic tests. Operations Task 3 or later is forbidden before its stated gate, and no OCI/DNS/external-app/qualification mutation occurs.
+Expected: GOV-004 and OPS-001–004 are locally verified; `validate-evidence.py`, `validate-traceability.py`, the release-identity collector, and the qualification/fresh-production state machines exist and pass hermetic tests. Operations Task 3 or later is forbidden before its stated gate, and no OCI/DNS/external-app/qualification mutation occurs except the separately authorized private G0 source-custody bucket and its four source-preservation objects.
 
 - [ ] **Step 6: Review each workstream independently**
 

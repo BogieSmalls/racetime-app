@@ -2,20 +2,20 @@
 
 ## Result
 
-**HOLD.** The implementation is materially complete at the source level, but G0 is not accepted. Mandatory container/service/browser qualification and the independently controlled second source-archive copy are still outstanding. No requirement or artifact is marked verified solely because its files exist.
+**HOLD.** The implementation is materially complete at the source level, but G0 is not accepted. Mandatory container/service/browser qualification is still outstanding. The independently controlled second source-archive copy is now complete and verified. No requirement or artifact is marked verified solely because its files exist.
 
-No OCI resource, DNS record, production OAuth application, scheduler destination, public LiveSplit release, or `z1rr-production` branch was created or changed.
+The only OCI mutation was the explicitly authorized private G0 source-custody bucket and its four source-preservation objects. No Plan-B Compute/network resource, DNS record, production OAuth application, scheduler destination, public LiveSplit release, or `z1rr-production` branch was created or changed.
 
 ## Release identities reviewed in this run
 
 | Component | Commit | State |
 | --- | --- | --- |
-| RaceTime | `0299306` | local G0 implementation branch; generated source-custody metadata intentionally uncommitted pending second custody copy |
+| RaceTime | `0299306` plus the source-custody acceptance change | local G0 implementation branch; generated source-custody metadata is now accepted for commit |
 | Restream | `8e3dcb15` | clean reviewed worktree |
 | TTPBot | `db05a98` | clean reviewed worktree |
 | LiveSplit | `0489b4f` | clean reviewed, reproducible, signed private G0 RC |
 
-The release-identity collector returned `RELEASE_IDENTITIES=FAIL code=ReleaseIdentityError`, as designed, because the RaceTime source-custody metadata cannot be accepted or committed before the second archive copy is verified.
+The earlier release-identity collector failure was an expected custody hold. Custody is now closed; the collector remains pending until the container worker produces the same-commit image identities and the complete candidate repositories are clean.
 
 ## Evidence that passed
 
@@ -24,9 +24,11 @@ The release-identity collector returned `RELEASE_IDENTITIES=FAIL code=ReleaseIde
 - 32 source-preservation, complete-schema, restore, remote-boundary, drift-comparator, and workflow-contract tests passed.
 - Independent re-review approved the implementation with no findings apart from the intentionally outstanding external custody step.
 - The source archive restored an empty repository to upstream `master` at exact commit `4dbe61fb06d2a132f2e1212e34ac2ae3a6d18069`.
-- Candidate source bundle: SHA-256 `f5d57276f281a7ed80c322aab8bf874df95d03366649329daf3e74b42644cb1e`, 1,859,653 bytes.
-- Candidate wiki bundle: SHA-256 `d462e141ad5e772561251098e3a93110d56a5519bbeaedd40375b35dfee668b4`, 545,227 bytes.
-- The archive files remain outside Git. `docs/upstream/UPSTREAM_BASELINE.json` and `docs/upstream/SHA256SUMS` remain unaccepted until custody is complete.
+- Accepted source bundle: SHA-256 `f5d57276f281a7ed80c322aab8bf874df95d03366649329daf3e74b42644cb1e`, 1,859,653 bytes.
+- Accepted wiki bundle: SHA-256 `d462e141ad5e772561251098e3a93110d56a5519bbeaedd40375b35dfee668b4`, 545,227 bytes.
+- The private, versioned OCI custody copy was downloaded by immutable version ID and restored exact upstream `master` commit `4dbe61fb06d2a132f2e1212e34ac2ae3a6d18069`; all four downloaded hashes matched.
+- Detailed storage controls, version IDs, hashes, sizes, and re-read evidence: [2026-08-24-source-custody.md](2026-08-24-source-custody.md).
+- The bundle files remain outside Git. The public `docs/upstream/UPSTREAM_BASELINE.json` and `docs/upstream/SHA256SUMS` metadata are now accepted for commit.
 
 ### RaceTime application and platform
 
@@ -67,13 +69,11 @@ The release-identity collector returned `RELEASE_IDENTITIES=FAIL code=ReleaseIde
 
 ## Open G0 blockers
 
-1. **Second archive custody copy.** An approved independently controlled encrypted destination has not been supplied. Upload/copy, re-read, and SHA-256 comparison are still required before accepting SRC-001–006 or committing the generated public archive metadata.
-2. **Container and service-backed qualification.** This workstation has no Docker/Podman engine and no installed WSL distribution. The MariaDB/Redis CI suite, both `linux/arm64` and `linux/amd64` image build/smoke/scan/SBOM jobs, production Compose behavior tests, and backup/restore container rehearsals remain mandatory.
-3. **Substantive browser integration.** The isolated stack could not start without a container engine, so the two-entrant Chromium race lifecycle remains unexecuted.
-4. **G0 traceability.** `validate-traceability.py --gate G0` correctly returns `TRACEABILITY=FAIL gate=G0 code=TraceabilityError` while due rows remain `Planned`. The matrix must not be advanced until the blockers above pass and dated evidence exists.
+1. **Container and service-backed qualification.** This workstation has no Docker/Podman engine and no installed WSL distribution. The MariaDB/Redis CI suite, both `linux/arm64` and `linux/amd64` image build/smoke/scan/SBOM jobs, production Compose behavior tests, and backup/restore container rehearsals remain mandatory. The Synology DS718+ exposes Container Manager and is the selected worker candidate; SSH access is not yet enabled.
+2. **Substantive browser integration.** The isolated stack could not start without a container engine, so the two-entrant Chromium race lifecycle remains unexecuted.
+3. **G0 traceability.** `validate-traceability.py --gate G0` correctly returns `TRACEABILITY=FAIL gate=G0 code=TraceabilityError` while due rows remain `Planned`. The matrix must not be advanced until the blockers above pass and dated evidence exists.
 
 ## Next safe actions
 
-- Copy and re-verify both source bundles at the approved independent custody destination.
-- Run the existing container and integration workflows on a clean Docker-capable worker without publishing images or changing production infrastructure.
+- Enable temporary SSH access to the Synology DS718+ and run the existing container and integration workflows there without publishing images or changing production infrastructure.
 - Rerun the repository release-identity collector, complete the checklist, attach mandatory evidence, advance only supported G0 traceability rows, and request the final cross-repository review.

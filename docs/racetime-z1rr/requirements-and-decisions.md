@@ -1,6 +1,6 @@
 # Z1RR RaceTime Requirements and Decision Record
 
-**Date:** 2026-08-23
+**Date:** 2026-08-24
 **Status:** Approved for contingency-readiness work; external activation remains gated
 **Architecture source:** `docs/superpowers/specs/2026-08-12-plan-b-racetime-architecture-design.md`
 
@@ -8,13 +8,13 @@
 
 The Racetime.gg request is still pending. This record authorizes the team to produce and test source code, container definitions, infrastructure definitions, integration changes, release packages, and runbooks locally or in isolated non-public environments. It does **not** authorize provisioning public infrastructure, changing public DNS, creating production Discord/Twitch/OAuth applications, redirecting TTPBot, publishing the LiveSplit component, or announcing/cutting over the community.
 
-The Council must record an explicit **Plan B activation decision** before any externally visible or billable Plan-B action. If Racetime.gg grants a separately administered `z1rr` category, the self-hosted application, OCI site, Discord authentication, and Z1RR LiveSplit provider are canceled; the provider-neutral Restream and TTPBot changes are configured for `https://racetime.gg/z1rr`.
+The Council must record an explicit **Plan B activation decision** before any externally visible or billable Plan-B action. One narrow source-preservation exception is operator-authorized at G0: a private, versioned OCI Object Storage bucket may hold only the two upstream Git bundles and their public manifest/checksum files as the verified off-workstation custody copy. The bucket is not a Plan-B runtime or backup resource, creates no public endpoint, must use server-side encryption and private access, and does not authorize Compute, network, DNS, OAuth, secret, scheduler, publication, or production-backup changes. If Racetime.gg grants a separately administered `z1rr` category, the self-hosted application, OCI site, Discord authentication, and Z1RR LiveSplit provider are canceled; the provider-neutral Restream and TTPBot changes are configured for `https://racetime.gg/z1rr`.
 
 ## 2. Decision gates
 
 | Gate | Decision owner | Entry condition | Permitted work | Exit evidence |
 | --- | --- | --- | --- | --- |
-| G0 — Request pending | Z1RR Council | Current state | Plans, source preservation, local code/build/test artifacts, provider-neutral Restream/TTPBot work | Reviewed plan bundle and green local CI |
+| G0 — Request pending | Z1RR Council | Current state | Plans, source preservation (including the private custody-only bucket defined above), local code/build/test artifacts, provider-neutral Restream/TTPBot work | Reviewed plan bundle and green local CI |
 | G1 — Plan B activated | Z1RR Council, recorded in Council minutes | Racetime.gg declines, cannot meet the required date, or Council otherwise explicitly activates | Dedicated OCI production-candidate resources, restricted canonical DNS/TLS, production app registrations and secrets | Dated activation record naming the primary technical operator and recovery custodian plus the reviewed qualification allowlist |
 | G2 — Restricted qualification complete | Primary operator + Competitive Integrity representative | All component builds green; restricted production candidate available | Private qualification; sealed qualification evidence; fresh production-state initialization; qualification-credential revocation; final restricted smoke/dress rehearsal | Signed evidence packet proving production-state transition, public denial, and no open P0/P1 findings |
 | G3 — Public launch approved | Z1RR Council | G2 finalization is complete, every mandatory launch gate passes, and rollback is rehearsed | Remove canonical-host access restriction, publish user documentation and LiveSplit release, cut over TTPBot destination | Go/no-go record, verified backups, current contact roster |

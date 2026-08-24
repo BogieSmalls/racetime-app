@@ -1024,8 +1024,15 @@ contacts Dyn. Restream's provider/category abstraction is outcome-independent.
 During G0, the team may also implement and verify all contingency application,
 image, IaC-definition, integration, release, and runbook artifacts locally or
 with hermetic test doubles. This work creates no public or billable Plan-B
-resource and is discarded if the Racetime.gg category request succeeds.
+runtime resource and is discarded if the Racetime.gg category request succeeds.
+The primary technical operator has authorized one narrow source-preservation
+exception: a private, versioned, server-side-encrypted OCI Object Storage bucket
+may hold only the two upstream Git bundles and their public manifest/checksum
+files as the verified off-workstation custody copy. This custody-only bucket is
+not a Plan-B runtime or production-backup resource and grants no authority for
+any other OCI mutation.
 
+Except for that custody-only bucket and its four source-preservation objects,
 Terraform apply, OCI resource creation or mutation, DNS changes, external app
 registration, secret creation, any restricted deployment, and publication are
 forbidden until the Council explicitly records G1 activation. The canonical
