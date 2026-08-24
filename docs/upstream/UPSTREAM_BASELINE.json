@@ -1,0 +1,30 @@
+{
+  "captured_at_utc": "2026-08-24T00:05:23Z",
+  "upstream_url": "https://github.com/racetimeGG/racetime-app.git",
+  "fork_url": "https://github.com/BogieSmalls/racetime-app.git",
+  "default_branch": "master",
+  "upstream_head": "4dbe61fb06d2a132f2e1212e34ac2ae3a6d18069",
+  "branches": {
+    "async": "94fc301227e0b6c0cd742ffae83139e991fb29cb",
+    "dependabot/docker/python-3.14": "38664abde709158bfeb58882303e8eaf0b99cdeb",
+    "dependabot/npm_and_yarn/jquery-4.0.0": "34d60b640a313dde7abeb31600e7119f41728483",
+    "dependabot/pip/beautifulsoup4-gte-4.11-and-lt-4.15": "4d00f628d997de00d9ec535473d0f55dd034b4bd",
+    "dependabot/pip/django-gte-5.2-and-lt-6.1": "ddc218c0db28399b613f07a6b18eb31e00cda589",
+    "dependabot/pip/mpmath-gte-1.3-and-lt-1.5": "b9650e4eb207222911d50adf40649bc8082f302a",
+    "dependabot/pip/pillow-gte-11.0-and-lt-13.0": "dc0817805aa75f6f850fde8a405e38199b4c82c4",
+    "dependabot/pip/websockets-gte-15.0-and-lt-17.0": "76dae05d7404f88e2fd3a7e31cbe66807f1ff221",
+    "master": "4dbe61fb06d2a132f2e1212e34ac2ae3a6d18069"
+  },
+  "tags": {},
+  "source_bundle": {
+    "file": "racetime-app-fixture.bundle",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "bytes": 1
+  },
+  "wiki": {
+    "status": "archived",
+    "file": "racetime-app-wiki-fixture.bundle",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "bytes": 1
+  }
+}

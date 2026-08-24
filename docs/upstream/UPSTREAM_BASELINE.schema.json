@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "captured_at_utc",
+    "upstream_url",
+    "fork_url",
+    "default_branch",
+    "upstream_head",
+    "branches",
+    "tags",
+    "source_bundle",
+    "wiki"
+  ],
+  "properties": {
+    "captured_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "upstream_url": {
+      "const": "https://github.com/racetimeGG/racetime-app.git"
+    },
+    "fork_url": {
+      "const": "https://github.com/BogieSmalls/racetime-app.git"
+    },
+    "upstream_head": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "default_branch": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._/-]+$"
+    },
+    "branches": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "tags": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{40}$"
+      }
+    },
+    "source_bundle": {
+      "$ref": "#/$defs/archive"
+    },
+    "wiki": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "const": "absent"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/archive"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "const": "archived"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "archive": {
+      "type": "object",
+      "required": [
+        "file",
+        "sha256",
+        "bytes"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
