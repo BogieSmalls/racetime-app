@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racetime.z1rracing.com/schemas/release-manifest-v1.json",
+  "title": "Z1RR RaceTime immutable release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "release_sha",
+    "generated_at",
+    "images",
+    "migrations",
+    "config_schema_version",
+    "minimum_rollback_digest",
+    "smoke_version"
+  ],
+  "properties": {
+    "schema": {"const": 1},
+    "release_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "maintenance"],
+      "properties": {
+        "application": {"$ref": "#/$defs/image"},
+        "maintenance": {"$ref": "#/$defs/image"}
+      }
+    },
+    "migrations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "strategy",
+        "rollback_class",
+        "reverse_target",
+        "forward_fix_release"
+      ],
+      "properties": {
+        "from": {"$ref": "#/$defs/migration"},
+        "to": {"$ref": "#/$defs/migration"},
+        "strategy": {
+          "enum": ["none", "expand", "migrate", "contract"]
+        },
+        "rollback_class": {
+          "enum": ["code-only", "forward-fix", "reversible"]
+        },
+        "reverse_target": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/migration"}
+          ]
+        },
+        "forward_fix_release": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+          ]
+        }
+      }
+    },
+    "config_schema_version": {"const": 1},
+    "minimum_rollback_digest": {"$ref": "#/$defs/digest"},
+    "smoke_version": {"const": 1}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "migration": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[0-9]{4}_[a-z0-9_]+$"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest", "platforms"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)+$"
+        },
+        "digest": {"$ref": "#/$defs/digest"},
+        "platforms": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["linux/arm64", "linux/amd64"],
+          "properties": {
+            "linux/arm64": {"$ref": "#/$defs/digest"},
+            "linux/amd64": {"$ref": "#/$defs/digest"}
+          }
+        }
+      }
+    }
+  }
+}
