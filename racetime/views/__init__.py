@@ -6,6 +6,11 @@ from .auth import (
     PasswordResetDoneView,
     PasswordResetView,
 )
+from .discord_auth import (
+    discord_callback,
+    discord_create_account,
+    discord_initiate,
+)
 from .autocomplete import (
     AutocompleteUser,
 )

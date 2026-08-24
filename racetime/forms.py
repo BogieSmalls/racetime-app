@@ -778,6 +778,12 @@ class UserCreationForm(auth_forms.UserCreationForm):
         self.fields['email'].widget.attrs.pop('autofocus')
 
 
+class DiscordDisplayNameForm(forms.ModelForm):
+    class Meta:
+        model = models.User
+        fields = ('name',)
+
+
 class UserEditForm(forms.ModelForm):
     class Meta:
         model = models.User

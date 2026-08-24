@@ -1,0 +1,23 @@
+{% extends 'racetime/base.html' %}
+
+{% block title %}
+    Choose your racer name |
+{% endblock %}
+{% block meta %}
+    <meta name="robots" content="noindex,nofollow">
+{% endblock %}
+
+{% block content %}
+    <main class="create-account">
+        <h2>Choose your racer name</h2>
+        <p class="help">
+            This is the public name other racers will see. Your Discord account
+            will remain the way you sign in.
+        </p>
+        <form class="create-account-form layout-form" method="post">
+            {% csrf_token %}
+            <ul>{{ form.as_ul }}</ul>
+            <button class="btn" type="submit">Create account</button>
+        </form>
+    </main>
+{% endblock %}

@@ -7,6 +7,9 @@ urlpatterns = [
     path('account', views.EditAccount.as_view(), name='edit_account'),
     path('account/', include([
         path('auth', views.LoginRegister.as_view(), name='login_or_register'),
+        path('discord', views.discord_initiate, name='discord_initiate'),
+        path('discord/callback', views.discord_callback, name='discord_callback'),
+        path('discord/create', views.discord_create_account, name='discord_create_account'),
         path('connections', views.EditAccountConnections.as_view(), name='edit_account_connections'),
         path('security', views.EditAccountSecurity.as_view(), name='edit_account_security'),
         path('standing', views.AccountStanding.as_view(), name='account_standing'),
