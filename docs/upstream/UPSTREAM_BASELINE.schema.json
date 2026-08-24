@@ -34,6 +34,9 @@
     },
     "branches": {
       "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._/-]+$"
+      },
       "additionalProperties": {
         "type": "string",
         "pattern": "^[0-9a-f]{40}$"
@@ -41,6 +44,9 @@
     },
     "tags": {
       "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9._/-]+$"
+      },
       "additionalProperties": {
         "type": "string",
         "pattern": "^[0-9a-f]{40}$"
@@ -64,22 +70,31 @@
           "additionalProperties": false
         },
         {
-          "allOf": [
-            {
-              "$ref": "#/$defs/archive"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "file",
+            "sha256",
+            "bytes"
+          ],
+          "properties": {
+            "status": {
+              "const": "archived"
             },
-            {
-              "type": "object",
-              "properties": {
-                "status": {
-                  "const": "archived"
-                }
-              },
-              "required": [
-                "status"
-              ]
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1
             }
-          ]
+          }
         }
       ]
     }
@@ -87,6 +102,7 @@
   "$defs": {
     "archive": {
       "type": "object",
+      "additionalProperties": false,
       "required": [
         "file",
         "sha256",
@@ -94,7 +110,8 @@
       ],
       "properties": {
         "file": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "sha256": {
           "type": "string",

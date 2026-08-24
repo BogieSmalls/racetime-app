@@ -409,8 +409,9 @@ git commit -m "docs: record verified racetime upstream archive"
 
 ```powershell
 .\venv\Scripts\python.exe -m unittest discover -s tests\source -v
-pwsh scripts\source\check-remotes.ps1 -Repository .
-git bundle verify (Get-ChildItem artifacts\source\racetime-app-*.bundle | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+pwsh scripts\source\check-remotes.ps1 -Repository . -MetadataPath docs\upstream\UPSTREAM_BASELINE.json -ExpectedForkDefaultBranch master
+$sourceBaseline = Get-Content docs\upstream\UPSTREAM_BASELINE.json -Raw | ConvertFrom-Json
+git bundle verify (Join-Path artifacts\source $sourceBaseline.source_bundle.file)
 git status --short
 ```
 
