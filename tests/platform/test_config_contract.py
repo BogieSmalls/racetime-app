@@ -179,6 +179,15 @@ class EnvironmentFileContractTests(unittest.TestCase):
         self.assertNotIn(sensitive, output)
 
 
+class AsgiBootstrapTests(unittest.TestCase):
+    def test_fresh_asgi_import_initializes_django_before_routing(self):
+        result = run_production_probe(
+            script="import project.asgi;print('ASGI_IMPORT=PASS')",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), "ASGI_IMPORT=PASS")
+
+
 class LoggingContractTests(unittest.TestCase):
     def test_nested_values_urls_and_exception_messages_are_redacted(self):
         from project.logging import JsonFormatter, RedactionFilter
