@@ -64,16 +64,11 @@ class ComposeIsolationTests(unittest.TestCase):
         self.assertNotIn("RACETIME_STATE_GENERATION", self.integration_env)
         self.assertNotIn("CADDY_STATE_VOLUME", self.integration_env)
 
-    def test_only_loopback_high_ports_are_published(self):
+    def test_only_the_exact_loopback_caddy_port_is_published(self):
         published = []
         for service in self.integration["services"].values():
             published.extend(service.get("ports", []))
-        self.assertTrue(published)
-        for port in published:
-            rendered = str(port)
-            self.assertTrue(rendered.startswith("127.0.0.1:"), rendered)
-            self.assertNotIn(":80:80", rendered)
-            self.assertNotIn(":443:443", rendered)
+        self.assertEqual(published, ["127.0.0.1:8443:8443"])
 
     def test_proxy_addresses_are_reserved_for_all_integration_members(self):
         services = self.integration["services"]
@@ -138,6 +133,22 @@ class ComposeIsolationTests(unittest.TestCase):
             "/fixtures/prepare_integration.py",
             integration_up,
         )
+
+    def test_ready_sentinel_requires_every_service_to_be_healthy(self):
+        integration_up = INTEGRATION_UP.read_text(encoding="utf-8")
+        self.assertIn("--profile racebot ps --format json", integration_up)
+        self.assertIn("$expectedServices", integration_up)
+        self.assertIn("$serviceStatuses", integration_up)
+        self.assertIn("$attempt -le 120", integration_up)
+        self.assertIn("$status.Health -ne 'healthy'", integration_up)
+        health_gate = integration_up.index("$serviceStatuses")
+        ready_write = integration_up.index("[IO.File]::WriteAllText($readyFile")
+        self.assertLess(health_gate, ready_write)
+        for service in (
+            "caddy", "db", "fixture-provider", "racebot", "redis", "web",
+        ):
+            self.assertIn(f"'{service}'", integration_up)
+
 
 if __name__ == "__main__":
     unittest.main()

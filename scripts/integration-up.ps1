@@ -70,9 +70,33 @@ try {
     & docker @compose --profile racebot up --detach web racebot caddy
     if ($LASTEXITCODE -ne 0) { throw 'Integration application startup failed.' }
 
+    $expectedServices = @(
+        'caddy', 'db', 'fixture-provider', 'racebot', 'redis', 'web'
+    )
     $healthy = $false
-    for ($attempt = 1; $attempt -le 60; $attempt++) {
+    for ($attempt = 1; $attempt -le 120; $attempt++) {
         try {
+            $serviceStatusesJson = (& docker @compose --profile racebot ps --format json | Out-String)
+            if ($LASTEXITCODE -ne 0) {
+                throw 'Unable to inspect integration service health.'
+            }
+            $serviceStatuses = @($serviceStatusesJson | ConvertFrom-Json)
+            $observedServices = @($serviceStatuses.Service | Sort-Object -Unique)
+            $servicesHealthy = (
+                $serviceStatuses.Count -eq $expectedServices.Count -and
+                -not (Compare-Object -ReferenceObject $expectedServices -DifferenceObject $observedServices)
+            )
+            foreach ($status in $serviceStatuses) {
+                if ($status.State -ne 'running' -or $status.Health -ne 'healthy') {
+                    $servicesHealthy = $false
+                    break
+                }
+            }
+            if (-not $servicesHealthy) {
+                Start-Sleep -Seconds 1
+                continue
+            }
+
             $response = Invoke-WebRequest -Uri 'https://127.0.0.1:8443/healthz' `
                 -Headers @{ Host = 'integration.racetime.test' } `
                 -SkipCertificateCheck -TimeoutSec 2
@@ -85,7 +109,7 @@ try {
         }
     }
     if (-not $healthy) {
-        throw 'Integration health endpoint did not become ready.'
+        throw 'Integration services and health endpoint did not become ready.'
     }
 
     $identity = [ordered]@{

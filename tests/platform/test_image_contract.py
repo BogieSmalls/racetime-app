@@ -84,7 +84,7 @@ class ImageContractTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8000/healthz", health)
         self.assertIn("kill -0 1", health)
 
-    def test_web_healthcheck_uses_the_configured_application_host(self):
+    def test_web_healthcheck_uses_configured_host_and_fails_closed(self):
         health = HEALTHCHECK.read_text(encoding="utf-8")
         match = re.search(
             r"web\)\s+exec python -c '\n(?P<probe>.*?)\n'\s+;;",
@@ -93,13 +93,14 @@ class ImageContractTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         observed_hosts = []
+        expected_host = [None]
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 observed_hosts.append(self.headers.get("Host"))
                 accepted = (
                     self.path == "/healthz"
-                    and self.headers.get("Host") == "integration.racetime.test"
+                    and self.headers.get("Host") == expected_host[0]
                 )
                 self.send_response(200 if accepted else 400)
                 self.end_headers()
@@ -114,26 +115,50 @@ class ImageContractTests(unittest.TestCase):
         probe = match.group("probe").replace(
             "127.0.0.1:8000", f"127.0.0.1:{server.server_port}",
         )
+        clean_env = dict(os.environ)
+        clean_env.pop("RACETIME_INTEGRATION_ORIGIN", None)
+        clean_env.pop("RT_SITE_URI", None)
         try:
+            cases = (
+                (
+                    "RACETIME_INTEGRATION_ORIGIN",
+                    "https://integration.racetime.test:8443",
+                    "integration.racetime.test",
+                ),
+                ("RT_SITE_URI", "https://racetime.example", "racetime.example"),
+            )
+            for variable, origin, host in cases:
+                with self.subTest(variable=variable):
+                    observed_hosts.clear()
+                    expected_host[0] = host
+                    result = subprocess.run(
+                        [sys.executable, "-c", probe],
+                        cwd=ROOT,
+                        env={**clean_env, variable: origin},
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    self.assertEqual(
+                        result.returncode, 0, result.stdout + result.stderr,
+                    )
+                    self.assertEqual(observed_hosts, [host])
+
+            observed_hosts.clear()
             result = subprocess.run(
                 [sys.executable, "-c", probe],
                 cwd=ROOT,
-                env={
-                    **os.environ,
-                    "RACETIME_INTEGRATION_ORIGIN": (
-                        "https://integration.racetime.test:8443"
-                    ),
-                },
+                env=clean_env,
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertEqual(observed_hosts, [])
         finally:
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(observed_hosts, ["integration.racetime.test"])
 
     def test_maintenance_tools_are_absent_from_application_targets(self):
         marker = "FROM runtime-base AS maintenance"
