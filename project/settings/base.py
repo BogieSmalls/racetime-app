@@ -201,6 +201,12 @@ OAUTH2_PROVIDER = {
     },
 }
 
+# Preserve the stock-client compatibility shim only for upstream development.
+# Z1RR test/CI/production profiles disable it and require S256 PKCE.
+RT_ENABLE_LEGACY_LIVESPLIT_PKCE_BYPASS = True
+RT_Z1RR_LIVESPLIT_APPLICATION_NAME = "LiveSplit.Racetime.Z1RR"
+RT_Z1RR_LIVESPLIT_REDIRECT_URI = "http://127.0.0.1:4888/"
+
 # Site details
 
 EMAIL_FROM = 'hello@racetime.dev'

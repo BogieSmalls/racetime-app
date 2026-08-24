@@ -671,21 +671,48 @@ class PatreonDisconnect(LoginRequiredMixin, UserMixin, generic.View):
 
 
 class OAuthAuthorize(AuthorizationView):
-    """
-    Backwards compatibility fix for LiveSplit.
+    """Authorization endpoint with a gated stock-LiveSplit compatibility shim."""
 
-    LiveSplit sends a PKCE code challenge but it's not implemented correctly.
-    So remove the challenge if the auth request comes from LiveSplit.
-    """
+    def dispatch(self, request, *args, **kwargs):
+        # Fail locally instead of allowing an OAuth error redirect to an URI
+        # that is not registered for an otherwise valid client.
+        parameters = request.GET if request.method == "GET" else request.POST
+        client_id = parameters.get("client_id")
+        redirect_uri = parameters.get("redirect_uri")
+        if client_id and redirect_uri:
+            application = (
+                get_application_model().objects
+                .filter(client_id=client_id)
+                .first()
+            )
+            z1rr_exact_redirect_mismatch = (
+                application
+                and application.name
+                == settings.RT_Z1RR_LIVESPLIT_APPLICATION_NAME
+                and redirect_uri != settings.RT_Z1RR_LIVESPLIT_REDIRECT_URI
+            )
+            if application and (
+                z1rr_exact_redirect_mismatch
+                or not application.redirect_uri_allowed(redirect_uri)
+            ):
+                return http.HttpResponseBadRequest("Invalid OAuth request.")
+        return super().dispatch(request, *args, **kwargs)
+
     def get(self, request, *args, **kwargs):
-        if 'code_challenge' in request.GET or 'code_challenge_method' in request.GET:
+        legacy_bypass = getattr(
+            settings,
+            "RT_ENABLE_LEGACY_LIVESPLIT_PKCE_BYPASS",
+            False,
+        )
+        if legacy_bypass and (
+            'code_challenge' in request.GET
+            or 'code_challenge_method' in request.GET
+        ):
             application = get_object_or_404(get_application_model(), client_id=request.GET.get('client_id'))
             if application.name == 'LiveSplit':
                 query = request.GET.copy()
-                if 'code_challenge' in query:
-                    del query['code_challenge']
-                if 'code_challenge_method' in query:
-                    del query['code_challenge_method']
+                query.pop('code_challenge', None)
+                query.pop('code_challenge_method', None)
                 return http.HttpResponseRedirect(self.request.path_info + '?' + query.urlencode())
         return super().get(request, *args, **kwargs)
 
