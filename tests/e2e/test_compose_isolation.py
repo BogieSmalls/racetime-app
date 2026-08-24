@@ -75,6 +75,18 @@ class ComposeIsolationTests(unittest.TestCase):
             self.assertNotIn(":80:80", rendered)
             self.assertNotIn(":443:443", rendered)
 
+    def test_proxy_addresses_are_reserved_for_all_integration_members(self):
+        services = self.integration["services"]
+        addresses = {
+            name: services[name]["networks"]["proxy"].get("ipv4_address")
+            for name in ("caddy", "web", "fixture-provider")
+        }
+        self.assertEqual(addresses, {
+            "caddy": "172.30.0.2",
+            "web": "172.30.0.3",
+            "fixture-provider": "172.30.0.4",
+        })
+
     def test_rendered_source_contains_no_production_or_external_secret_path(self):
         combined = f"{self.integration_text}\n{self.integration_env}".lower()
         forbidden = (
