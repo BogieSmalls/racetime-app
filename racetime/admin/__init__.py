@@ -114,6 +114,35 @@ class CategoryRequestAdmin(options.ModelAdmin):
         return False
 
 
+class ExternalIdentityAdmin(options.ModelAdmin):
+    fields = readonly_fields = (
+        'user',
+        'provider',
+        'subject',
+        'created_at',
+        'last_authenticated_at',
+    )
+    list_display = (
+        'user',
+        'provider',
+        'subject',
+        'last_authenticated_at',
+    )
+    list_filter = ('provider',)
+    search_fields = (
+        'user__name',
+        'user__email',
+        'provider',
+        'subject',
+    )
+
+    def has_add_permission(self, *args, **kwargs):
+        return False
+
+    def has_delete_permission(self, *args, **kwargs):
+        return False
+
+
 class RaceAdmin(options.ModelAdmin):
     autocomplete_fields = (
         'category',
@@ -384,6 +413,7 @@ admin.site.register(models.Ban, BanAdmin)
 admin.site.register(models.Bulletin, BulletinAdmin)
 admin.site.register(models.Category, CategoryAdmin)
 admin.site.register(models.CategoryRequest, CategoryRequestAdmin)
+admin.site.register(models.ExternalIdentity, ExternalIdentityAdmin)
 admin.site.register(models.Race, RaceAdmin)
 admin.site.register(models.Team, TeamAdmin)
 admin.site.register(models.UserAction, UserActionAdmin)
