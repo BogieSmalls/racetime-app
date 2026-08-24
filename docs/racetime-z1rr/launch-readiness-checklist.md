@@ -6,16 +6,16 @@
 
 ## G0 — Contingency package ready
 
-- [ ] Architecture, requirements, ADRs, artifact/traceability controls, refreshed launch checklist, master plan, and all subsystem plans describe the same approved design and have independent review evidence.
+- [x] Architecture, requirements, ADRs, artifact/traceability controls, refreshed launch checklist, master plan, and all subsystem plans describe the same approved design and have independent review evidence. ([evidence](../evidence/2026-08-24-g0-readiness.md))
 - [ ] Source archive restores to the recorded upstream baseline and has an off-workstation copy.
 - [ ] RaceTime, Restream, TTPBot, and LiveSplit readiness branches build and test locally without production credentials.
 - [ ] RaceTime CI discovers substantive tests; the current `js-cookie` high-severity advisory is closed.
 - [ ] Production Compose, Caddy, configuration validation, backup/restore, Terraform, monitoring, and runbooks validate without applying public infrastructure.
-- [ ] Approved-outcome configuration (`racetime.gg/z1rr`) remains viable without self-hosted components.
+- [x] Approved-outcome configuration (`racetime.gg/z1rr`) remains viable without self-hosted components. ([evidence](../evidence/2026-08-24-g0-readiness.md))
 - [ ] Council understands G0 completion is not authorization for OCI/DNS/OAuth/cutover changes.
 
-**G0 decision:** [ ] Pass [ ] Hold
-**Evidence:**
+**G0 decision:** [ ] Pass [x] Hold
+**Evidence:** [2026-08-24 G0 readiness](../evidence/2026-08-24-g0-readiness.md)
 **Council record:**
 
 ## G1 — Plan B activation and external prerequisites
