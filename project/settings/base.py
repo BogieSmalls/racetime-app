@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.humanize',
     'django.contrib.sessions',
+    'django.contrib.sites',
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_extensions',
@@ -71,6 +72,8 @@ WSGI_APPLICATION = 'project.wsgi.application'
 FORM_RENDERER = 'django.forms.renderers.TemplatesSetting'
 
 SILENCED_SYSTEM_CHECKS = ['django_recaptcha.recaptcha_test_key_error']
+
+SITE_ID = 1
 
 CHANNEL_LAYERS = {
     'default': {
