@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racetime.z1rracing.com/schemas/backup-manifest-v1.json",
+  "title": "Z1RR RaceTime verified backup manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "type",
+    "started_at",
+    "completed_at",
+    "release_sha",
+    "database",
+    "source",
+    "plaintext",
+    "encrypted",
+    "encryption",
+    "verification",
+    "object_storage",
+    "tools",
+    "retention"
+  ],
+  "properties": {
+    "schema": {"const": 1},
+    "type": {
+      "enum": ["database", "media", "production-caddy-state"]
+    },
+    "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {"type": "string", "format": "date-time"},
+    "release_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "database": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["schema", "migrations"],
+          "properties": {
+            "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+            "migrations": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 1, "maxLength": 255},
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["volume", "generation", "bytes", "entries"],
+      "properties": {
+        "volume": {"type": "string", "minLength": 1, "maxLength": 255},
+        "generation": {"type": "string", "minLength": 1, "maxLength": 255},
+        "bytes": {"type": "integer", "minimum": 1},
+        "entries": {"type": "integer", "minimum": 1}
+      }
+    },
+    "plaintext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "encrypted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "bytes"],
+      "properties": {
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "encryption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "recipient", "key_id"],
+      "properties": {
+        "algorithm": {"const": "age"},
+        "recipient": {"type": "string", "minLength": 8, "maxLength": 255},
+        "key_id": {"type": "string", "minLength": 1, "maxLength": 128}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["result", "at"],
+      "properties": {
+        "result": {"enum": ["pending", "verified", "failed"]},
+        "at": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "format": "date-time"}
+          ]
+        }
+      }
+    },
+    "object_storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "bucket", "object", "manifest_object"],
+      "properties": {
+        "namespace": {"type": "string", "minLength": 1, "maxLength": 255},
+        "bucket": {"type": "string", "minLength": 1, "maxLength": 255},
+        "object": {
+          "type": "string",
+          "pattern": "^production/.+\\.age$"
+        },
+        "manifest_object": {
+          "type": "string",
+          "pattern": "^production/.+\\.manifest\\.json$"
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 255},
+      "required": ["age", "zstd", "oci", "docker"]
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "pinned_until"],
+      "properties": {
+        "reason": {"type": "string", "minLength": 1, "maxLength": 128},
+        "pinned_until": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "string", "format": "date-time"}
+          ]
+        }
+      }
+    }
+  }
+}

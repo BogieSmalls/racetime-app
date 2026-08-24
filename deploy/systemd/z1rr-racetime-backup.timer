@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Z1RR RaceTime backup every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:00:00
+RandomizedDelaySec=15m
+Persistent=true
+AccuracySec=1m
+Unit=z1rr-racetime-backup.service
+
+[Install]
+WantedBy=timers.target

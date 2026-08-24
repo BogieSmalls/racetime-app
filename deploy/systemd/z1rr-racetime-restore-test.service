@@ -1,0 +1,42 @@
+[Unit]
+Description=Quarterly isolated Z1RR RaceTime restore assurance
+After=docker.service network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=Z1RR_BACKUP_CONFIG=/etc/z1rr-racetime/backup.env
+EnvironmentFile=/etc/z1rr-racetime/backup.env
+ExecStart=/opt/z1rr-racetime/deploy/backup/restore-test.sh --database-manifest ${RESTORE_DATABASE_MANIFEST} --media-manifest ${RESTORE_MEDIA_MANIFEST} --caddy-manifest ${RESTORE_CADDY_MANIFEST} --release-sha ${RACETIME_RELEASE_SHA}
+TimeoutStartSec=4h
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/z1rr-racetime/backup-scratch /var/lib/z1rr-racetime/backup-status
+ReadOnlyPaths=/opt/z1rr-racetime /etc/z1rr-racetime/backup.env /run/docker.sock
+
+# restore-test.sh always uses restore-test volume/project names and runs Caddy
+# state/config checks with --network none; it has no production-replace mode.
+
+[Install]
+WantedBy=multi-user.target
