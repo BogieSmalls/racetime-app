@@ -10,7 +10,7 @@ No OCI resource, DNS record, production OAuth application, scheduler destination
 
 | Component | Commit | State |
 | --- | --- | --- |
-| RaceTime | `dbd6511` | local G0 implementation branch; generated source-custody metadata intentionally uncommitted pending second custody copy |
+| RaceTime | `0299306` | local G0 implementation branch; generated source-custody metadata intentionally uncommitted pending second custody copy |
 | Restream | `8e3dcb15` | clean reviewed worktree |
 | TTPBot | `db05a98` | clean reviewed worktree |
 | LiveSplit | `0489b4f` | clean reviewed, reproducible, signed private G0 RC |
@@ -21,7 +21,8 @@ The release-identity collector returned `RELEASE_IDENTITIES=FAIL code=ReleaseIde
 
 ### Source preservation implementation
 
-- 29 source-preservation, restore, remote-boundary, drift-comparator, and workflow-contract tests passed.
+- 32 source-preservation, complete-schema, restore, remote-boundary, drift-comparator, and workflow-contract tests passed.
+- Independent re-review approved the implementation with no findings apart from the intentionally outstanding external custody step.
 - The source archive restored an empty repository to upstream `master` at exact commit `4dbe61fb06d2a132f2e1212e34ac2ae3a6d18069`.
 - Candidate source bundle: SHA-256 `f5d57276f281a7ed80c322aab8bf874df95d03366649329daf3e74b42644cb1e`, 1,859,653 bytes.
 - Candidate wiki bundle: SHA-256 `d462e141ad5e772561251098e3a93110d56a5519bbeaedd40375b35dfee668b4`, 545,227 bytes.
