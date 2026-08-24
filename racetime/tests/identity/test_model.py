@@ -56,6 +56,18 @@ class ExternalIdentityModelTests(TestCase):
         self.assertEqual(identity.provider, "discord")
         self.assertEqual(identity.subject, "123")
 
+    def test_full_clean_uses_manager_normalization_from_an_instance(self):
+        identity = ExternalIdentity(
+            user=self.create_user("full-clean"),
+            provider=" Discord ",
+            subject=" 123 ",
+        )
+
+        identity.full_clean()
+
+        self.assertEqual(identity.provider, "discord")
+        self.assertEqual(identity.subject, "123")
+
     def test_discord_subject_must_be_nonempty_ascii_numeric(self):
         for subject in ("", " ", "abc", "１２３", "1.0", "-1"):
             with self.subTest(subject=subject), self.assertRaises(ValidationError):

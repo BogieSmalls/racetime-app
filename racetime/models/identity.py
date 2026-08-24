@@ -64,7 +64,7 @@ class ExternalIdentity(models.Model):
 
     def clean(self):
         super().clean()
-        self.provider, self.subject = self.objects.normalize(
+        self.provider, self.subject = type(self).objects.normalize(
             self.provider, self.subject
         )
 
