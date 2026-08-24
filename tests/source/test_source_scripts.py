@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = ROOT / "docs" / "upstream" / "UPSTREAM_BASELINE.json"
 SCHEMA_PATH = ROOT / "docs" / "upstream" / "UPSTREAM_BASELINE.schema.json"
 REMOTE_GUARD_PATH = ROOT / "scripts" / "source" / "check-remotes.ps1"
+PRESERVE_PATH = ROOT / "scripts" / "source" / "preserve-upstream.ps1"
 
 
 class SourceMetadataTests(unittest.TestCase):
@@ -234,6 +235,165 @@ class RemoteGuardTests(unittest.TestCase):
         )
         self._assert_guard_rejects_without_urls()
 
+
+
+class ArchiveCreationTests(unittest.TestCase):
+    def setUp(self):
+        self._temp = tempfile.TemporaryDirectory(prefix="z1rr-source-archive-")
+        self.root = Path(self._temp.name)
+        self.seed = self.root / "seed"
+        self.upstream = self.root / "upstream.git"
+        self.wiki_seed = self.root / "wiki-seed"
+        self.wiki = self.root / "upstream.wiki.git"
+        self.empty_wiki = self.root / "empty.wiki.git"
+        self.output = self.root / "artifacts" / "source"
+        self.metadata = self.root / "metadata"
+
+        self._git("init", "--initial-branch=master", str(self.seed))
+        self._configure_identity(self.seed)
+        (self.seed / "README.md").write_text("master\n", encoding="utf-8")
+        self._git("-C", str(self.seed), "add", "README.md")
+        self._git("-C", str(self.seed), "commit", "-m", "master")
+        self.master_head = self._git(
+            "-C", str(self.seed), "rev-parse", "HEAD", capture=True
+        ).strip()
+        self._git("-C", str(self.seed), "tag", "v1")
+        self._git("-C", str(self.seed), "checkout", "-b", "async")
+        (self.seed / "ASYNC.md").write_text("async\n", encoding="utf-8")
+        self._git("-C", str(self.seed), "add", "ASYNC.md")
+        self._git("-C", str(self.seed), "commit", "-m", "async")
+        self._git("-C", str(self.seed), "tag", "v2")
+        self._git("-C", str(self.seed), "checkout", "master")
+
+        self._git("init", "--bare", str(self.upstream))
+        self._git(
+            "-C", str(self.seed), "push", self.upstream.as_uri(),
+            "master", "async", "--tags",
+        )
+        self._git(
+            "--git-dir", str(self.upstream), "symbolic-ref", "HEAD", "refs/heads/master"
+        )
+
+        self._git("init", "--initial-branch=master", str(self.wiki_seed))
+        self._configure_identity(self.wiki_seed)
+        (self.wiki_seed / "Home.md").write_text("wiki\n", encoding="utf-8")
+        self._git("-C", str(self.wiki_seed), "add", "Home.md")
+        self._git("-C", str(self.wiki_seed), "commit", "-m", "wiki")
+        self._git("init", "--bare", str(self.wiki))
+        self._git(
+            "-C", str(self.wiki_seed), "push", self.wiki.as_uri(),
+            "HEAD:refs/heads/master",
+        )
+        self._git(
+            "--git-dir", str(self.wiki), "symbolic-ref", "HEAD", "refs/heads/master"
+        )
+        self._git("init", "--bare", str(self.empty_wiki))
+
+    def tearDown(self):
+        self._temp.cleanup()
+
+    def _git(self, *args, capture=False):
+        result = subprocess.run(
+            ["git", *args],
+            check=True,
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+        return result.stdout if capture else ""
+
+    def _configure_identity(self, repository):
+        self._git("-C", str(repository), "config", "user.name", "Z1RR Test")
+        self._git(
+            "-C", str(repository), "config", "user.email", "z1rr@example.invalid"
+        )
+
+    def _run_preserve(self, *, wiki_url=None, upstream_url=None, output=None):
+        self.assertTrue(
+            PRESERVE_PATH.is_file(),
+            "preserve-upstream.ps1 must exist before archive tests can pass",
+        )
+        command = [
+            "pwsh",
+            "-NoProfile",
+            "-File",
+            str(PRESERVE_PATH),
+            "-UpstreamUrl",
+            upstream_url or self.upstream.as_uri(),
+            "-ForkUrl",
+            (self.root / "fork.git").as_uri(),
+            "-OutputDirectory",
+            str(output or self.output),
+            "-MetadataDirectory",
+            str(self.metadata),
+            "-AllowNonGitHubFixture",
+        ]
+        if wiki_url is not None:
+            command.extend(["-WikiUrl", wiki_url])
+        return subprocess.run(
+            command,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+
+    def _load_baseline(self):
+        return json.loads(
+            (self.metadata / "UPSTREAM_BASELINE.json").read_text(encoding="utf-8")
+        )
+
+    def test_creates_verified_source_and_wiki_bundles_with_complete_refs(self):
+        result = self._run_preserve(wiki_url=self.wiki.as_uri())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        baseline = self._load_baseline()
+
+        self.assertEqual(baseline["default_branch"], "master")
+        self.assertEqual(baseline["upstream_head"], self.master_head)
+        self.assertEqual(set(baseline["branches"]), {"async", "master"})
+        self.assertEqual(set(baseline["tags"]), {"v1", "v2"})
+        self.assertEqual(
+            baseline["branches"][baseline["default_branch"]],
+            baseline["upstream_head"],
+        )
+        self.assertEqual(baseline["wiki"]["status"], "archived")
+
+        archived = [baseline["source_bundle"], baseline["wiki"]]
+        for item in archived:
+            bundle = self.output / item["file"]
+            self.assertTrue(bundle.is_file())
+            self.assertEqual(bundle.stat().st_size, item["bytes"])
+            self.assertRegex(item["sha256"], r"^[0-9a-f]{64}$")
+
+        sums = (self.metadata / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(sums, sorted(sums, key=lambda line: line.split()[-1]))
+        self.assertEqual(len(sums), 2)
+        self.assertNotIn(str(self.root), json.dumps(baseline))
+        self.assertFalse(list(self.root.rglob("*.partial")))
+        self.assertFalse(list((self.output.parent).glob(".source-preservation-scratch-*")))
+
+    def test_records_absent_wiki_when_probe_succeeds_without_refs(self):
+        result = self._run_preserve(wiki_url=self.empty_wiki.as_uri())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        baseline = self._load_baseline()
+        self.assertEqual(baseline["wiki"], {"status": "absent"})
+        self.assertEqual(len(list(self.output.glob("racetime-app-*.bundle"))), 1)
+
+    def test_git_failure_leaves_no_partial_or_final_archive(self):
+        empty_upstream = self.root / "empty-upstream.git"
+        self._git("init", "--bare", str(empty_upstream))
+        result = self._run_preserve(upstream_url=empty_upstream.as_uri())
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(list(self.output.glob("*.bundle")))
+        self.assertFalse(list(self.root.rglob("*.partial")))
+        self.assertFalse(list((self.output.parent).glob(".source-preservation-scratch-*")))
+
+    def test_rejects_repository_root_and_git_directory_as_output(self):
+        for unsafe in (ROOT, ROOT / ".git"):
+            with self.subTest(unsafe=unsafe.name):
+                result = self._run_preserve(output=unsafe)
+                self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
