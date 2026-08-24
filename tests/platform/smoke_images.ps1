@@ -1,7 +1,11 @@
 [CmdletBinding()]
 param(
     [string]$ExpectedCommit = (git rev-parse HEAD),
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [ValidateSet('linux/arm64', 'linux/amd64')]
+    [string]$Platform,
+    [ValidateSet('web', 'racebot')]
+    [string]$Target
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,6 +15,16 @@ $images = @(
     @{ Platform = 'linux/amd64'; Target = 'web'; Image = 'z1rr-racetime:web-amd64-test' },
     @{ Platform = 'linux/amd64'; Target = 'racebot'; Image = 'z1rr-racetime:racebot-amd64-test' }
 )
+
+if ($Platform) {
+    $images = @($images | Where-Object { $_.Platform -eq $Platform })
+}
+if ($Target) {
+    $images = @($images | Where-Object { $_.Target -eq $Target })
+}
+if ($images.Count -eq 0) {
+    throw 'No image matches the requested platform/target filter'
+}
 
 function Invoke-Docker {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
