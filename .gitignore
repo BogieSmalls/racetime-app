@@ -11,3 +11,13 @@ __pycache__
 /.worktrees
 /artifacts/source/
 /.source-preservation-scratch-*/
+
+# Terraform local/provider/state/plan material. Only reviewed examples belong in Git.
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+infra/oci/backend.hcl

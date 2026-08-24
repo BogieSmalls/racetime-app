@@ -1,0 +1,193 @@
+import re
+from pathlib import Path
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+INFRA = ROOT / "infra" / "oci"
+EXPECTED = {
+    "versions.tf",
+    "providers.tf",
+    "variables.tf",
+    "data.tf",
+    "network.tf",
+    "compute.tf",
+    "storage.tf",
+    "iam.tf",
+    "monitoring.tf",
+    "outputs.tf",
+    "terraform.tfvars.example",
+    "README.md",
+}
+ACTIVATION_TEST = INFRA / "tests" / "activation_gate.tftest.hcl"
+
+
+class TerraformContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        missing = sorted(name for name in EXPECTED if not (INFRA / name).is_file())
+        if missing:
+            raise AssertionError(f"missing OCI artifacts: {', '.join(missing)}")
+        cls.files = {
+            name: (INFRA / name).read_text(encoding="utf-8")
+            for name in EXPECTED
+        }
+        cls.tf = "\n".join(
+            cls.files[name] for name in sorted(EXPECTED) if name.endswith(".tf")
+        )
+
+    def test_provider_backend_and_activation_gate_are_pinned(self):
+        versions = self.files["versions.tf"]
+        variables = self.files["variables.tf"]
+        self.assertRegex(versions, r'required_version\s*=\s*">= 1\.12\.0, < 2\.0\.0"')
+        self.assertRegex(versions, r'source\s*=\s*"oracle/oci"')
+        self.assertRegex(versions, r'version\s*=\s*"= 8\.27\.0"')
+        self.assertIn('backend "oci" {}', versions)
+        activation = variables.split('variable "activation_record"', 1)[1].split(
+            'variable "', 1
+        )[0]
+        self.assertNotIn("default", activation)
+        self.assertIn("G1", activation)
+        self.assertIn("var.activation_record", self.files["compute.tf"])
+        self.assertIn("precondition", self.files["compute.tf"])
+        activation_test = ACTIVATION_TEST.read_text(encoding="utf-8")
+        self.assertIn("mock_provider \"oci\"", activation_test)
+        self.assertIn("expect_failures = [var.activation_record]", activation_test)
+        self.assertIn("dated_g1_activation_allows_mock_plan", activation_test)
+
+    def test_compute_is_dedicated_a1_with_guarded_balanced_boot(self):
+        compute = self.files["compute.tf"]
+        for name, value in (
+            ("display_name", '"racetime"'),
+            ("shape", '"VM.Standard.A1.Flex"'),
+            ("ocpus", "1"),
+            ("memory_in_gbs", "6"),
+            ("source_type", '"image"'),
+            ("source_id", "var.image_ocid"),
+            ("boot_volume_size_in_gbs", "50"),
+            ("boot_volume_vpus_per_gb", "10"),
+            ("preserve_boot_volume", "true"),
+            ("prevent_destroy", "true"),
+            ("assign_public_ip", "true"),
+        ):
+            with self.subTest(name=name):
+                self.assertRegex(compute, rf"(?m)^\s*{name}\s*=\s*{re.escape(value)}\s*$")
+        self.assertIn("nsg_ids", compute)
+        self.assertNotRegex(compute, r'data\s+"oci_core_images"')
+        self.assertIn("VM.Standard.E5.Flex", self.files["README.md"])
+        self.assertIn("1 OCPU / 6 GB", self.files["README.md"])
+
+    def test_existing_restream_inventory_is_data_only(self):
+        data = self.files["data.tf"]
+        variables = self.files["variables.tf"]
+        self.assertIn('data "oci_core_instance" "restream_inventory"', data)
+        self.assertIn('data "oci_core_boot_volume" "restream_inventory"', data)
+        self.assertIn('variable "existing_restream_instance_ids"', variables)
+        self.assertIn('variable "existing_restream_boot_volume_ids"', variables)
+        self.assertNotRegex(
+            self.tf,
+            r'resource\s+"oci_core_(?:instance|boot_volume)"\s+"restream',
+        )
+        self.assertNotIn('display_name = "z1rr-restream', self.tf)
+
+    def test_network_exposes_only_http_https_and_uses_bastion_for_ssh(self):
+        network = self.files["network.tf"]
+        self.assertIn('resource "oci_core_network_security_group" "racetime"', network)
+        self.assertRegex(network, r'source\s*=\s*"0\.0\.0\.0/0"')
+        self.assertRegex(network, r"min\s*=\s*443[\s\S]*max\s*=\s*443")
+        self.assertRegex(network, r"min\s*=\s*80[\s\S]*max\s*=\s*80")
+        self.assertRegex(network, r'source\s*=\s*"::/0"')
+        self.assertIn("enable_ipv6", network)
+        self.assertIn('resource "oci_bastion_bastion" "racetime"', network)
+        self.assertIn("private_endpoint_ip_address", network)
+        self.assertRegex(network, r"min\s*=\s*22[\s\S]*max\s*=\s*22")
+        public_ssh = re.findall(
+            r'source\s*=\s*"(?:0\.0\.0\.0/0|::/0)"[\s\S]{0,280}?min\s*=\s*22',
+            network,
+        )
+        self.assertEqual(public_ssh, [])
+        self.assertNotRegex(self.tf, r'resource\s+"oci_core_(?:vcn|subnet|security_list)"')
+
+    def test_backup_bucket_and_instance_principal_are_narrow(self):
+        storage = self.files["storage.tf"]
+        iam = self.files["iam.tf"]
+        for name, value in (
+            ("access_type", '"NoPublicAccess"'),
+            ("versioning", '"Enabled"'),
+            ("storage_tier", '"Standard"'),
+            ("prevent_destroy", "true"),
+        ):
+            self.assertRegex(storage, rf"(?m)^\s*{name}\s*=\s*{re.escape(value)}\s*$")
+        self.assertIn('instance.id = \'${oci_core_instance.racetime.id}\'', iam)
+        self.assertIn("target.bucket.name", iam)
+        self.assertIn("target.object.name='production/*'", iam)
+        self.assertIn("to read buckets", iam)
+        self.assertIn("to manage objects", iam)
+        self.assertIn("target.metrics.namespace='z1rr_racetime'", iam)
+        self.assertNotIn("manage object-family", iam)
+        self.assertNotRegex(iam, r"instance\.compartment\.id\s*=")
+
+    def test_notifications_and_cost_controls_are_explicit(self):
+        monitoring = self.files["monitoring.tf"]
+        for token in (
+            'resource "oci_ons_notification_topic" "operations"',
+            'protocol       = "CUSTOM_HTTPS"',
+            'protocol       = "EMAIL"',
+            "A1ForecastWarning",
+            "A1ProjectedMonthEndOCPUHours",
+            "> 2900",
+            "RetainedBootVolumeMonthlyCostUSD",
+            "> 4.61",
+            "> 6.61",
+            "ObjectStorageEntitlementUtilizationPercent",
+            "> 75",
+            "> 90",
+            "Restream sleep automation",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, monitoring)
+        self.assertIn("forecast >= 2650", monitoring)
+        self.assertIn("warning is suppressed", monitoring)
+
+    def test_outputs_are_sensitive_and_examples_are_secret_free(self):
+        outputs = self.files["outputs.tf"]
+        self.assertGreaterEqual(
+            len(re.findall(r"(?m)^\s*sensitive\s*=\s*true\s*$", outputs)), 4
+        )
+        example = self.files["terraform.tfvars.example"].lower()
+        for forbidden in (
+            "private_key",
+            "password",
+            "client_secret",
+            "discord_webhook",
+            "api_token",
+        ):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, example)
+        self.assertIn("replace_g1_activation_record", example)
+        self.assertIn("ocid1.image", example)
+        self.assertIn("existing_restream_instance_ids", example)
+
+    def test_runbook_requires_saved_plan_review_and_account_recovery(self):
+        readme = self.files["README.md"]
+        for token in (
+            "terraform -chdir=infra/oci init -backend=false",
+            "terraform -chdir=infra/oci plan -input=false -out=",
+            "terraform -chdir=infra/oci show -json",
+            "terraform -chdir=infra/oci apply",
+            "native OCI backend",
+            "versioning",
+            "OCI tenancy",
+            "GitHub organization",
+            "container registry",
+            "authoritative DNS",
+            "No G0 apply",
+            "z1rr-restream-control-staging",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, readme)
+        self.assertRegex(readme, r"create,\s+update, delete, or replace")
+
+
+if __name__ == "__main__":
+    unittest.main()

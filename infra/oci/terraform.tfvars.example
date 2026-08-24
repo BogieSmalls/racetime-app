@@ -1,0 +1,49 @@
+# Copy to a local ignored .tfvars file only after G1. Every value is an
+# identifier, public key, endpoint, or non-secret planning record.
+activation_record   = "REPLACE_G1_ACTIVATION_RECORD"
+tenancy_ocid        = "ocid1.tenancy.oc1..replace"
+compartment_ocid    = "ocid1.compartment.oc1..replace"
+region              = "us-ashburn-1"
+availability_domain = "REPLACE:US-ASHBURN-AD-1"
+vcn_ocid            = "ocid1.vcn.oc1.iad.replace"
+subnet_ocid         = "ocid1.subnet.oc1.iad.replace"
+image_ocid          = "ocid1.image.oc1.iad.replace_arm64_oracle_linux_image"
+
+ssh_authorized_keys = [
+  "ssh-ed25519 REPLACE_OPERATOR_PUBLIC_KEY z1rr-racetime-operator",
+  "ssh-ed25519 REPLACE_SEALED_RECOVERY_PUBLIC_KEY z1rr-racetime-recovery",
+]
+
+object_storage_namespace = "replace_namespace"
+backup_bucket_name       = "z1rr-racetime-production-backups"
+
+bastion_client_cidr_allow_list = [
+  "192.0.2.10/32",
+]
+enable_ipv6 = false
+
+# Confirm both subscriptions after apply. The CUSTOM_HTTPS endpoint performs
+# authentication and redaction at coop-relay; the URL itself has no credential.
+alert_relay_endpoint    = null
+fallback_email_endpoint = null
+
+# These IDs are read-only proof that the reviewed plan leaves Restream intact.
+existing_restream_instance_ids = {
+  control         = "ocid1.instance.oc1.iad.replace_control"
+  control_staging = "ocid1.instance.oc1.iad.replace_control_staging"
+  encoder_a1      = "ocid1.instance.oc1.iad.replace_encoder_a1"
+  encoder_a1_2    = "ocid1.instance.oc1.iad.replace_encoder_a1_2"
+}
+
+existing_restream_boot_volume_ids = {
+  retained_1 = "ocid1.bootvolume.oc1.iad.replace_1"
+  retained_2 = "ocid1.bootvolume.oc1.iad.replace_2"
+  retained_3 = "ocid1.bootvolume.oc1.iad.replace_3"
+  retained_4 = "ocid1.bootvolume.oc1.iad.replace_4"
+  retained_5 = "ocid1.bootvolume.oc1.iad.replace_5"
+}
+
+freeform_tags = {
+  owner       = "z1rracing"
+  environment = "production"
+}
