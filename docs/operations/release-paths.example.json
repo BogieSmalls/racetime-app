@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "expected_version": "1.2.3",
+  "components": {
+    "racetime": {
+      "repository": "/srv/z1rr/source/racetime",
+      "expected_branch": "z1rr-production",
+      "version_files": [
+        "VERSION"
+      ],
+      "release_identity": "/srv/z1rr/releases/racetime/release-identities.json",
+      "migration_directory": "racetime/migrations",
+      "config_schema": "deploy/config.schema.json"
+    },
+    "restream": {
+      "repository": "/srv/z1rr/source/restream",
+      "expected_branch": "z1rr-production",
+      "version_files": [
+        "VERSION"
+      ],
+      "build_artifact": "dist/restream-control.js"
+    },
+    "ttpbot": {
+      "repository": "/srv/z1rr/source/ttpbot",
+      "expected_branch": "z1rr-production",
+      "version_files": [
+        "VERSION"
+      ],
+      "lock_file": "requirements.lock"
+    },
+    "livesplit": {
+      "repository": "/srv/z1rr/source/livesplit",
+      "expected_branch": "z1rr-production",
+      "version_files": [
+        "VERSION"
+      ],
+      "dll": "dist/Z1RR.RaceTime.dll",
+      "package": "dist/Z1RR.RaceTime.zip",
+      "update_manifest": "dist/update.xml",
+      "signature_metadata": "dist/signature.json"
+    }
+  }
+}

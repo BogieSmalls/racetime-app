@@ -68,7 +68,8 @@ commit's amd64 manifest; record Terraform/forecast/load evidence.
 
 ```bash
 python scripts/ops/collect-release-identities.py \
-  --config /etc/z1rr-racetime/release-paths.json
+  --config /etc/z1rr-racetime/release-paths.json \
+  --output /var/lib/z1rr-racetime/release-identities.json
 python scripts/ops/validate-evidence.py /srv/evidence/vm-loss-restore.json
 ```
 

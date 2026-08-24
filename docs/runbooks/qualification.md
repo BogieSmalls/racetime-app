@@ -21,15 +21,20 @@ not substitute a waiver for failed security/load/recovery gates.
 ## Inputs and exact commands
 
 ```bash
-python scripts/ops/qualify-candidate.py --stage qualification_core \
-  --environment qualification --activation-record /root/g1-activation.json \
-  --config /root/qualification-adapters.json
-python scripts/ops/finalize-production.py --state /var/lib/z1rr-racetime/finalize.json \
-  --activation-record /root/g1-activation.json --change-id Z1RR-G2-YYYYMMDD-NNN
+python scripts/ops/qualify-candidate.py run \
+  --config /root/qualification-adapters.json \
+  --stage qualification_core \
+  --activation-record /root/g1-activation.json
+python scripts/ops/finalize-production.py \
+  --config /root/fresh-production-transition.json --apply \
+  --activation-record /root/g1-activation.json \
+  --change-id Z1RR-G2-YYYYMMDD-NNN
 ```
 
-Both controllers are dry-run by default. Mutations require their explicit apply
-flag, root-owned activation, and the canonical allowlist; G3/public is refused.
+The qualification controller executes one explicitly configured adapter; every
+mutating adapter requires the root-owned G1 activation record. The finalization
+controller is dry-run by default and requires `--apply`, the activation record,
+and a change ID. The canonical allowlist remains in force and G3/public is refused.
 
 ## Safety preflight
 

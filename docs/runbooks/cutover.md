@@ -22,7 +22,8 @@ leads accept their observable outcomes; recovery custodian has no cutover access
 
 ```bash
 python scripts/ops/collect-release-identities.py \
-  --config /etc/z1rr-racetime/release-paths.json
+  --config /etc/z1rr-racetime/release-paths.json \
+  --output /var/lib/z1rr-racetime/release-identities.json
 python scripts/ops/validate-traceability.py --gate G3
 python scripts/ops/scheduler-cutover.py --dry-run \
   --config /etc/z1rr-racetime/scheduler-cutover.json

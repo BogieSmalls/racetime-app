@@ -53,7 +53,8 @@ class ReleaseIdentityTests(unittest.TestCase):
         (racetime / "config.schema.json").write_text('{"schema_version": 1}\n')
         self.commit(racetime, "base")
         racetime_commit = self.git(racetime, "rev-parse", "HEAD").strip()
-        (racetime / "release-identities.json").write_text(json.dumps({
+        self.racetime_identity = self.root / "racetime-release-identities.json"
+        self.racetime_identity.write_text(json.dumps({
             "schema_version": 1,
             "source_commit": racetime_commit,
             "images": {
@@ -61,21 +62,6 @@ class ReleaseIdentityTests(unittest.TestCase):
                 "racebot": {"manifest_digest": "sha256:" + "b" * 64},
             },
         }) + "\n")
-        self.commit(racetime, "release identity", amend=True)
-        racetime_commit = self.git(racetime, "rev-parse", "HEAD").strip()
-        identity = json.loads((racetime / "release-identities.json").read_text())
-        identity["source_commit"] = racetime_commit
-        (racetime / "release-identities.json").write_text(json.dumps(identity) + "\n")
-        self.commit(racetime, "freeze identity", amend=True)
-        # Amend changes the commit, so use a stable fixture commit declared in an
-        # untracked external release identity and ignore it in status.
-        racetime_commit = self.git(racetime, "rev-parse", "HEAD").strip()
-        identity["source_commit"] = racetime_commit
-        (racetime / "release-identities.json").write_text(json.dumps(identity) + "\n")
-        self.git(racetime, "add", "release-identities.json")
-        self.git(racetime, "commit", "--amend", "--no-edit")
-        # Collector permits the identity to name the parent source commit because
-        # release metadata itself is produced after that source commit.
 
         restream = self.repos["restream"]
         (restream / "dist").mkdir()
@@ -120,7 +106,7 @@ class ReleaseIdentityTests(unittest.TestCase):
                     "repository": str(self.repos["racetime"]),
                     "expected_branch": "z1rr-production",
                     "version_files": ["VERSION"],
-                    "release_identity": "release-identities.json",
+                    "release_identity": str(self.racetime_identity),
                     "migration_directory": "racetime/migrations",
                     "config_schema": "config.schema.json",
                 },
@@ -154,14 +140,10 @@ class ReleaseIdentityTests(unittest.TestCase):
         return path
 
     def clean_identity_fixture(self):
-        # The source_commit may name HEAD or HEAD^ because immutable release
-        # metadata is generated from the source commit and then committed.
         repo = self.repos["racetime"]
-        identity = json.loads((repo / "release-identities.json").read_text())
-        identity["source_commit"] = self.git(repo, "rev-parse", "HEAD^").strip()
-        (repo / "release-identities.json").write_text(json.dumps(identity) + "\n")
-        self.git(repo, "add", "release-identities.json")
-        self.git(repo, "commit", "--amend", "--no-edit")
+        identity = json.loads(self.racetime_identity.read_text())
+        identity["source_commit"] = self.git(repo, "rev-parse", "HEAD").strip()
+        self.racetime_identity.write_text(json.dumps(identity) + "\n")
 
     def test_collects_exact_clean_component_and_artifact_identities(self):
         # Use the collector's supported post-build metadata relationship.
@@ -205,7 +187,7 @@ class ReleaseIdentityTests(unittest.TestCase):
     def test_mutable_images_wrong_source_commit_and_secret_paths_fail(self):
         self.clean_identity_fixture()
         repo = self.repos["racetime"]
-        identity_path = repo / "release-identities.json"
+        identity_path = self.racetime_identity
         original = json.loads(identity_path.read_text())
         for mutate in (
             lambda item: item["images"]["web"].update(manifest_digest="ghcr.io/example:web"),
@@ -214,13 +196,9 @@ class ReleaseIdentityTests(unittest.TestCase):
             value = json.loads(json.dumps(original))
             mutate(value)
             identity_path.write_text(json.dumps(value) + "\n")
-            self.git(repo, "add", "release-identities.json")
-            self.git(repo, "commit", "--amend", "--no-edit")
             with self.assertRaises(self.collector.ReleaseIdentityError):
                 self.collector.collect_release_identities(self.write_config())
         identity_path.write_text(json.dumps(original) + "\n")
-        self.git(repo, "add", "release-identities.json")
-        self.git(repo, "commit", "--amend", "--no-edit")
         config = self.config()
         config["components"]["ttpbot"]["lock_file"] = ".env"
         with self.assertRaises(self.collector.ReleaseIdentityError):
