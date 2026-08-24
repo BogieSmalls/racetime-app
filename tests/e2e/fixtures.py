@@ -191,7 +191,7 @@ def _wait_for_race_state(actor, room, expected, timeout=45):
 def create_race(page, actor, *, goal):
     endpoints = IntegrationEndpoints.from_env()
     page.goto(f"/{endpoints.category}/startrace", wait_until="networkidle")
-    page.locator('select[name="goal"]').select_option(label=goal)
+    page.get_by_label(goal, exact=True).check()
     ranked = page.locator('input[name="ranked"]')
     if ranked.count() and not ranked.is_checked():
         ranked.check()
@@ -243,7 +243,14 @@ def complete_two_entrant_race(page, room, first, second):
     if data.get("entrants_count") != 2:
         raise AssertionError("The integration room does not contain two entrants.")
 
-    _post(first.page, room.action("message"), {"message": "Integration lifecycle"})
+    _post(
+        first.page,
+        room.action("message"),
+        {
+            "message": "Integration lifecycle",
+            "guid": f"integration-{time.time_ns()}",
+        },
+    )
     _post(first.page, room.action("monitor/begin"))
     _wait_for_race_state(first, room, "in_progress")
     time.sleep(5.25)
