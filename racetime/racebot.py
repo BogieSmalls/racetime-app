@@ -15,6 +15,12 @@ from .utils import chunkify, notice_exception
 
 
 RACEBOT_ADOPTION_HEARTBEAT_KEY = "z1rr:racebot:adoption-heartbeat"
+ACTIVE_RACE_STATES = [
+    models.RaceStates.open.value,
+    models.RaceStates.invitational.value,
+    models.RaceStates.pending.value,
+    models.RaceStates.in_progress.value,
+]
 
 
 class RaceBot:
@@ -25,14 +31,7 @@ class RaceBot:
     twitch_token = None
     twitch_token_refresh = None
     races = []
-    queryset = models.Race.objects.filter(
-        state__in=[
-            models.RaceStates.open.value,
-            models.RaceStates.invitational.value,
-            models.RaceStates.pending.value,
-            models.RaceStates.in_progress.value,
-        ],
-    )
+    queryset = models.Race.objects.filter(state__in=ACTIVE_RACE_STATES)
 
     def __init__(self, process_id):
         self.pid = process_id

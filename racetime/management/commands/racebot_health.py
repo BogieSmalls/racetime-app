@@ -5,7 +5,10 @@ from django.core.management import BaseCommand, CommandError
 from django.utils import timezone
 
 from ... import models
-from ...racebot import RACEBOT_ADOPTION_HEARTBEAT_KEY
+from ...racebot import (
+    ACTIVE_RACE_STATES,
+    RACEBOT_ADOPTION_HEARTBEAT_KEY,
+)
 
 
 class Command(BaseCommand):
@@ -45,14 +48,7 @@ class Command(BaseCommand):
         try:
             # This indexed existence query proves the authoritative database is
             # reachable without changing race state or requiring an active room.
-            models.Race.objects.filter(
-                state__in=[
-                    models.RaceStates.open.value,
-                    models.RaceStates.invitational.value,
-                    models.RaceStates.pending.value,
-                    models.RaceStates.in_progress.value,
-                ],
-            ).exists()
+            models.Race.objects.filter(state__in=ACTIVE_RACE_STATES).exists()
         except Exception as error:
             raise CommandError("RACEBOT_HEALTH=FAIL database unavailable") from error
 
