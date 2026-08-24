@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+    web)
+        exec python -c '
+import sys
+from urllib.request import urlopen
+response = urlopen("http://127.0.0.1:8000/healthz", timeout=2)
+body = response.read(64)
+sys.exit(0 if response.status == 200 and body == b"{\"status\":\"ok\"}" else 1)
+'
+        ;;
+    racebot)
+        kill -0 1
+        command_line="$(tr "\000" " " < /proc/1/cmdline)"
+        case "$command_line" in
+            *python*manage.py*racebot*--noreload*) exit 0 ;;
+            *) exit 1 ;;
+        esac
+        ;;
+    process)
+        kill -0 1
+        ;;
+    *)
+        echo "usage: healthcheck {web|racebot|process}" >&2
+        exit 64
+        ;;
+esac

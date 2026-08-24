@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+mode="${1:-}"
+case "$mode" in
+    web)
+        exec daphne -b 0.0.0.0 -p 8000 project.asgi:application
+        ;;
+    racebot)
+        exec python manage.py racebot --noreload
+        ;;
+    migrate)
+        exec python manage.py migrate --noinput
+        ;;
+    collectstatic)
+        exec python manage.py collectstatic --noinput
+        ;;
+    maintenance)
+        shift
+        if [ "$#" -eq 0 ]; then
+            echo "maintenance requires an explicit command" >&2
+            exit 64
+        fi
+        exec "$@"
+        ;;
+    *)
+        echo "usage: start-production {web|racebot|migrate|collectstatic|maintenance}" >&2
+        exit 64
+        ;;
+esac
