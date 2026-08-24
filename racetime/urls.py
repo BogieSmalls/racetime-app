@@ -1,36 +1,82 @@
+from django.conf import settings
+from django.http import Http404
 from django.urls import path, include
 from oauth2_provider import views as oauth2_views
 
 from . import views
 
-urlpatterns = [
-    path('account', views.EditAccount.as_view(), name='edit_account'),
-    path('account/', include([
-        path('auth', views.LoginRegister.as_view(), name='login_or_register'),
-        path('discord', views.discord_initiate, name='discord_initiate'),
-        path('discord/callback', views.discord_callback, name='discord_callback'),
-        path('discord/create', views.discord_create_account, name='discord_create_account'),
-        path('connections', views.EditAccountConnections.as_view(), name='edit_account_connections'),
+
+def disabled_public_route(request, *args, **kwargs):
+    """Keep legacy bookmarks deterministic without exposing disabled views."""
+    raise Http404
+
+
+if settings.RT_PUBLIC_PASSWORD_AUTH:
+    password_account_patterns = [
         path('security', views.EditAccountSecurity.as_view(), name='edit_account_security'),
-        path('standing', views.AccountStanding.as_view(), name='account_standing'),
-        path('teams', views.EditAccountTeams.as_view(), name='edit_account_teams'),
-        path('teams/create', views.CreateTeam.as_view(), name='create_team'),
-        path('teams/join/<str:team>', views.JoinTeam.as_view(), name='join_team'),
-        path('teams/leave/<str:team>', views.LeaveTeam.as_view(), name='leave_team'),
         path('login', views.Login.as_view(), name='login'),
-        path('logout', views.Logout.as_view(), name='logout'),
         path('create', views.CreateAccount.as_view(), name='create_account'),
-        path('delete', views.DeleteAccount.as_view(), name='delete_account'),
-        path('twitch_auth', views.TwitchAuth.as_view(), name='twitch_auth'),
-        path('twitch_disconnect', views.TwitchDisconnect.as_view(), name='twitch_disconnect'),
+        path('derp', views.PasswordResetView.as_view(), name='password_reset'),
+        path('derp/done', views.PasswordResetDoneView.as_view(), name='password_reset_done'),
+        path(
+            'reset/<uidb64>/<token>',
+            views.PasswordResetConfirmView.as_view(),
+            name='password_reset_confirm',
+        ),
+        path('reset/complete', views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
+    ]
+else:
+    password_account_patterns = [
+        path('security', disabled_public_route, name='edit_account_security'),
+        path('login', disabled_public_route, name='login'),
+        path('create', disabled_public_route, name='create_account'),
+        path('derp', disabled_public_route, name='password_reset'),
+        path('derp/done', disabled_public_route, name='password_reset_done'),
+        path('reset/<uidb64>/<token>', disabled_public_route, name='password_reset_confirm'),
+        path('reset/complete', disabled_public_route, name='password_reset_complete'),
+    ]
+
+if settings.RT_PATREON_ENABLED:
+    patreon_account_patterns = [
         path('patreon_auth', views.PatreonAuth.as_view(), name='patreon_auth'),
         path('patreon_disconnect', views.PatreonDisconnect.as_view(), name='patreon_disconnect'),
         path('patreon_refresh', views.PatreonRefresh.as_view(), name='patreon_refresh'),
-        path('derp', views.PasswordResetView.as_view(), name='password_reset'),
-        path('derp/done', views.PasswordResetDoneView.as_view(), name='password_reset_done'),
-        path('reset/<uidb64>/<token>', views.PasswordResetConfirmView.as_view(), name='password_reset_confirm'),
-        path('reset/complete', views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
-    ])),
+    ]
+else:
+    patreon_account_patterns = [
+        path('patreon_auth', disabled_public_route, name='patreon_auth'),
+        path('patreon_disconnect', disabled_public_route, name='patreon_disconnect'),
+        path('patreon_refresh', disabled_public_route, name='patreon_refresh'),
+    ]
+
+account_patterns = [
+    path('auth', views.LoginRegister.as_view(), name='login_or_register'),
+    path('discord', views.discord_initiate, name='discord_initiate'),
+    path('discord/callback', views.discord_callback, name='discord_callback'),
+    path('discord/create', views.discord_create_account, name='discord_create_account'),
+    path('connections', views.EditAccountConnections.as_view(), name='edit_account_connections'),
+    path('standing', views.AccountStanding.as_view(), name='account_standing'),
+    path('teams', views.EditAccountTeams.as_view(), name='edit_account_teams'),
+    path('teams/create', views.CreateTeam.as_view(), name='create_team'),
+    path('teams/join/<str:team>', views.JoinTeam.as_view(), name='join_team'),
+    path('teams/leave/<str:team>', views.LeaveTeam.as_view(), name='leave_team'),
+    path('logout', views.Logout.as_view(), name='logout'),
+    path('delete', views.DeleteAccount.as_view(), name='delete_account'),
+    path('twitch_auth', views.TwitchAuth.as_view(), name='twitch_auth'),
+    path('twitch_disconnect', views.TwitchDisconnect.as_view(), name='twitch_disconnect'),
+]
+account_patterns.extend(password_account_patterns)
+account_patterns.extend(patreon_account_patterns)
+
+request_category_view = (
+    views.RequestCategory.as_view()
+    if settings.RT_PUBLIC_CATEGORY_REQUESTS
+    else disabled_public_route
+)
+
+urlpatterns = [
+    path('account', views.EditAccount.as_view(), name='edit_account'),
+    path('account/', include(account_patterns)),
 
     path('o/', include([
         path('authorize', views.OAuthAuthorize.as_view(), name='oauth2_authorize'),
@@ -73,7 +119,7 @@ urlpatterns = [
 
     path('', views.Home.as_view(), name='home'),
     path('search', views.Search.as_view(), name='search'),
-    path('request_category', views.RequestCategory.as_view(), name='request_category'),
+    path('request_category', request_category_view, name='request_category'),
     path('races/data', views.RaceListData.as_view(), name='race_list_data'),
     path('races.json', views.RaceListData.as_view()),
     path('user/search', views.AutocompleteUser.as_view(), name='autocomplete_user'),

@@ -176,11 +176,13 @@ class LoginRegister(generic.TemplateView):
     template_name = 'racetime/user/login_register.html'
 
     def get_context_data(self, **kwargs):
-        return {
-            **super().get_context_data(**kwargs),
-            'createaccount_form': forms.UserCreationForm(auto_id='createaccount_id_%s'),
-            'login_form': forms.AuthenticationForm(self.request, auto_id='login_id_%s'),
-        }
+        context = super().get_context_data(**kwargs)
+        if settings.RT_PUBLIC_PASSWORD_AUTH:
+            context.update({
+                'createaccount_form': forms.UserCreationForm(auto_id='createaccount_id_%s'),
+                'login_form': forms.AuthenticationForm(self.request, auto_id='login_id_%s'),
+            })
+        return context
 
 
 class CreateAccount(generic.CreateView):
@@ -245,7 +247,7 @@ class DeleteAccount(LoginRequiredMixin, UserMixin, generic.TemplateView):
         user = self.user
         logout(request)
         delete_user(request, user)
-        messages.success(request, 'Your racetime.gg account has been deleted.')
+        messages.success(request, 'Your Z1RR RaceTime account has been deleted.')
         return http.HttpResponseRedirect(reverse('home'))
 
 
@@ -299,7 +301,7 @@ class EditAccount(LoginRequiredMixin, UserMixin, generic.FormView):
             # Remove scrim from user's current name.
             user.discriminator = '0000'
 
-        if 'email' in form.changed_data or 'name' in form.changed_data:
+        if 'name' in form.changed_data:
             # Log user changes.
             models.UserLog.objects.create(
                 user=user,
@@ -368,12 +370,14 @@ class EditAccountConnections(LoginRequiredMixin, UserMixin, generic.TemplateView
         return queryset
 
     def get_context_data(self, **kwargs):
-        return {
+        context = {
             **super().get_context_data(**kwargs),
             'authorized_tokens': self.get_authorized_tokens(),
-            'patreon_url': patreon_auth_url(self.request),
             'twitch_url': twitch_auth_url(self.request),
         }
+        if settings.RT_PATREON_ENABLED:
+            context['patreon_url'] = patreon_auth_url(self.request)
+        return context
 
 
 class TeamPageMixin(LoginRequiredMixin, UserMixin):
@@ -522,7 +526,7 @@ class TwitchAuth(LoginRequiredMixin, UserMixin, generic.View):
                         messages.error(
                             request,
                             'Your Twitch account is already connected to another '
-                            'racetime.gg user account.',
+                            'Z1RR RaceTime account.',
                         )
                     else:
                         user.twitch_id = data.get('id')
@@ -614,7 +618,7 @@ class PatreonAuth(LoginRequiredMixin, UserMixin, generic.View):
                     messages.error(
                         request,
                         'Your Patreon account is already connected to another '
-                        'racetime.gg user account.',
+                        'Z1RR RaceTime account.',
                     )
                 else:
                     user.patreon_id = data.get('id')

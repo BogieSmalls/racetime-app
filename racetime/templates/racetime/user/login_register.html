@@ -5,16 +5,29 @@
     <link rel="stylesheet" href="{% static 'racetime/style/login_register.css' %}">
 {% endblock %}
 {% block js %}
+    {% if public_password_auth %}
     <script src="{% static 'racetime/script/login_register.js' %}"></script>
+    {% endif %}
 {% endblock %}
 {% block title %}
-    Log in / Create an account |
+    Sign in |
 {% endblock %}
 {% block meta %}
     <meta name="robots" content="noindex,follow">
 {% endblock %}
 
 {% block content %}
+    {% if discord_auth_enabled %}
+    <main class="login">
+        <h2>Sign in</h2>
+        <p class="help">
+            Use your Discord identity to access or create your Z1RR RaceTime
+            account.
+        </p>
+        <a class="btn" href="{% url 'discord_initiate' %}?next={{ login_next|urlencode }}">Continue with Discord</a>
+    </main>
+    {% endif %}
+    {% if public_password_auth %}
     <main class="create-account">
         <label class="attract" for="createaccount_id_email"><span>Start new</span></label>
         <h2>Create an account</h2>
@@ -51,4 +64,5 @@
             </form>
         </div>
     </main>
+    {% endif %}
 {% endblock %}

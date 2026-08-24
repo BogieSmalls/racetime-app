@@ -788,7 +788,6 @@ class UserEditForm(forms.ModelForm):
     class Meta:
         model = models.User
         fields = (
-            'email',
             'name',
             'avatar',
             'pronouns',

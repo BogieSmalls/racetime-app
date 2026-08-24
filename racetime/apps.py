@@ -22,5 +22,9 @@ def context_processor(request):
         ),
         'emotes': {},
         'login_next': request.GET.get('next', request.get_full_path),
+        'discord_auth_enabled': settings.RT_DISCORD_AUTH_ENABLED,
+        'patreon_enabled': settings.RT_PATREON_ENABLED,
+        'public_category_requests': settings.RT_PUBLIC_CATEGORY_REQUESTS,
+        'public_password_auth': settings.RT_PUBLIC_PASSWORD_AUTH,
         'site_info': settings.RT_SITE_INFO,
     }

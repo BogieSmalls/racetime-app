@@ -82,7 +82,7 @@
         {% for category in categories %}
             {% include 'racetime/home/category.html' %}
         {% endfor %}
-        {% if user.is_authenticated %}
+        {% if user.is_authenticated and public_category_requests %}
         <li class="request-category">
             <a href="{% url 'request_category' %}">
                 <span class="image no-image">
@@ -102,7 +102,7 @@
 
 {% block aside %}
     {% include 'racetime/forms/search.html' %}
-    {% if user.is_authenticated %}
+    {% if user.is_authenticated and public_category_requests %}
         <div class="home-links">
             <ul>
                 <li>

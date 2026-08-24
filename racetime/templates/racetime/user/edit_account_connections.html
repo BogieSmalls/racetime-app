@@ -23,9 +23,10 @@
     <div class="division">
         <h3>Connect to Twitch</h3>
         <p class="help">
-            To join races where streaming is required, you must have an active
+            Twitch is separate from Discord sign-in and is used only for races
+            where streaming is required. For those races, you need an active
             <a href="https://www.twitch.tv" target="_blank" rel="nofollow">Twitch.tv</a>
-            account.
+            account connected here.
         </p>
         {% if user.twitch_name %}
             <p>
@@ -55,6 +56,7 @@
             </p>
         {% endif %}
     </div>
+    {% if patreon_enabled %}
     <div class="division">
         <h3>Connect to Patreon</h3>
         <p class="help">
@@ -92,6 +94,7 @@
             </p>
         {% endif %}
     </div>
+    {% endif %}
     <div class="division">
         <h3>Applications</h3>
         <p class="help">

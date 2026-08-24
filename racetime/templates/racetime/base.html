@@ -52,7 +52,7 @@
                                 <button type="submit" class="btn logout">Log out</button>
                             </form>
                             {% else %}
-                            <a href="{% url 'login_or_register' %}?next={{ login_next|urlencode }}" class="btn login-or-register">Log in / Create account</a>
+                            <a href="{% url 'login_or_register' %}?next={{ login_next|urlencode }}" class="btn login-or-register">Sign in</a>
                         {% endif %}
                     </div>
                 </header>

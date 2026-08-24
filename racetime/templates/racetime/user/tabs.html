@@ -4,11 +4,13 @@
             Profile &amp; settings
         </a>
     </li>
+    {% if public_password_auth and user.has_usable_password %}
     <li{% if current == 'edit_account_security' %} class="current"{% endif %}>
         <a href="{% url 'edit_account_security' %}">
             Change password
         </a>
     </li>
+    {% endif %}
     <li{% if current == 'edit_account_connections' %} class="current"{% endif %}>
         <a href="{% url 'edit_account_connections' %}">
             Twitch &amp; connections

@@ -201,6 +201,12 @@ OAUTH2_PROVIDER = {
 # Site details
 
 EMAIL_FROM = 'hello@racetime.dev'
+# Upstream-compatible defaults. Z1RR production/test profiles explicitly
+# disable these legacy public account and category surfaces.
+RT_PUBLIC_PASSWORD_AUTH = True
+RT_PUBLIC_CATEGORY_REQUESTS = True
+RT_PATREON_ENABLED = True
+
 
 RT_SITE_URI = 'http://localhost:8000'
 # Discord OAuth is fail-closed in base/development settings. Deployments that
