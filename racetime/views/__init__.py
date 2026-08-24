@@ -53,6 +53,10 @@ from .goal import (
     GoalList,
 )
 from .home import Home
+from .health import (
+    healthz,
+    internal_readyz,
+)
 from .race import (
     CreateRace,
     EditRace,
@@ -203,6 +207,9 @@ __all__ = [
     'GoalList',
     # home
     'Home',
+    # health
+    'healthz',
+    'internal_readyz',
     # race
     'CreateRace',
     'EditRace',

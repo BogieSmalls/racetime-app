@@ -44,7 +44,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'oauth2_provider.middleware.OAuth2TokenMiddleware',
+    'racetime.middleware.InternalHealthAwareOAuth2TokenMiddleware',
 ]
 
 ROOT_URLCONF = 'project.urls'
@@ -221,6 +221,7 @@ RT_PATREON_ENABLED = True
 RT_THROTTLING_ENABLED = False
 RT_THROTTLING_REQUIRE_REDIS = False
 RACETIME_THROTTLE_HMAC_KEY = None
+INTERNAL_HEALTH_TOKEN = None
 RACETIME_TRUSTED_PROXY_CIDR = None
 
 

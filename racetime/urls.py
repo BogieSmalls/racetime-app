@@ -116,6 +116,9 @@ request_category_view = (
 )
 
 urlpatterns = [
+    path('healthz', views.healthz, name='healthz'),
+    path('internal/readyz', views.internal_readyz, name='internal_readyz'),
+
     path(
         'account',
         protected(views.EditAccount.as_view(), 'profile_mutation', 'edit_account', ('POST',)),

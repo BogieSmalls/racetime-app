@@ -2,6 +2,21 @@ from urllib.parse import parse_qs
 
 from channels.middleware import BaseMiddleware
 from django.middleware import csrf
+from django.utils.cache import patch_vary_headers
+from oauth2_provider.middleware import (
+    OAuth2TokenMiddleware as DjangoOAuth2TokenMiddleware,
+)
+
+
+class InternalHealthAwareOAuth2TokenMiddleware(DjangoOAuth2TokenMiddleware):
+    """Reserve the readiness bearer token from OAuth authentication."""
+
+    def __call__(self, request):
+        if request.path_info == "/internal/readyz":
+            response = self.get_response(request)
+            patch_vary_headers(response, ("Authorization",))
+            return response
+        return super().__call__(request)
 
 
 class CsrfViewMiddlewareTwitch(csrf.CsrfViewMiddleware):
