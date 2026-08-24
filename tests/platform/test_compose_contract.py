@@ -14,6 +14,7 @@ BASE_ENVIRONMENT = {
     "RACETIME_MAINTENANCE_IMAGE": "ghcr.io/z1rracing/racetime-maintenance",
     "RACETIME_MAINTENANCE_IMAGE_DIGEST": "sha256:" + "2" * 64,
     "RACETIME_ENV_FILE": "./env/ci.env",
+    "CADDY_ENV_FILE": "./caddy/qualification.env.example",
 }
 
 
@@ -22,6 +23,9 @@ def render_compose(state, *, caddy_state=None, environment=None):
         **BASE_ENVIRONMENT,
         "RACETIME_STATE_GENERATION": state,
         "CADDY_STATE_VOLUME": caddy_state or f"z1rr-racetime-caddy-{state}",
+        "CADDY_ENV_FILE": (
+            f"./caddy/{'qualification' if state == 'qualification' else 'production-restricted'}.env.example"
+        ),
         **(environment or {}),
     }
     text = COMPOSE_PATH.read_text(encoding="utf-8")
@@ -56,6 +60,10 @@ class ComposeContractTests(unittest.TestCase):
         self.assertEqual(services["collectstatic"]["profiles"], ["deploy"])
         self.assertEqual(services["maintenance"]["profiles"], ["maintenance"])
         self.assertEqual(services["maintenance"]["command"], ["maintenance"])
+        self.assertEqual(
+            services["caddy"]["env_file"],
+            ["./caddy/qualification.env.example"],
+        )
         self.assertNotIn("migrate", services["racebot"].get("depends_on", {}))
 
     def test_proxy_network_has_exactly_caddy_and_web(self):
@@ -185,7 +193,7 @@ class ComposeContractTests(unittest.TestCase):
 
     def test_missing_generation_selectors_fail_closed(self):
         original = COMPOSE_PATH.read_text(encoding="utf-8")
-        for missing in ("RACETIME_STATE_GENERATION", "CADDY_STATE_VOLUME"):
+        for missing in ("RACETIME_STATE_GENERATION", "CADDY_STATE_VOLUME", "CADDY_ENV_FILE"):
             values = {
                 **BASE_ENVIRONMENT,
                 "RACETIME_STATE_GENERATION": "qualification",

@@ -1,0 +1,132 @@
+{
+	admin off
+	servers :443 {
+		protocols h1 h2
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+	}
+	servers :8081 {
+		protocols h1 h2
+		listener_wrappers {
+			http_redirect
+			tls
+		}
+	}
+}
+
+(phaseTLS) {
+	tls {
+		issuer acme {
+			dir {$CADDY_ACME_CA}
+			test_dir {$CADDY_ACME_TEST_CA}
+			email {$CADDY_ACME_EMAIL}
+			disable_http_challenge
+		}
+	}
+}
+
+https://{$CADDY_SITE_HOST} {
+	import phaseTLS
+
+	route {
+		request_body {
+			max_size 5MB
+		}
+
+		@sourceDenied not remote_ip {$CADDY_ALLOWED_CIDRS}
+		respond @sourceDenied 404
+
+		@publicAdmin path /admin* /internal/*
+		respond @publicAdmin 404
+
+		header {
+			Strict-Transport-Security "{$CADDY_HSTS_VALUE}"
+			X-Content-Type-Options nosniff
+			Referrer-Policy same-origin
+			X-Frame-Options DENY
+			-Server
+		}
+
+		handle_path /static/* {
+			root * /srv/racetime/static
+			header Cache-Control "public, max-age=3600"
+			header X-Content-Type-Options nosniff
+			file_server
+		}
+
+		handle_path /media/* {
+			root * /srv/racetime/media
+			header Cache-Control "private, no-store"
+			header X-Content-Type-Options nosniff
+			@activeContent path_regexp activeContent (?i)\.(?:html?|svg|xml|js|mjs)$
+			header @activeContent Content-Disposition "attachment"
+			file_server
+		}
+
+		reverse_proxy web:8000 {
+			header_up -X-Forwarded-For
+			header_up X-Forwarded-For {remote_host}
+			header_up -X-Forwarded-Host
+			header_up X-Forwarded-Host {host}
+			header_up -X-Forwarded-Proto
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+		}
+	}
+
+	log {
+		output stdout
+		format filter {
+			request>uri query {
+				replace code REDACTED
+				replace state REDACTED
+				replace token REDACTED
+				replace access_token REDACTED
+				replace refresh_token REDACTED
+				replace client_secret REDACTED
+				replace password REDACTED
+				replace webhook REDACTED
+				replace error_description REDACTED
+			}
+			wrap json
+		}
+	}
+}
+
+https://{$CADDY_SITE_HOST}:8081 {
+	import phaseTLS
+
+	route {
+		@operatorOnly path /admin* /internal/*
+		reverse_proxy @operatorOnly web:8000 {
+			header_up -X-Forwarded-For
+			header_up X-Forwarded-For {remote_host}
+			header_up -X-Forwarded-Host
+			header_up X-Forwarded-Host {host}
+			header_up -X-Forwarded-Proto
+			header_up X-Forwarded-Proto {scheme}
+			header_up Host {host}
+		}
+		respond 404
+	}
+
+	log {
+		output stdout
+		format filter {
+			request>uri query {
+				replace code REDACTED
+				replace state REDACTED
+				replace token REDACTED
+				replace access_token REDACTED
+				replace refresh_token REDACTED
+				replace client_secret REDACTED
+				replace password REDACTED
+				replace webhook REDACTED
+				replace error_description REDACTED
+			}
+			wrap json
+		}
+	}
+}
