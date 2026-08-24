@@ -1,0 +1,96 @@
+name: Report upstream RaceTime drift
+
+# G0 validation is local only. GitHub schedule and workflow_dispatch events become
+# usable after G1 puts this file on the z1rr-production default branch.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 1 * *"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the Z1RR fork read-only
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Capture public upstream refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/upstream-drift
+          git ls-remote --symref https://github.com/racetimeGG/racetime-app.git \
+            HEAD 'refs/heads/*' 'refs/tags/*' > artifacts/upstream-drift/ls-remote.txt
+          python - <<'PY'
+          import datetime
+          import json
+          from pathlib import Path
+
+          lines = Path("artifacts/upstream-drift/ls-remote.txt").read_text(
+              encoding="utf-8"
+          ).splitlines()
+          default_ref = None
+          upstream_head = None
+          branches = {}
+          tags = {}
+          for line in lines:
+              fields = line.split()
+              if len(fields) == 3 and fields[0] == "ref:" and fields[2] == "HEAD":
+                  default_ref = fields[1]
+                  continue
+              if len(fields) != 2:
+                  raise SystemExit(f"unexpected ls-remote line: {line}")
+              object_id, ref = fields
+              if ref == "HEAD":
+                  upstream_head = object_id
+              elif ref.startswith("refs/heads/"):
+                  branches[ref.removeprefix("refs/heads/")] = object_id
+              elif ref.startswith("refs/tags/") and not ref.endswith("^{}"):
+                  tags[ref.removeprefix("refs/tags/")] = object_id
+          if not default_ref or not upstream_head:
+              raise SystemExit("upstream did not advertise a symbolic HEAD")
+          default_branch = default_ref.removeprefix("refs/heads/")
+          capture = {
+              "captured_at_utc": datetime.datetime.now(datetime.timezone.utc)
+                  .replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+              "default_branch": default_branch,
+              "upstream_head": upstream_head,
+              "branches": dict(sorted(branches.items())),
+              "tags": dict(sorted(tags.items())),
+          }
+          Path("artifacts/upstream-drift/captured-refs.json").write_text(
+              json.dumps(capture, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+
+      - name: Test the comparator and workflow contract
+        run: python -m unittest tests.source.test_compare_upstream_refs -v
+
+      - name: Compare with the accepted baseline
+        id: drift
+        continue-on-error: true
+        run: |
+          python scripts/source/compare-upstream-refs.py \
+            --baseline docs/upstream/UPSTREAM_BASELINE.json \
+            --captured artifacts/upstream-drift/captured-refs.json \
+            --output artifacts/upstream-drift/upstream-drift.md
+
+      - name: Upload the non-mutating report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-drift-report
+          path: artifacts/upstream-drift/
+          if-no-files-found: error
+
+      - name: Fail when refs changed or comparison failed
+        if: steps.drift.outcome == 'failure'
+        run: exit 1
