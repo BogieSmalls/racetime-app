@@ -4,9 +4,19 @@ set -eu
 case "${1:-}" in
     web)
         exec python -c '
+import os
 import sys
-from urllib.request import urlopen
-response = urlopen("http://127.0.0.1:8000/healthz", timeout=2)
+from urllib.parse import urlsplit
+from urllib.request import Request, urlopen
+origin = os.environ.get("RACETIME_INTEGRATION_ORIGIN") or os.environ.get("RT_SITE_URI")
+health_host = urlsplit(origin).hostname if origin else None
+if not health_host:
+    sys.exit(1)
+request = Request(
+    "http://127.0.0.1:8000/healthz",
+    headers={"Host": health_host},
+)
+response = urlopen(request, timeout=2)
 body = response.read(64)
 sys.exit(0 if response.status == 200 and body == b"{\"status\":\"ok\"}" else 1)
 '

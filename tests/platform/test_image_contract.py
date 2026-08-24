@@ -1,5 +1,10 @@
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 from pathlib import Path
 import re
+import subprocess
+import sys
+import threading
 import unittest
 
 
@@ -78,6 +83,57 @@ class ImageContractTests(unittest.TestCase):
         health = HEALTHCHECK.read_text(encoding="utf-8")
         self.assertIn("http://127.0.0.1:8000/healthz", health)
         self.assertIn("kill -0 1", health)
+
+    def test_web_healthcheck_uses_the_configured_application_host(self):
+        health = HEALTHCHECK.read_text(encoding="utf-8")
+        match = re.search(
+            r"web\)\s+exec python -c '\n(?P<probe>.*?)\n'\s+;;",
+            health,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match)
+        observed_hosts = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed_hosts.append(self.headers.get("Host"))
+                accepted = (
+                    self.path == "/healthz"
+                    and self.headers.get("Host") == "integration.racetime.test"
+                )
+                self.send_response(200 if accepted else 400)
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}' if accepted else b"bad host")
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        probe = match.group("probe").replace(
+            "127.0.0.1:8000", f"127.0.0.1:{server.server_port}",
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", probe],
+                cwd=ROOT,
+                env={
+                    **os.environ,
+                    "RACETIME_INTEGRATION_ORIGIN": (
+                        "https://integration.racetime.test:8443"
+                    ),
+                },
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(observed_hosts, ["integration.racetime.test"])
 
     def test_maintenance_tools_are_absent_from_application_targets(self):
         marker = "FROM runtime-base AS maintenance"
