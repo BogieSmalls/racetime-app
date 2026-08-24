@@ -87,6 +87,15 @@ class ComposeIsolationTests(unittest.TestCase):
             "fixture-provider": "172.30.0.4",
         })
 
+    def test_racebot_healthcheck_allows_django_startup_on_small_hosts(self):
+        healthcheck = self.integration["services"]["racebot"].get("healthcheck", {})
+        self.assertEqual(
+            healthcheck.get("test"),
+            ["CMD", "/srv/racetime/.docker/healthcheck", "racebot"],
+        )
+        self.assertEqual(healthcheck.get("timeout"), "15s")
+        self.assertEqual(healthcheck.get("start_period"), "40s")
+
     def test_rendered_source_contains_no_production_or_external_secret_path(self):
         combined = f"{self.integration_text}\n{self.integration_env}".lower()
         forbidden = (
