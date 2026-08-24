@@ -10,6 +10,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PRODUCTION_COMPOSE = REPOSITORY_ROOT / "deploy" / "compose.production.yml"
 INTEGRATION_COMPOSE = REPOSITORY_ROOT / "deploy" / "compose.integration.yml"
 INTEGRATION_ENV = REPOSITORY_ROOT / "deploy" / "env" / "integration.env.example"
+INTEGRATION_UP = REPOSITORY_ROOT / "scripts" / "integration-up.ps1"
 
 
 class ComposeIsolationTests(unittest.TestCase):
@@ -109,6 +110,13 @@ class ComposeIsolationTests(unittest.TestCase):
         self.assertIn("integration-redis-data", redis_mounts)
         self.assertNotIn("secret-data", self.integration_text)
 
+    def test_fixture_preparation_exposes_the_application_import_root(self):
+        integration_up = INTEGRATION_UP.read_text(encoding="utf-8")
+        self.assertIn(
+            "run --rm --env PYTHONPATH=/srv/racetime --entrypoint python web "
+            "/fixtures/prepare_integration.py",
+            integration_up,
+        )
 
 if __name__ == "__main__":
     unittest.main()

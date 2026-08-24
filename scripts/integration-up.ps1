@@ -64,7 +64,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Integration migration failed.' }
     & docker @compose run --rm web collectstatic
     if ($LASTEXITCODE -ne 0) { throw 'Integration static collection failed.' }
-    & docker @compose run --rm --entrypoint python web /fixtures/prepare_integration.py
+    & docker @compose run --rm --env PYTHONPATH=/srv/racetime --entrypoint python web /fixtures/prepare_integration.py
     if ($LASTEXITCODE -ne 0) { throw 'Integration fixture preparation failed.' }
 
     & docker @compose --profile racebot up --detach web racebot caddy
