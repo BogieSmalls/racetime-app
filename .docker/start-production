@@ -1,6 +1,30 @@
 #!/bin/sh
 set -eu
 
+# A root-owned named volume may provide production secrets one per file. CI and
+# local contract runs can continue to use ordinary fixture environment values.
+secret_directory=/run/racetime-secrets
+for secret_name in \
+    DJANGO_SECRET_KEY \
+    DB_PASSWORD \
+    REDIS_URL \
+    INTERNAL_HEALTH_TOKEN \
+    RACETIME_THROTTLE_HMAC_KEY \
+    DISCORD_CLIENT_SECRET \
+    TWITCH_CLIENT_SECRET
+do
+    secret_file="$secret_directory/$secret_name"
+    if [ -f "$secret_file" ]; then
+        secret_value="$(cat "$secret_file")"
+        if [ -z "$secret_value" ]; then
+            echo "secret file is empty: $secret_name" >&2
+            exit 78
+        fi
+        export "$secret_name=$secret_value"
+    fi
+done
+unset secret_file secret_name secret_value
+
 mode="${1:-}"
 case "$mode" in
     web)

@@ -1,0 +1,262 @@
+name: z1rr-racetime
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-app-environment: &app-environment
+  env_file:
+    - ${RACETIME_ENV_FILE:?set RACETIME_ENV_FILE}
+  environment:
+    RACETIME_TRUSTED_PROXY_CIDRS: 172.30.0.2/32
+
+x-app-security: &app-security
+  read_only: true
+  init: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  caddy:
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    configs:
+      - source: caddy-config
+        target: /etc/caddy/Caddyfile
+        mode: 0444
+    environment:
+      XDG_DATA_HOME: /var/lib/caddy/data
+      XDG_CONFIG_HOME: /var/lib/caddy/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - caddy-state:/var/lib/caddy
+      - static-data:/srv/racetime/static:ro
+      - media-data:/srv/racetime/media:ro
+    networks:
+      proxy:
+        ipv4_address: 172.30.0.2
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.25"
+    mem_limit: 256m
+    logging: *default-logging
+
+  web:
+    image: ${RACETIME_IMAGE:?set RACETIME_IMAGE}@${RACETIME_IMAGE_DIGEST:?set RACETIME_IMAGE_DIGEST}
+    <<: [*app-environment, *app-security]
+    command: ["web"]
+    volumes:
+      - static-data:/srv/racetime/static
+      - media-data:/srv/racetime/media
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      proxy:
+        ipv4_address: 172.30.0.3
+      data: {}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/srv/racetime/.docker/healthcheck", "web"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    cpus: "0.50"
+    mem_limit: 1536m
+    logging: *default-logging
+
+  racebot:
+    image: ${RACETIME_IMAGE:?set RACETIME_IMAGE}@${RACETIME_IMAGE_DIGEST:?set RACETIME_IMAGE_DIGEST}
+    <<: [*app-environment, *app-security]
+    command: ["racebot"]
+    volumes:
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      data: {}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/srv/racetime/.docker/healthcheck", "racebot"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    cpus: "0.25"
+    mem_limit: 512m
+    logging: *default-logging
+
+  db:
+    image: mariadb:11.4.12@sha256:4f1d8d202fcf7bcb3902f63af09f9c1a050c2922a89652f22abaec0d4f015e83
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-name-resolve
+    environment:
+      MARIADB_DATABASE: racetime
+      MARIADB_USER: racetime
+      MARIADB_PASSWORD_FILE: /run/racetime-secrets/DB_PASSWORD
+      MARIADB_ROOT_PASSWORD_FILE: /run/racetime-secrets/DB_ROOT_PASSWORD
+    volumes:
+      - db-data:/var/lib/mysql
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      data: {}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /run/mysqld:rw,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.50"
+    mem_limit: 1536m
+    logging: *default-logging
+
+  redis:
+    image: redis:7.4.11-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        exec redis-server --appendonly yes --save 60 1
+        --requirepass "$$(cat /run/racetime-secrets/REDIS_PASSWORD)"
+    volumes:
+      - redis-data:/data
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      data: {}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          REDISCLI_AUTH="$$(cat /run/racetime-secrets/REDIS_PASSWORD)"
+          redis-cli ping | grep -qx PONG
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cpus: "0.25"
+    mem_limit: 256m
+    logging: *default-logging
+
+  migrate:
+    image: ${RACETIME_IMAGE:?set RACETIME_IMAGE}@${RACETIME_IMAGE_DIGEST:?set RACETIME_IMAGE_DIGEST}
+    <<: [*app-environment, *app-security]
+    profiles: ["deploy"]
+    command: ["migrate"]
+    volumes:
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      data: {}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    cpus: "0.50"
+    mem_limit: 768m
+    logging: *default-logging
+
+  collectstatic:
+    image: ${RACETIME_IMAGE:?set RACETIME_IMAGE}@${RACETIME_IMAGE_DIGEST:?set RACETIME_IMAGE_DIGEST}
+    <<: [*app-environment, *app-security]
+    profiles: ["deploy"]
+    command: ["collectstatic"]
+    volumes:
+      - static-data:/srv/racetime/static
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      data: {}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    cpus: "0.50"
+    mem_limit: 768m
+    logging: *default-logging
+
+  maintenance:
+    image: ${RACETIME_MAINTENANCE_IMAGE:?set RACETIME_MAINTENANCE_IMAGE}@${RACETIME_MAINTENANCE_IMAGE_DIGEST:?set RACETIME_MAINTENANCE_IMAGE_DIGEST}
+    profiles: ["maintenance"]
+    <<: [*app-environment, *app-security]
+    command: ["maintenance"]
+    volumes:
+      - db-data:/var/lib/racetime/db:ro
+      - redis-data:/var/lib/racetime/redis:ro
+      - media-data:/srv/racetime/media:ro
+      - caddy-state:/var/lib/caddy:ro
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      data: {}
+    restart: "no"
+    cpus: "0.75"
+    mem_limit: 1024m
+    logging: *default-logging
+
+configs:
+  caddy-config:
+    file: ./Caddyfile
+
+networks:
+  proxy:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/29
+  data:
+    driver: bridge
+    internal: true
+
+volumes:
+  db-data:
+    name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-db
+  redis-data:
+    name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-redis
+  media-data:
+    name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-media
+  static-data:
+    name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-static
+  secret-data:
+    name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-secrets
+  caddy-state:
+    name: ${CADDY_STATE_VOLUME:?choose the exact qualification or production Caddy state volume}

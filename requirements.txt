@@ -4,3 +4,4 @@ django-cors-headers
 django-extensions
 django-debug-toolbar
 mysqlclient
+PyYAML==6.0.3

@@ -6,11 +6,15 @@ from time import sleep
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import F
 from django.utils import timezone
 
 from . import models
 from .utils import chunkify, notice_exception
+
+
+RACEBOT_ADOPTION_HEARTBEAT_KEY = "z1rr:racebot:adoption-heartbeat"
 
 
 class RaceBot:
@@ -51,6 +55,7 @@ class RaceBot:
             self.adopt_race()
             self.unorphan_races()
             self.last_adoption = timezone.now()
+            self.record_adoption_heartbeat()
 
         if not self.last_twitch_refresh or timezone.now() - self.last_twitch_refresh > timedelta(seconds=10):
             self.logger.debug('[Twitch] Refreshing stream statuses.')
@@ -58,6 +63,20 @@ class RaceBot:
             self.last_twitch_refresh = timezone.now()
 
         sleep(0.01)
+
+    def record_adoption_heartbeat(self):
+        """Record that the bounded orphan/adoption scan completed."""
+        observed_at = timezone.now()
+        try:
+            cache.set(
+                RACEBOT_ADOPTION_HEARTBEAT_KEY,
+                {"pid": self.pid, "observed_at": observed_at.timestamp()},
+                timeout=120,
+            )
+        except Exception:
+            self.logger.warning('[Bot] Adoption heartbeat cache unavailable.')
+            return False
+        return True
 
     def adopt_race(self):
         """
