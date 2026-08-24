@@ -12,6 +12,8 @@ SCHEMA_PATH = ROOT / "docs" / "upstream" / "UPSTREAM_BASELINE.schema.json"
 REMOTE_GUARD_PATH = ROOT / "scripts" / "source" / "check-remotes.ps1"
 PRESERVE_PATH = ROOT / "scripts" / "source" / "preserve-upstream.ps1"
 VERIFY_PATH = ROOT / "scripts" / "source" / "verify-upstream-archive.ps1"
+RESTORE_RUNBOOK_PATH = ROOT / "docs" / "upstream" / "RESTORE.md"
+
 
 
 
@@ -539,6 +541,55 @@ class RestoreVerificationTests(unittest.TestCase):
             archive.write(b"x")
         self._assert_rejected(self._run_verify())
 
+
+
+class RestoreRunbookTests(unittest.TestCase):
+    REQUIRED_SECTIONS = (
+        "## Prerequisites",
+        "## Create an archive",
+        "## Verify an archive",
+        "## Create the second copy",
+        "## Restore into an empty directory",
+        "## Recreate the GitHub fork",
+        "## Reapply the upstream remote guard",
+        "## Quarterly rehearsal",
+        "## Custody and access",
+        "## Incident handling",
+    )
+
+    def test_runbook_covers_creation_restoration_and_custody_contract(self):
+        self.assertTrue(RESTORE_RUNBOOK_PATH.is_file(), "RESTORE.md must exist")
+        content = RESTORE_RUNBOOK_PATH.read_text(encoding="utf-8")
+        for section in self.REQUIRED_SECTIONS:
+            with self.subTest(section=section):
+                self.assertIn(section, content)
+        for required in (
+            "scripts\\source\\preserve-upstream.ps1",
+            "scripts\\source\\verify-upstream-archive.ps1",
+            "scripts\\source\\check-remotes.ps1",
+            "https://github.com/racetimeGG/racetime-app.git",
+            "https://github.com/BogieSmalls/racetime-app.git",
+            "upstream_head",
+            "default_branch",
+            "z1rr-production",
+            "git push --mirror",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, content)
+
+    def test_runbook_forbids_single_copy_and_unverified_rotation(self):
+        content = RESTORE_RUNBOOK_PATH.read_text(encoding="utf-8").lower()
+        for required in (
+            "not committed",
+            "two independently controlled copies",
+            "operator-held encrypted storage",
+            "council-approved off-workstation storage",
+            "do not delete the only verified prior archive",
+            "non-empty destination",
+            "destructive authorization",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, content)
 
 
 if __name__ == "__main__":
