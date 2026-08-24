@@ -1,0 +1,29 @@
+{
+	auto_https disable_redirects
+	admin off
+}
+
+https://integration.racetime.test:8443 {
+	tls internal
+	encode zstd gzip
+
+	@fixture path /fixture-discord/*
+	handle @fixture {
+		reverse_proxy fixture-provider:8090
+	}
+
+	handle /static/* {
+		root * /srv/racetime/static
+		file_server
+	}
+
+	handle /media/* {
+		root * /srv/racetime/media
+		file_server
+	}
+
+	handle {
+		reverse_proxy web:8000
+	}
+}
+
