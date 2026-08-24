@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racetime.z1rracing.com/schemas/monitoring-config-v1.json",
+  "title": "Z1RR RaceTime monitoring configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["probe", "alert"],
+  "properties": {
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "public_origin", "websocket_url", "public_admin_path",
+        "internal_readiness_url", "internal_token_env", "tls_host", "tls_port",
+        "container_names", "filesystem_path", "application_metrics_path",
+        "backup_metrics_path", "oci_metrics_path", "timeout_seconds"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "public_origin": {"const": "https://racetime.z1rracing.com"},
+        "websocket_url": {"type": "string", "pattern": "^wss://racetime\\.z1rracing\\.com/"},
+        "public_admin_path": {"type": "string", "pattern": "^/"},
+        "internal_readiness_url": {"type": "string", "pattern": "^https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]+)?/"},
+        "internal_token_env": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]+$"},
+        "tls_host": {"const": "racetime.z1rracing.com"},
+        "tls_port": {"const": 443},
+        "container_names": {
+          "type": "array", "uniqueItems": true, "minItems": 5, "maxItems": 5,
+          "items": {"enum": ["web", "racebot", "db", "redis", "caddy"]}
+        },
+        "filesystem_path": {"type": "string", "minLength": 1},
+        "application_metrics_path": {"type": "string", "minLength": 1},
+        "backup_metrics_path": {"type": "string", "minLength": 1},
+        "oci_metrics_path": {"type": "string", "minLength": 1},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30}
+      }
+    },
+    "alert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "webhook_url", "webhook_host_allowlist", "signing_secret_env",
+        "state_path", "max_attempts", "retry_seconds", "dedupe_seconds"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "webhook_url": {"type": "string", "pattern": "^https://discord\\.com/api/webhooks/"},
+        "webhook_host_allowlist": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["discord.com"]}
+        },
+        "signing_secret_env": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]+$"},
+        "state_path": {"type": "string", "pattern": "^/"},
+        "max_attempts": {"type": "integer", "minimum": 1, "maximum": 5},
+        "retry_seconds": {"type": "number", "minimum": 0, "maximum": 30},
+        "dedupe_seconds": {"type": "number", "minimum": 60, "maximum": 86400}
+      }
+    }
+  }
+}
