@@ -11,6 +11,8 @@ BASELINE_PATH = ROOT / "docs" / "upstream" / "UPSTREAM_BASELINE.json"
 SCHEMA_PATH = ROOT / "docs" / "upstream" / "UPSTREAM_BASELINE.schema.json"
 REMOTE_GUARD_PATH = ROOT / "scripts" / "source" / "check-remotes.ps1"
 PRESERVE_PATH = ROOT / "scripts" / "source" / "preserve-upstream.ps1"
+VERIFY_PATH = ROOT / "scripts" / "source" / "verify-upstream-archive.ps1"
+
 
 
 class SourceMetadataTests(unittest.TestCase):
@@ -394,6 +396,149 @@ class ArchiveCreationTests(unittest.TestCase):
             with self.subTest(unsafe=unsafe.name):
                 result = self._run_preserve(output=unsafe)
                 self.assertNotEqual(result.returncode, 0)
+
+class RestoreVerificationTests(unittest.TestCase):
+    def setUp(self):
+        self.fixture = ArchiveCreationTests(methodName="runTest")
+        self.fixture.setUp()
+        result = self.fixture._run_preserve(wiki_url=self.fixture.wiki.as_uri())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.root = self.fixture.root
+        self.output = self.fixture.output
+        self.metadata = self.fixture.metadata
+        self.restore = self.root / "restore"
+
+    def tearDown(self):
+        self.fixture.tearDown()
+
+    def _run_verify(self, restore=None):
+        self.assertTrue(
+            VERIFY_PATH.is_file(),
+            "verify-upstream-archive.ps1 must exist before restore tests can pass",
+        )
+        return subprocess.run(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-File",
+                str(VERIFY_PATH),
+                "-ArchiveDirectory",
+                str(self.output),
+                "-MetadataDirectory",
+                str(self.metadata),
+                "-RestoreDirectory",
+                str(restore or self.restore),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        )
+
+    def _baseline(self):
+        return json.loads(
+            (self.metadata / "UPSTREAM_BASELINE.json").read_text(encoding="utf-8")
+        )
+
+    def _write_baseline(self, baseline):
+        (self.metadata / "UPSTREAM_BASELINE.json").write_text(
+            json.dumps(baseline, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def _assert_rejected(self, result):
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("PASS:", result.stdout + result.stderr)
+
+    def test_restores_exact_default_branch_all_refs_and_wiki(self):
+        result = self._run_verify()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        baseline = self._baseline()
+        branch = subprocess.run(
+            ["git", "-C", str(self.restore), "symbolic-ref", "--short", "HEAD"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        head = subprocess.run(
+            ["git", "-C", str(self.restore), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        self.assertEqual(branch, baseline["default_branch"])
+        self.assertEqual(head, baseline["upstream_head"])
+        for name, object_id in baseline["branches"].items():
+            actual = self.fixture._git(
+                "-C", str(self.restore), "rev-parse", f"refs/heads/{name}",
+                capture=True,
+            ).strip()
+            self.assertEqual(actual, object_id)
+        for name, object_id in baseline["tags"].items():
+            actual = self.fixture._git(
+                "-C", str(self.restore), "rev-parse", f"refs/tags/{name}",
+                capture=True,
+            ).strip()
+            self.assertEqual(actual, object_id)
+        self.assertTrue((self.restore / "wiki" / ".git").is_dir())
+
+    def test_rejects_one_byte_bundle_tamper(self):
+        baseline = self._baseline()
+        bundle = self.output / baseline["source_bundle"]["file"]
+        with bundle.open("ab") as archive:
+            archive.write(b"x")
+        self._assert_rejected(self._run_verify())
+
+    def test_rejects_wrong_manifest_hash(self):
+        baseline = self._baseline()
+        baseline["source_bundle"]["sha256"] = "0" * 64
+        self._write_baseline(baseline)
+        self._assert_rejected(self._run_verify())
+
+    def test_rejects_non_empty_restore_target(self):
+        self.restore.mkdir()
+        (self.restore / "keep.txt").write_text("keep\n", encoding="utf-8")
+        self._assert_rejected(self._run_verify())
+        self.assertEqual((self.restore / "keep.txt").read_text(), "keep\n")
+
+    def test_rejects_missing_recorded_branch(self):
+        baseline = self._baseline()
+        baseline["branches"]["missing"] = baseline["upstream_head"]
+        self._write_baseline(baseline)
+        self._assert_rejected(self._run_verify())
+
+    def test_rejects_missing_or_wrong_default_branch(self):
+        original = self._baseline()
+        for mutation in ("missing-property", "unknown-branch"):
+            with self.subTest(mutation=mutation):
+                baseline = json.loads(json.dumps(original))
+                if mutation == "missing-property":
+                    del baseline["default_branch"]
+                else:
+                    baseline["default_branch"] = "not-recorded"
+                self._write_baseline(baseline)
+                self._assert_rejected(self._run_verify())
+                self._write_baseline(original)
+
+    def test_rejects_reachable_non_default_upstream_head(self):
+        baseline = self._baseline()
+        baseline["upstream_head"] = baseline["branches"]["async"]
+        self._write_baseline(baseline)
+        self._assert_rejected(self._run_verify())
+
+    def test_rejects_default_branch_tip_different_from_manifest(self):
+        baseline = self._baseline()
+        baseline["upstream_head"] = baseline["branches"]["async"]
+        baseline["branches"]["master"] = baseline["branches"]["async"]
+        self._write_baseline(baseline)
+        self._assert_rejected(self._run_verify())
+
+    def test_rejects_wiki_bundle_tamper(self):
+        baseline = self._baseline()
+        wiki_bundle = self.output / baseline["wiki"]["file"]
+        with wiki_bundle.open("ab") as archive:
+            archive.write(b"x")
+        self._assert_rejected(self._run_verify())
+
 
 
 if __name__ == "__main__":
