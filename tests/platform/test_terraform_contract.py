@@ -22,6 +22,23 @@ EXPECTED = {
 ACTIVATION_TEST = INFRA / "tests" / "activation_gate.tftest.hcl"
 
 
+def _hcl_block(text, declaration):
+    match = re.search(rf"{re.escape(declaration)}\s*{{", text)
+    if match is None:
+        raise AssertionError(f"missing HCL block: {declaration}")
+
+    opening_brace = text.index("{", match.start())
+    depth = 0
+    for index in range(opening_brace, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[match.start() : index + 1]
+    raise AssertionError(f"unterminated HCL block: {declaration}")
+
+
 class TerraformContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -114,6 +131,9 @@ class TerraformContractTests(unittest.TestCase):
 
     def test_network_exposes_only_http_https_and_uses_bastion_for_ssh(self):
         network = self.files["network.tf"]
+        data = self.files["data.tf"]
+        variables = self.files["variables.tf"]
+        readme = self.files["README.md"]
         self.assertIn('resource "oci_core_network_security_group" "racetime"', network)
         self.assertRegex(network, r'source\s*=\s*"0\.0\.0\.0/0"')
         self.assertRegex(network, r"min\s*=\s*443[\s\S]*max\s*=\s*443")
@@ -128,7 +148,94 @@ class TerraformContractTests(unittest.TestCase):
             network,
         )
         self.assertEqual(public_ssh, [])
-        self.assertNotRegex(self.tf, r'resource\s+"oci_core_(?:vcn|subnet|security_list)"')
+
+        self.assertEqual(
+            re.findall(r'resource\s+"oci_core_subnet"\s+"([^"]+)"', self.tf),
+            ["racetime"],
+        )
+        self.assertEqual(
+            re.findall(
+                r'resource\s+"oci_core_security_list"\s+"([^"]+)"', self.tf
+            ),
+            ["racetime"],
+        )
+        self.assertNotRegex(self.tf, r'resource\s+"oci_core_vcn"')
+        self.assertNotRegex(
+            self.tf,
+            r'resource\s+"oci_core_[^"]*"\s+"[^"]*restream[^"]*"',
+        )
+
+        bastion_subnet = _hcl_block(data, 'data "oci_core_subnet" "bastion"')
+        self.assertRegex(
+            bastion_subnet,
+            r"(?m)^\s*subnet_id\s*=\s*var\.subnet_ocid\s*$",
+        )
+
+        subnet = _hcl_block(network, 'resource "oci_core_subnet" "racetime"')
+        for name, value in (
+            ("cidr_block", "var.racetime_subnet_cidr"),
+            ("display_name", '"racetime-public"'),
+            ("dns_label", '"racetime"'),
+            ("prohibit_public_ip_on_vnic", "false"),
+            ("prohibit_internet_ingress", "false"),
+            ("route_table_id", "data.oci_core_subnet.bastion.route_table_id"),
+            ("dhcp_options_id", "data.oci_core_subnet.bastion.dhcp_options_id"),
+            ("security_list_ids", "[oci_core_security_list.racetime.id]"),
+        ):
+            with self.subTest(subnet_argument=name):
+                self.assertRegex(
+                    subnet,
+                    rf"(?m)^\s*{name}\s*=\s*{re.escape(value)}\s*$",
+                )
+        self.assertRegex(subnet, r"(?m)^\s*prevent_destroy\s*=\s*true\s*$")
+        self.assertNotRegex(subnet, r"(?m)^\s*availability_domain\s*=")
+
+        security_list = _hcl_block(
+            network, 'resource "oci_core_security_list" "racetime"'
+        )
+        self.assertRegex(
+            security_list,
+            r'(?m)^\s*display_name\s*=\s*"racetime"\s*$',
+        )
+        self.assertNotRegex(security_list, r"(?m)^\s*ingress_security_rules\s*{")
+        self.assertEqual(
+            len(re.findall(r"(?m)^\s*egress_security_rules\s*{", security_list)),
+            1,
+        )
+        for name, value in (
+            ("destination", '"0.0.0.0/0"'),
+            ("protocol", '"all"'),
+            ("stateless", "false"),
+        ):
+            with self.subTest(egress_argument=name):
+                self.assertRegex(
+                    security_list,
+                    rf"(?m)^\s*{name}\s*=\s*{re.escape(value)}\s*$",
+                )
+        self.assertRegex(
+            security_list, r"(?m)^\s*prevent_destroy\s*=\s*true\s*$"
+        )
+
+        cidr_variable = _hcl_block(
+            variables, 'variable "racetime_subnet_cidr"'
+        )
+        self.assertRegex(cidr_variable, r"(?m)^\s*type\s*=\s*string\s*$")
+        self.assertNotRegex(cidr_variable, r"(?m)^\s*default\s*=")
+        self.assertIn("can(cidrhost(var.racetime_subnet_cidr, 0))", cidr_variable)
+        self.assertIn("can(cidrnetmask(var.racetime_subnet_cidr))", cidr_variable)
+
+        self.assertIn(
+            "racetime_subnet_cidr = \"10.1.1.0/24\"",
+            self.files["terraform.tfvars.example"],
+        )
+        self.assertIn(
+            "terraform -chdir=infra/oci import oci_core_security_list.racetime <security-list-ocid>",
+            readme,
+        )
+        self.assertIn(
+            "terraform -chdir=infra/oci import oci_core_subnet.racetime <subnet-ocid>",
+            readme,
+        )
 
     def test_backup_bucket_and_instance_principal_are_narrow(self):
         storage = self.files["storage.tf"]

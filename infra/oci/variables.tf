@@ -79,6 +79,19 @@ variable "subnet_ocid" {
   }
 }
 
+variable "racetime_subnet_cidr" {
+  description = "IPv4 CIDR for the dedicated regional RaceTime public subnet."
+  type        = string
+
+  validation {
+    condition = (
+      can(cidrhost(var.racetime_subnet_cidr, 0)) &&
+      can(cidrnetmask(var.racetime_subnet_cidr))
+    )
+    error_message = "racetime_subnet_cidr must be a valid IPv4 CIDR."
+  }
+}
+
 variable "image_ocid" {
   description = "Explicit current standard ARM64 Ubuntu 24.04 image OCID verified at G1."
   type        = string

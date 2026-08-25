@@ -41,6 +41,34 @@ and topic are destruction-protected. OCI creates an image-backed boot volume as
 part of instance launch; `prevent_destroy` on the instance, `preserve_boot_volume
 = true`, and `is_preserve_boot_volume_enabled = true` protect that 50-GB volume.
 
+## Dedicated-subnet correction: additive phase
+
+The first correction phase leaves the stopped `oci_core_instance.racetime`
+unchanged on `var.subnet_ocid`, including `assign_public_ip = true`. Apply only
+the two additive resources in this phase: `oci_core_security_list.racetime` and
+`oci_core_subnet.racetime`. Moving or replacing compute belongs to the later,
+separately reviewed correction phase.
+
+The dedicated subnet deliberately reuses the route table and DHCP options read
+from `data.oci_core_subnet.bastion`. This read-only shared-plumbing dependency is
+accepted so the new subnet retains the existing VCN's public routing and DNS
+behavior without Terraform managing the Bastion/Restream subnet, route table,
+or DHCP options. Its only associated security list is the RaceTime list, which
+has no ingress rules and one stateful all-IPv4 egress rule.
+
+Before applying the additive plan, recover any exact resource that an
+interrupted prior attempt created without a state mapping. Verify the OCID and
+all planned fields first, then use only these narrow imports:
+
+```powershell
+terraform -chdir=infra/oci import oci_core_security_list.racetime <security-list-ocid>
+terraform -chdir=infra/oci import oci_core_subnet.racetime <subnet-ocid>
+```
+
+After an import, generate and review a fresh saved plan. Any action other than
+creating the two resources above—or no-op for an exactly imported resource—
+blocks this phase.
+
 `z1rr-restream-control`, `z1rr-restream-control-staging`, the encoders, and all
 five retained boot volumes are data-only inventory. Any proposed change to one
 of them stops the plan. In particular, `z1rr-restream-control-staging` remains

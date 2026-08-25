@@ -8,6 +8,7 @@ oci_config_file_profile = "REPLACE_LOCAL_OCI_PROFILE"
 availability_domain = "REPLACE:US-ASHBURN-AD-1"
 vcn_ocid            = "ocid1.vcn.oc1.iad.replace"
 subnet_ocid         = "ocid1.subnet.oc1.iad.replace"
+racetime_subnet_cidr = "10.1.1.0/24"
 image_ocid          = "ocid1.image.oc1.iad.replace_arm64_ubuntu_24_04_image"
 
 ssh_authorized_keys = [

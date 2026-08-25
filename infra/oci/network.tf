@@ -1,3 +1,38 @@
+resource "oci_core_security_list" "racetime" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = var.vcn_ocid
+  display_name   = "racetime"
+  freeform_tags  = local.common_tags
+
+  egress_security_rules {
+    destination = "0.0.0.0/0"
+    protocol    = "all"
+    stateless   = false
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "oci_core_subnet" "racetime" {
+  cidr_block                 = var.racetime_subnet_cidr
+  compartment_id             = var.compartment_ocid
+  vcn_id                     = var.vcn_ocid
+  display_name               = "racetime-public"
+  dns_label                  = "racetime"
+  prohibit_public_ip_on_vnic = false
+  prohibit_internet_ingress  = false
+  route_table_id             = data.oci_core_subnet.bastion.route_table_id
+  dhcp_options_id            = data.oci_core_subnet.bastion.dhcp_options_id
+  security_list_ids          = [oci_core_security_list.racetime.id]
+  freeform_tags              = local.common_tags
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "oci_core_network_security_group" "racetime" {
   compartment_id = var.compartment_ocid
   display_name   = "racetime"

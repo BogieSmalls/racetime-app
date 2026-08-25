@@ -1,13 +1,14 @@
 mock_provider "oci" {}
 
 variables {
-  tenancy_ocid        = "ocid1.tenancy.oc1..example"
-  compartment_ocid    = "ocid1.compartment.oc1..example"
-  region              = "us-ashburn-1"
-  availability_domain = "example:US-ASHBURN-AD-1"
-  vcn_ocid            = "ocid1.vcn.oc1.iad.example"
-  subnet_ocid         = "ocid1.subnet.oc1.iad.example"
-  image_ocid          = "ocid1.image.oc1.iad.example"
+  tenancy_ocid         = "ocid1.tenancy.oc1..example"
+  compartment_ocid     = "ocid1.compartment.oc1..example"
+  region               = "us-ashburn-1"
+  availability_domain  = "example:US-ASHBURN-AD-1"
+  vcn_ocid             = "ocid1.vcn.oc1.iad.example"
+  subnet_ocid          = "ocid1.subnet.oc1.iad.example"
+  racetime_subnet_cidr = "10.1.1.0/24"
+  image_ocid           = "ocid1.image.oc1.iad.example"
 
   ssh_authorized_keys = [
     "ssh-ed25519 AAAAexampleoperator operator",
