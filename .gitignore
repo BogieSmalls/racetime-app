@@ -9,6 +9,7 @@ __pycache__
 /static
 /venv
 /.worktrees
+/.tmp/
 /artifacts/source/
 /.source-preservation-scratch-*/
 
