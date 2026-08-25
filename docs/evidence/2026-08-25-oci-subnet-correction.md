@@ -1,6 +1,6 @@
 # OCI subnet correction evidence
 
-**Status:** IN PROGRESS — additive network boundary verified; exposed instance remains stopped and has not been terminated.
+**Status:** IN PROGRESS — additive network boundary verified; exposed empty instance and its boot volume disposed; Terraform state reconciliation pending.
 
 ## Reason for correction
 
@@ -78,13 +78,103 @@ The lifecycle transition is therefore classified as an independent duty-cycle ac
 not a Terraform mutation. The post-transition inventory is the continuing baseline for
 the replacement and no-drift checks; the original baseline remains retained for audit.
 
+## Pre-termination proof
+
+The deletion target was resolved only from a fresh remote Terraform state pull at source
+commit `9cb6c113709a1f46d267f9fc5a4b6bb5158da5ae`. The ignored state bytes have SHA-256
+`72c1904f7eec4194c50f38dfbab3798a3cdbdcb368328ec252bea7d0a8a2048d`.
+
+Fresh OCI API reads passed every fail-closed network gate before deletion:
+
+- Bastion was `STANDARD` and `ACTIVE`, targeted the exact existing subnet, and retained
+  the exact one-entry restricted operator CIDR allowlist. Neither world-open CIDR was
+  present.
+- The RaceTime NSG had four rules in total and exactly one rule that could reach SSH:
+  stateful TCP/22 from the current Bastion private endpoint `/32`. No other public or
+  private source could reach SSH through the NSG.
+- The existing Bastion subnet's one security list retained stateful, all-protocol IPv4
+  egress covering `10.1.1.0/24:22`.
+- The inherited route table retained one `0.0.0.0/0` CIDR route to an enabled,
+  `AVAILABLE` Internet Gateway in the same VCN. The route-table and DHCP identities
+  exactly matched both Terraform state and the dedicated subnet.
+
+The exact state instance then passed the target gate: display name `racetime`, lifecycle
+`STOPPED`, shape `VM.Standard.A1.Flex`, 1 OCPU/6 GB, exactly one attached primary VNIC
+on the original subnet, zero block-volume attachments, and exactly one attached,
+`AVAILABLE` 50-GB/10-VPU boot volume created with the instance. The five retained
+Restream boot-volume identities were distinct from the deletion target. There was no
+application bootstrap metadata, extended metadata, iPXE bootstrap, application volume,
+or application data.
+
+Safe target identity hashes:
+
+- Instance SHA-256: `1325ff401b450793a568ebc86a081669614bfeef7973d24cfca4f6ef72683450`
+- Boot-volume SHA-256: `bf8b4fec4dbb1b65ab1669858b024ab21494ee3c5c7304b1b491346197d2ac30`
+- Primary-VNIC SHA-256: `bfbdd3fab4b8f8a39cabb9d63bd1d5219b99446be0f6ef42ed4b72fcdb7eeb5b`
+
+## Exposure window and risk boundary
+
+- OCI instance creation: `2026-08-25T12:01:45.185-04:00`
+- Audit-visible discovery sequence: exact VNIC read at `2026-08-25T12:06:55.519-04:00`,
+  subnet read at `12:06:59.578-04:00`, and the inherited security-list read that
+  confirmed the source rule at `12:07:02.759-04:00`
+- Successful `STOP` request accepted: `2026-08-25T12:07:21.877-04:00`
+- Conservative creation-to-stop exposure: 5 minutes, 36.692 seconds
+- Raw early-window OCI Audit capture SHA-256:
+  `0a3227c526356ee95bf30c45864073d629de2a2a987d30b90822dd76eac3cfa9`
+
+The inherited source was the existing shared subnet's public TCP/22 rule. Access was
+configured for SSH public keys only on an unconfigured Ubuntu image. No application
+bootstrap ran; no application, production credential, secret, database, media, or user
+data was present. The instance remained stopped from the recorded stop through disposal.
+
+## ETag-protected disposal
+
+Immediately before deletion, OCI re-reads reconfirmed the exact target as `STOPPED` with
+one primary VNIC, no block-volume attachments, and the same attached 50-GB/10-VPU boot.
+A raw regional Compute `GET` returned `200 OK`, the same exact identity and state, and an
+ETag stored only in ignored evidence. Its SHA-256 was
+`126132a40c8118e0e2c2062cf298754b1289d52156ea43087a752b132b2be439`.
+
+The OCI CLI then terminated only that exact instance with the captured ETag,
+`--preserve-boot-volume false`, `--force`, and a `TERMINATED` lifecycle waiter. The
+waiter exited successfully. Independent post-wait reads proved:
+
+- The exact instance is `TERMINATED`.
+- The exact boot volume is `TERMINATED` in both its direct read and the availability-
+  domain boot-volume list.
+- All five retained Restream boot volumes remain readable by their exact state
+  identities, and none is the disposed target.
+
+Ignored evidence custody hashes:
+
+- Final pre-delete summary:
+  `fb8df24d35ce4b475db9eb0c171739353554777a2e1f8c1be00773c7c1d587e4`
+- Raw pre-delete Compute response:
+  `c9027d87bb80e7cfca23be6a5e1def13734567fad869b90a33aee4c5b1e48e46`
+- Termination/waiter response:
+  `14ab1c1e8b218bcd863857f626d1c8c2c3e3acdde0658c2bcd1eecc754501e06`
+- Post-termination instance response:
+  `0f78287b34393146c6d35ad7ce37bb3c2ffe2bfcdbe55568ea7acf70620ed54f`
+- Post-termination boot list:
+  `9bf66e5424910ad09d2a111d7d5790d65be8d18c82fd0d863a0e9455ec11c585`
+- Post-termination direct boot response:
+  `cb067fc6562f225041c8b73b6625a4665c8ad0981043dd8c358dde439bcf66f4`
+- Redacted termination summary:
+  `8e45819549362fe6688fd18f0cb0297bf558d5b4a9ef0d9826d4b21168ec6613`
+
+No Terraform destroy, state refresh, `prevent_destroy` change, Restream mutation, DNS
+change, Docker action, host bootstrap, or G1+ service action occurred in this task.
+
 ## Current gate
 
 - Dedicated subnet/security list: created and live-verified
-- Exposed RaceTime instance: still stopped; termination not started
+- Exposed RaceTime instance: terminated by exact state identity with ETag protection
+- Exposed RaceTime boot volume: terminated; not preserved or orphaned
 - Restream infrastructure mutation by this correction: none
 - DNS: unchanged
 - Host bootstrap: not started
 
-The next permitted action is the pre-termination Bastion/routing/target proof. Instance
-termination remains blocked until that proof passes.
+The next permitted action is saved refresh-only state reconciliation. Replacement
+planning remains blocked until the stale terminated instance is removed from Terraform
+state by that reviewed refresh-only path.
