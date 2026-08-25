@@ -6,7 +6,7 @@
 
 ## G0 — Contingency package ready
 
-- [x] Architecture, requirements, ADRs, artifact/traceability controls, refreshed launch checklist, master plan, and all subsystem plans describe the same approved design and have independent review evidence. ([evidence](../evidence/2026-08-24-g0-readiness.md))
+- [x] Architecture, requirements, ADRs, artifact/traceability controls, refreshed launch checklist, master plan, and all subsystem plans describe the same approved design and have independent review evidence. ([plan review](../evidence/2026-08-22-plan-review.md); [current G0 evidence](../evidence/2026-08-24-g0-readiness.md))
 - [x] Source archive restores to the recorded upstream baseline and has an off-workstation copy. ([evidence](../evidence/2026-08-24-source-custody.md))
 - [ ] RaceTime, Restream, TTPBot, and LiveSplit readiness branches build and test locally without production credentials.
 - [ ] RaceTime CI discovers substantive tests; the current `js-cookie` high-severity advisory is closed.
