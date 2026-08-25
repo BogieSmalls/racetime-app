@@ -39,6 +39,7 @@ class TerraformContractTests(unittest.TestCase):
     def test_provider_backend_and_activation_gate_are_pinned(self):
         versions = self.files["versions.tf"]
         variables = self.files["variables.tf"]
+        providers = self.files["providers.tf"]
         self.assertRegex(versions, r'required_version\s*=\s*">= 1\.12\.0, < 2\.0\.0"')
         self.assertRegex(versions, r'source\s*=\s*"oracle/oci"')
         self.assertRegex(versions, r'version\s*=\s*"= 8\.27\.0"')
@@ -54,6 +55,12 @@ class TerraformContractTests(unittest.TestCase):
         self.assertIn("mock_provider \"oci\"", activation_test)
         self.assertIn("expect_failures = [var.activation_record]", activation_test)
         self.assertIn("dated_g1_activation_allows_mock_plan", activation_test)
+        self.assertIn('variable "oci_config_file_profile"', variables)
+        self.assertRegex(
+            providers,
+            r'config_file_profile\s*=\s*var\.oci_config_file_profile',
+        )
+        self.assertIn("oci_config_file_profile", self.files["terraform.tfvars.example"])
 
     def test_compute_is_dedicated_a1_with_guarded_balanced_boot(self):
         compute = self.files["compute.tf"]

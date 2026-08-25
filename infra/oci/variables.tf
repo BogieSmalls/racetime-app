@@ -38,6 +38,17 @@ variable "region" {
   }
 }
 
+variable "oci_config_file_profile" {
+  description = "Local OCI SDK configuration profile used by Terraform."
+  type        = string
+  default     = "DEFAULT"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.-]{1,64}$", var.oci_config_file_profile))
+    error_message = "oci_config_file_profile must be a simple OCI profile name."
+  }
+}
+
 variable "availability_domain" {
   description = "Explicit availability domain chosen after the G1 capacity check."
   type        = string
