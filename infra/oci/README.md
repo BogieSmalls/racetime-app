@@ -62,7 +62,8 @@ After Plan B is activated, record and independently verify:
    allowance;
 3. current-month usage, slope, and the dated combined RaceTime/Restream
    forecast;
-4. the exact compartment, region, availability domain, VCN, subnet, ARM64 image,
+4. the exact compartment or root tenancy, region, availability domain, VCN,
+   subnet, standard ARM64 Ubuntu 24.04 image,
    Object Storage namespace, and operator CIDR values;
 5. the existing Restream instance and boot-volume IDs from read-only inventory;
 6. A1 capacity and quota for the default shape;

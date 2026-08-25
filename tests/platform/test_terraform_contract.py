@@ -77,6 +77,23 @@ class TerraformContractTests(unittest.TestCase):
         self.assertIn("VM.Standard.E5.Flex", self.files["README.md"])
         self.assertIn("1 OCPU / 6 GB", self.files["README.md"])
 
+    def test_tenancy_root_and_ubuntu_bastion_contract_are_explicit(self):
+        variables = self.files["variables.tf"]
+        compartment = variables.split('variable "compartment_ocid"', 1)[1].split(
+            'variable "', 1
+        )[0]
+        self.assertIn(r"ocid1\\.(?:compartment|tenancy)\\.", compartment)
+        self.assertIn("root tenancy OCID", compartment)
+        self.assertIn("ARM64 Ubuntu 24.04", variables)
+        self.assertIn("arm64_ubuntu_24_04_image", self.files["terraform.tfvars.example"])
+
+        compute = self.files["compute.tf"]
+        self.assertRegex(
+            compute,
+            r'plugins_config\s*\{[\s\S]*?desired_state\s*=\s*"ENABLED"'
+            r'[\s\S]*?name\s*=\s*"Bastion"[\s\S]*?\}',
+        )
+
     def test_existing_restream_inventory_is_data_only(self):
         data = self.files["data.tf"]
         variables = self.files["variables.tf"]

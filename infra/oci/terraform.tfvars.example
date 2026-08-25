@@ -2,12 +2,12 @@
 # identifier, public key, endpoint, or non-secret planning record.
 activation_record   = "REPLACE_G1_ACTIVATION_RECORD"
 tenancy_ocid        = "ocid1.tenancy.oc1..replace"
-compartment_ocid    = "ocid1.compartment.oc1..replace"
+compartment_ocid    = "ocid1.tenancy.oc1..replace_root_or_compartment"
 region              = "us-ashburn-1"
 availability_domain = "REPLACE:US-ASHBURN-AD-1"
 vcn_ocid            = "ocid1.vcn.oc1.iad.replace"
 subnet_ocid         = "ocid1.subnet.oc1.iad.replace"
-image_ocid          = "ocid1.image.oc1.iad.replace_arm64_oracle_linux_image"
+image_ocid          = "ocid1.image.oc1.iad.replace_arm64_ubuntu_24_04_image"
 
 ssh_authorized_keys = [
   "ssh-ed25519 REPLACE_OPERATOR_PUBLIC_KEY z1rr-racetime-operator",

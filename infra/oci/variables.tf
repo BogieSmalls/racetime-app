@@ -19,12 +19,12 @@ variable "tenancy_ocid" {
 }
 
 variable "compartment_ocid" {
-  description = "Existing compartment for the dedicated RaceTime resources."
+  description = "Existing compartment or root tenancy for the dedicated RaceTime resources."
   type        = string
 
   validation {
-    condition     = can(regex("^ocid1\\.compartment\\.", var.compartment_ocid))
-    error_message = "compartment_ocid must be an OCI compartment OCID."
+    condition     = can(regex("^ocid1\\.(?:compartment|tenancy)\\.", var.compartment_ocid))
+    error_message = "compartment_ocid must be an OCI compartment OCID or the root tenancy OCID."
   }
 }
 
@@ -69,7 +69,7 @@ variable "subnet_ocid" {
 }
 
 variable "image_ocid" {
-  description = "Explicit current ARM64 Oracle Linux image OCID verified at G1."
+  description = "Explicit current standard ARM64 Ubuntu 24.04 image OCID verified at G1."
   type        = string
 
   validation {
