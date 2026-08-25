@@ -128,17 +128,29 @@ configured for SSH public keys only on an unconfigured Ubuntu image. No applicat
 bootstrap ran; no application, production credential, secret, database, media, or user
 data was present. The instance remained stopped from the recorded stop through disposal.
 
-## ETag-protected disposal
+## ETag capture and disposal
 
 Immediately before deletion, OCI re-reads reconfirmed the exact target as `STOPPED` with
 one primary VNIC, no block-volume attachments, and the same attached 50-GB/10-VPU boot.
 A raw regional Compute `GET` returned `200 OK`, the same exact identity and state, and an
 ETag stored only in ignored evidence. Its SHA-256 was
-`126132a40c8118e0e2c2062cf298754b1289d52156ea43087a752b132b2be439`.
+`126132a40c8118e0e2c2062cf298754b1289d52156ea43087a752b132b2be439`. This
+pre-delete artifact proves that the concurrency token was captured for the exact target;
+it does not by itself prove that the later delete request supplied the token.
 
-The OCI CLI then terminated only that exact instance with the captured ETag,
+The operator command record states that the OCI CLI invocation targeted only that exact
+instance and included `--if-match` with the captured token,
 `--preserve-boot-volume false`, `--force`, and a `TERMINATED` lifecycle waiter. The
-waiter exited successfully. Independent post-wait reads proved:
+waiter exited successfully. OCI's retained CLI response and Audit event do not preserve
+the `If-Match` request header, so they cannot independently verify that concurrency
+header and post-hoc proof is unavailable.
+
+Fresh post-termination OCI Audit evidence independently binds the exact target to a
+successful `DELETE` response with status `204` and the terminal lifecycle event. The
+raw termination Audit capture has SHA-256
+`f474e9f8610eeba7c94e9cc4820a23e484d25d6a22309220520cb13b9bc1fc88`.
+That response retains only ordinary transport/date headers, not `If-Match`. Independent
+post-wait reads further proved:
 
 - The exact instance is `TERMINATED`.
 - The exact boot volume is `TERMINATED` in both its direct read and the availability-
@@ -154,6 +166,8 @@ Ignored evidence custody hashes:
   `c9027d87bb80e7cfca23be6a5e1def13734567fad869b90a33aee4c5b1e48e46`
 - Termination/waiter response:
   `14ab1c1e8b218bcd863857f626d1c8c2c3e3acdde0658c2bcd1eecc754501e06`
+- Raw termination Audit response:
+  `f474e9f8610eeba7c94e9cc4820a23e484d25d6a22309220520cb13b9bc1fc88`
 - Post-termination instance response:
   `0f78287b34393146c6d35ad7ce37bb3c2ffe2bfcdbe55568ea7acf70620ed54f`
 - Post-termination boot list:
@@ -169,7 +183,8 @@ change, Docker action, host bootstrap, or G1+ service action occurred in this ta
 ## Current gate
 
 - Dedicated subnet/security list: created and live-verified
-- Exposed RaceTime instance: terminated by exact state identity with ETag protection
+- Exposed RaceTime instance: exact identity terminated; operator record says
+  `--if-match` was used, but retained OCI artifacts do not independently prove the header
 - Exposed RaceTime boot volume: terminated; not preserved or orphaned
 - Restream infrastructure mutation by this correction: none
 - DNS: unchanged
