@@ -42,6 +42,9 @@
 - Keep all OCIDs, IPs other than the final public DNS target, state files, plans, and raw CLI output in ignored local evidence; commit only redacted summaries and hashes.
 - Before each commit, compare `git diff --cached --name-only` to that task's exact file allowlist and stop on any extra path.
 - Redirect every unredacted `terraform show -json`, `terraform state pull`, and OCI JSON response directly to an ignored file. Never echo, `tee`, or include the raw response in terminal/evidence output; only a parser-generated redacted summary may be displayed.
+- Require PowerShell 7.4 or newer for native-command evidence capture. Use direct native
+  `>` redirection, which preserves stdout bytes; never pipe custody JSON through
+  `Set-Content`, `Out-File`, or text decoding/re-encoding.
 
 ## Interruption and failure handling
 
@@ -289,8 +292,7 @@ if ($tracked.Count -ne 0) { throw 'tracked worktree must be clean before plan' }
 $sourceCommit = (git rev-parse HEAD).Trim()
 & $terraform "-chdir=infra/oci" plan -input=false -var-file=production.tfvars -out=racetime-subnet-add.tfplan *> .tmp/evidence/racetime-subnet-add-plan.log
 if ($LASTEXITCODE -ne 0) { throw 'subnet-add plan failed; inspect ignored log' }
-& $terraform "-chdir=infra/oci" show -json racetime-subnet-add.tfplan 2> .tmp/evidence/racetime-subnet-add-show.err |
-  Set-Content -LiteralPath .tmp/evidence/racetime-subnet-add-plan.json -Encoding utf8NoBOM
+& $terraform "-chdir=infra/oci" show -json racetime-subnet-add.tfplan 2> .tmp/evidence/racetime-subnet-add-show.err > .tmp/evidence/racetime-subnet-add-plan.json
 if ($LASTEXITCODE -ne 0) { throw 'subnet-add show failed; inspect ignored error' }
 ```
 
@@ -431,8 +433,7 @@ if ($tracked.Count -ne 0) { throw 'tracked worktree must be clean before plan' }
 $sourceCommit = (git rev-parse HEAD).Trim()
 & $terraform "-chdir=infra/oci" plan -refresh-only -input=false -var-file=production.tfvars -out=racetime-refresh-only.tfplan *> .tmp/evidence/racetime-refresh-only-plan.log
 if ($LASTEXITCODE -ne 0) { throw 'refresh-only plan failed; inspect ignored log' }
-& $terraform "-chdir=infra/oci" show -json racetime-refresh-only.tfplan 2> .tmp/evidence/racetime-refresh-only-show.err |
-  Set-Content -LiteralPath .tmp/evidence/racetime-refresh-only-plan.json -Encoding utf8NoBOM
+& $terraform "-chdir=infra/oci" show -json racetime-refresh-only.tfplan 2> .tmp/evidence/racetime-refresh-only-show.err > .tmp/evidence/racetime-refresh-only-plan.json
 if ($LASTEXITCODE -ne 0) { throw 'refresh-only show failed; inspect ignored error' }
 ```
 
@@ -596,8 +597,7 @@ if ($tracked.Count -ne 0) { throw 'tracked worktree must be clean before plan' }
 $sourceCommit = (git rev-parse HEAD).Trim()
 & $terraform "-chdir=infra/oci" plan -input=false -var-file=production.tfvars -out=racetime-replacement.tfplan *> .tmp/evidence/racetime-replacement-plan.log
 if ($LASTEXITCODE -ne 0) { throw 'replacement plan failed; inspect ignored log' }
-& $terraform "-chdir=infra/oci" show -json racetime-replacement.tfplan 2> .tmp/evidence/racetime-replacement-show.err |
-  Set-Content -LiteralPath .tmp/evidence/racetime-replacement-plan.json -Encoding utf8NoBOM
+& $terraform "-chdir=infra/oci" show -json racetime-replacement.tfplan 2> .tmp/evidence/racetime-replacement-show.err > .tmp/evidence/racetime-replacement-plan.json
 if ($LASTEXITCODE -ne 0) { throw 'replacement show failed; inspect ignored error' }
 venv\Scripts\python.exe scripts/oci/verify_saved_plan.py --phase replacement `
   --terraform-bin $terraform `
