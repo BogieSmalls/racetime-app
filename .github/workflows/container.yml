@@ -19,6 +19,7 @@ jobs:
       - name: Check out untrusted source without retained credentials
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
@@ -42,6 +43,9 @@ jobs:
 
       - name: Audit production JavaScript dependencies
         run: npm audit --omit=dev
+
+      - name: Verify pinned Gitleaks policy and repository history
+        run: python scripts/security/verify_gitleaks.py --repository . --base-ref origin/master
 
       - name: Run repository contract and integration tests
         run: python -m unittest discover -s tests -v

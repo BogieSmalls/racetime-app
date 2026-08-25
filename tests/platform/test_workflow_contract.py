@@ -59,6 +59,19 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertRegex(text, r"(?s)severity:\s*CRITICAL,HIGH.*exit-code:\s*[\"']?1")
         self.assertIn("VCS_REF=${{ steps.identity.outputs.commit_sha }}", text)
 
+    def test_quality_job_fetches_history_and_runs_pinned_gitleaks_wrapper(self):
+        quality = self.container.split("  image:", 1)[0]
+        self.assertRegex(
+            quality,
+            r"(?ms)uses: actions/checkout@[0-9a-f]{40}.*?with:\s*\n"
+            r"\s+fetch-depth:\s*0\s*\n\s+persist-credentials:\s*false",
+        )
+        self.assertIn(
+            "python scripts/security/verify_gitleaks.py "
+            "--repository . --base-ref origin/master",
+            quality,
+        )
+
     def test_release_requires_tag_or_protected_manual_dispatch(self):
         text = self.release
         self.assertRegex(text, r"(?m)^\s{2}workflow_dispatch:\s*$")
