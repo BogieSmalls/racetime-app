@@ -35,7 +35,12 @@
 ## Global constraints
 
 - Keep the original `racetime` instance stopped until its explicit termination step.
-- Never change the existing Restream subnet, default security list, route table, DHCP options, instances, VNICs, or volumes.
+- Never change the existing Restream subnet, default security list, route table, DHCP
+  options, instances, VNICs, or volumes. Existing duty-cycle automation may independently
+  start or stop a Restream instance; accept such a lifecycle-only difference only when
+  OCI Audit proves the exact action occurred outside Terraform, every other captured
+  field remains identical, and the post-transition inventory is retained as the
+  continuing baseline.
 - Do not remove `prevent_destroy` from any Terraform resource.
 - Use saved plans for every state-changing Terraform action and record each plan SHA-256 before apply.
 - Reject public TCP/22, 3306, or 6379 at the live OCI boundary.
@@ -367,7 +372,12 @@ false, regional `availability-domain` null, inherited route/DHCP IDs exact, and 
 the custom list. Require zero ingress and one all-IPv4 egress. Confirm the original
 instance remains `STOPPED` on `subnet-restream-public`. Recapture Restream inventory by
 the same explicit IDs and compare every field to the exact ignored baseline; any
-difference blocks Task 4.
+difference blocks Task 4. A single lifecycle-only difference on a duty-cycled Restream
+instance may be classified as out-of-band only when OCI Audit records the exact
+`START`/`SOFTSTOP` action after the baseline, the caller is not Terraform, and every
+other captured field matches. Record the action and caller family without credentials,
+retain both inventories, and promote the post-transition inventory as the continuing
+baseline. Any other difference remains a hard stop.
 
 - [ ] **Step 6: Commit redacted additive-plan evidence**
 
@@ -689,6 +699,9 @@ if ($LASTEXITCODE -ne 0) { throw "final Terraform drift or error: $LASTEXITCODE"
 Recompare all
 normalized Restream instance, VNIC attachment/VNIC, boot attachment/volume, state, shape,
 subnet, shared-network, size, and VPU fields to the exact ignored pre-mutation baseline.
+If Task 3 recorded an audited lifecycle-only duty-cycle transition, compare instead to
+the retained post-transition continuing baseline and preserve the original baseline plus
+the transition proof.
 
 - [ ] **Step 7: Finalize and commit redacted correction evidence**
 
