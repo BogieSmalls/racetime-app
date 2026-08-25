@@ -834,6 +834,59 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
                 fixture.plan["resource_changes"].append(noop)
                 self.assert_rejected(fixture, "subnet-add")
 
+    def test_rejects_previous_address_on_actionable_resource_changes(self) -> None:
+        cases = (
+            (
+                "replacement update",
+                replacement_plan,
+                "replacement",
+                2,
+                "oci_identity_dynamic_group.restream",
+            ),
+            (
+                "subnet create",
+                subnet_plan,
+                "subnet-add",
+                0,
+                "oci_core_security_list.restream",
+            ),
+            (
+                "replacement read",
+                replacement_plan,
+                "replacement",
+                4,
+                "data.oci_core_private_ips.restream",
+            ),
+        )
+        for label, build, phase, index, previous_address in cases:
+            with self.subTest(label=label):
+                fixture = self.fixture(build())
+                fixture.plan["resource_changes"][index][
+                    "previous_address"
+                ] = previous_address
+                self.assert_rejected(fixture, phase)
+
+    def test_accepts_null_or_empty_previous_address_metadata(self) -> None:
+        refresh = self.fixture(refresh_plan())
+        refresh.plan["resource_drift"][0]["previous_address"] = None
+        try:
+            refresh.verify("refresh-only")
+        except self.verifier.VerificationError as exc:
+            self.fail(f"null previous_address was rejected: {exc}")
+
+        subnet = self.fixture(subnet_plan())
+        unchanged = change(
+            "oci_core_vcn.resolved_noop",
+            ["no-op"],
+            {"stable": "same"},
+        )
+        unchanged["previous_address"] = ""
+        subnet.plan["resource_changes"].append(unchanged)
+        try:
+            subnet.verify("subnet-add")
+        except self.verifier.VerificationError as exc:
+            self.fail(f"empty previous_address was rejected: {exc}")
+
     def test_rejects_malformed_output_noop_before_filtering(self) -> None:
         malformed = (
             {

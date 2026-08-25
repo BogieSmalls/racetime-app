@@ -197,7 +197,6 @@ def _change_map(
     key: str,
     *,
     filter_noop: bool = True,
-    reject_previous_address: bool = False,
 ) -> dict[str, dict[str, Any]]:
     entries = _require_list(plan.get(key, []), key)
     result: dict[str, dict[str, Any]] = {}
@@ -208,7 +207,8 @@ def _change_map(
         if not isinstance(address, str) or not address or address in seen:
             raise VerificationError(f"{key} contains an invalid address")
         seen.add(address)
-        if reject_previous_address and "previous_address" in entry:
+        previous_address = entry.get("previous_address")
+        if previous_address is not None and previous_address != "":
             raise VerificationError(f"{key} contains a previous address")
         change = _require_mapping(entry.get("change"), key)
         if any(
@@ -225,8 +225,6 @@ def _change_map(
         ):
             raise VerificationError(f"{key} contains invalid actions")
         if filter_noop and actions == ["no-op"]:
-            if "previous_address" in entry:
-                raise VerificationError(f"{key} no-op contains a previous address")
             _validate_noop(change, key)
             continue
         result[address] = change
@@ -657,7 +655,6 @@ def verify_saved_plan(
         plan,
         "resource_drift",
         filter_noop=False,
-        reject_previous_address=True,
     )
     outputs = _output_map(plan)
     planned_resources = _planned_resource_values(plan)
