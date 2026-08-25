@@ -188,7 +188,7 @@ def replacement_plan() -> dict:
                 {
                     "subnet_id": "ocid1.subnet.expected",
                     "nsg_ids": ["ocid1.networksecuritygroup.expected"],
-                    "assign_public_ip": False,
+                    "assign_public_ip": "false",
                     "assign_ipv6ip": False,
                 }
             ]
@@ -794,6 +794,30 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         self.assertEqual(summary.resource_changes, 5)
         self.assertEqual(summary.resource_drift, 0)
         self.assertEqual(summary.output_changes, 4)
+
+    def test_replacement_requires_provider_native_public_ip_false(self) -> None:
+        invalid_values = (
+            False,
+            True,
+            "False",
+            "true",
+            " false",
+            "false ",
+            "",
+            "0",
+            0,
+            1,
+            None,
+            [],
+            {},
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                fixture = self.fixture(replacement_plan())
+                fixture.plan["resource_changes"][0]["change"]["after"][
+                    "create_vnic_details"
+                ][0]["assign_public_ip"] = value
+                self.assert_rejected(fixture, "replacement")
 
     def test_accepts_terraform_omitted_empty_change_collections(self) -> None:
         cases = (

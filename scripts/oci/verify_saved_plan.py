@@ -546,7 +546,7 @@ def _verify_replacement(
     if (
         vnic.get("subnet_id") != expected_subnet_id
         or vnic.get("nsg_ids") != expected_nsgs
-        or vnic.get("assign_public_ip") is not False
+        or vnic.get("assign_public_ip") != "false"
         or vnic.get("assign_ipv6ip") is not False
     ):
         raise VerificationError("instance VNIC does not match the contract")
