@@ -323,22 +323,30 @@ class PlanFixture:
         if os.name == "nt":
             script = (
                 "@echo off\r\n"
+                'if /I not "%CD%\\"=="%~dp0" exit /b 3\r\n'
                 'if "%~1"=="version" goto version\r\n'
                 'if "%~1"=="show" goto show\r\n'
                 "exit /b 2\r\n"
                 ":version\r\n"
+                'if not "%~2"=="-json" exit /b 4\r\n'
+                'if not "%~3"=="" exit /b 4\r\n'
                 f"echo {version_json}\r\n"
                 "exit /b 0\r\n"
                 ":show\r\n"
+                'if not "%~2"=="-json" exit /b 4\r\n'
+                'if not "%~3"=="saved.tfplan" exit /b 4\r\n'
+                'if not "%~4"=="" exit /b 4\r\n'
                 'type "%~dp0terraform-show.json"\r\n'
                 "exit /b 0\r\n"
             )
         else:
             script = (
                 "#!/bin/sh\n"
+                'expected_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n'
+                '[ "$PWD" = "$expected_dir" ] || exit 3\n'
                 'case "$1" in\n'
-                f"  version) printf '%s\\n' '{version_json}' ;;\n"
-                '  show) cat "$(dirname "$0")/terraform-show.json" ;;\n'
+                f"  version) [ \"$#\" -eq 2 ] && [ \"$2\" = \"-json\" ] || exit 4; printf '%s\\n' '{version_json}' ;;\n"
+                '  show) [ "$#" -eq 3 ] && [ "$2" = "-json" ] && [ "$3" = "saved.tfplan" ] || exit 4; cat "$(dirname "$0")/terraform-show.json" ;;\n'
                 "  *) exit 2 ;;\n"
                 "esac\n"
             )
@@ -419,6 +427,39 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         except (TypeError, self.verifier.VerificationError) as exc:
             self.fail(f"bound Terraform 1.12 golden JSON was rejected: {exc}")
         self.assertEqual(summary.terraform_version, TERRAFORM_VERSION)
+
+    def test_runs_terraform_in_plan_parent_with_plan_basename(self) -> None:
+        fixture = self.fixture(subnet_plan())
+        try:
+            fixture.verify("subnet-add")
+        except self.verifier.VerificationError as exc:
+            self.fail(f"behavioral Terraform fixture rejected invocation: {exc}")
+
+    def test_rejects_saved_plan_path_outside_git_worktree(self) -> None:
+        fixture = self.fixture(subnet_plan())
+        outside = tempfile.TemporaryDirectory(prefix="racetime-plan-outside-")
+        self.addCleanup(outside.cleanup)
+        outside_dir = Path(outside.name)
+        outside_plan = outside_dir / fixture.plan_file.name
+        outside_show = outside_dir / fixture.terraform_show_json.name
+        outside_terraform = outside_dir / fixture.terraform_bin.name
+        outside_plan.write_bytes(fixture.plan_file.read_bytes())
+        outside_show.write_bytes(fixture.terraform_show_json.read_bytes())
+        outside_terraform.write_bytes(fixture.terraform_bin.read_bytes())
+        if os.name != "nt":
+            outside_terraform.chmod(0o700)
+
+        with self.assertRaises(self.verifier.VerificationError):
+            self.verifier.verify_saved_plan(
+                phase="subnet-add",
+                plan_file=outside_plan,
+                plan_json_path=fixture.plan_json,
+                expected_json_path=fixture.expected_json,
+                terraform_bin=outside_terraform,
+                source_commit=fixture.source_commit,
+                terraform_version=TERRAFORM_VERSION,
+                repository=fixture.repository,
+            )
 
     def test_rejects_binary_version_custody_and_show_json_mismatches(self) -> None:
         fixture = self.fixture(subnet_plan())

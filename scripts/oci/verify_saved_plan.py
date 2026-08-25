@@ -141,6 +141,21 @@ def _verify_repository(repository: Path, source_commit: str) -> Path:
     return root
 
 
+def _resolve_saved_plan(plan_file: Path, repository_root: Path) -> Path:
+    try:
+        lexical_path = plan_file.absolute()
+        resolved_path = plan_file.resolve(strict=True)
+    except OSError as exc:
+        raise VerificationError("saved plan path cannot be resolved") from exc
+    if lexical_path != resolved_path or not resolved_path.is_file():
+        raise VerificationError("saved plan path is ambiguous")
+    try:
+        resolved_path.relative_to(repository_root)
+    except ValueError as exc:
+        raise VerificationError("saved plan is outside the Git worktree") from exc
+    return resolved_path
+
+
 def _require_list(value: Any, label: str) -> list[Any]:
     if not isinstance(value, list):
         raise VerificationError(f"{label} must be a list")
@@ -584,10 +599,15 @@ def verify_saved_plan(
         raise VerificationError("expected manifest metadata does not match")
 
     repository_root = _verify_repository(repository or Path.cwd(), source_commit)
-    plan_digest = _sha256(plan_file)
+    resolved_plan_file = _resolve_saved_plan(plan_file, repository_root)
+    plan_digest = _sha256(resolved_plan_file)
     expected_digest = _expected_sha256(expected, "plan_sha256")
     if plan_digest != expected_digest:
         raise VerificationError("saved plan digest does not match")
+    try:
+        resolved_terraform_bin = terraform_bin.resolve(strict=True)
+    except OSError as exc:
+        raise VerificationError("saved plan inputs cannot be resolved") from exc
 
     terraform_digest = _sha256(terraform_bin)
     if terraform_digest != _expected_sha256(
@@ -595,7 +615,10 @@ def verify_saved_plan(
     ):
         raise VerificationError("Terraform binary digest does not match")
     version_output = _run_terraform(
-        terraform_bin, repository_root, "version", "-json"
+        resolved_terraform_bin,
+        resolved_plan_file.parent,
+        "version",
+        "-json",
     )
     version_info = _parse_json_bytes(version_output, "Terraform version output")
     if version_info.get("terraform_version") != PINNED_TERRAFORM_VERSION:
@@ -606,7 +629,11 @@ def verify_saved_plan(
     if hashlib.sha256(custody_json).hexdigest() != expected_plan_json_digest:
         raise VerificationError("custody plan JSON digest does not match")
     terraform_json = _run_terraform(
-        terraform_bin, repository_root, "show", "-json", str(plan_file)
+        resolved_terraform_bin,
+        resolved_plan_file.parent,
+        "show",
+        "-json",
+        resolved_plan_file.name,
     )
     if (
         terraform_json != custody_json
