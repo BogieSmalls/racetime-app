@@ -55,7 +55,11 @@ auditable network boundary without mutating existing Restream resources.
   instance maintenance or replacement.
 - Leave OCI Bastion in the existing subnet. Its private endpoint reaches the RaceTime
   private address within the same VCN, and the RaceTime NSG continues to authorize only
-  that exact endpoint address for TCP/22.
+  that exact endpoint address for TCP/22. OCI reports the standard Bastion type as
+  uppercase `STANDARD`, while provider 8.27.0 requires the lowercase configuration
+  token and otherwise proposes a case-only replacement. Terraform narrowly ignores
+  only that immutable `bastion_type` normalization; every live gate still requires
+  `STANDARD`, `ACTIVE`, and the exact existing target subnet.
 - Keep IPv6 disabled. No AAAA record will be created.
 - Protect the new subnet and security list with `prevent_destroy` from their initial
   creation and retain it throughout.
@@ -73,9 +77,16 @@ be replaced once. `prevent_destroy` remains enabled throughout; the controlled s
 never asks Terraform to destroy the instance:
 
 1. Stage configuration that creates only the dedicated subnet and security list while
-   leaving compute on the old subnet. Review and apply a saved full plan containing
-   exactly those two additions. Both new resources have `prevent_destroy` from their
-   first creation.
+   leaving compute on the old subnet. First generate a full diagnostic plan and never
+   apply it; after suppressing only the Bastion case-normalization defect, it may show
+   the two additions plus the already-proven in-transit-encryption update on the
+   stopped instance that will be terminated. Any other address or action stops the
+   correction. Then review and apply a saved plan targeted to exactly the security
+   list and subnet. Its intentionally incomplete Terraform marker is accepted only by
+   the `subnet-add` verifier when the reviewed expected record says
+   `targeted_plan=true`; exact action, drift, output, attribute, binary, JSON, source,
+   and Terraform-version checks remain mandatory. Both new resources have
+   `prevent_destroy` from their first creation.
 2. Before terminating anything, verify the unchanged Bastion subnet permits egress to
    `10.1.1.0/24:22`, and verify the inherited route table still has its expected public
    Internet Gateway route and DHCP options. A failure stops the correction without

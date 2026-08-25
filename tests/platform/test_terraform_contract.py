@@ -237,6 +237,20 @@ class TerraformContractTests(unittest.TestCase):
             readme,
         )
 
+    def test_bastion_case_normalization_ignore_is_exact_and_narrow(self):
+        bastion = _hcl_block(
+            self.files["network.tf"],
+            'resource "oci_bastion_bastion" "racetime"',
+        )
+        self.assertRegex(
+            bastion,
+            r'(?m)^\s*bastion_type\s*=\s*"standard"\s*$',
+        )
+        lifecycle = _hcl_block(bastion, "lifecycle")
+        self.assertRegex(lifecycle, r"(?m)^\s*prevent_destroy\s*=\s*true\s*$")
+        ignored = re.findall(r"ignore_changes\s*=\s*\[([^\]]*)\]", lifecycle)
+        self.assertEqual([value.strip() for value in ignored], ["bastion_type"])
+
     def test_backup_bucket_and_instance_principal_are_narrow(self):
         storage = self.files["storage.tf"]
         iam = self.files["iam.tf"]

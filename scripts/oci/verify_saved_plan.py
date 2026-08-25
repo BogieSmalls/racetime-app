@@ -640,9 +640,15 @@ def verify_saved_plan(
     plan = _parse_json_bytes(terraform_json, "Terraform show JSON")
     if plan.get("format_version") != "1.2":
         raise VerificationError("Terraform plan format version does not match")
+    targeted_marker = expected.get("targeted_plan", False)
+    if not isinstance(targeted_marker, bool):
+        raise VerificationError("targeted-plan marker must be boolean")
+    if phase != "subnet-add" and targeted_marker:
+        raise VerificationError("targeted plans are limited to subnet-add")
+    expected_complete = not (phase == "subnet-add" and targeted_marker)
     if (
         plan.get("applyable") is not True
-        or plan.get("complete") is not True
+        or plan.get("complete") is not expected_complete
         or plan.get("errored") is not False
     ):
         raise VerificationError("plan is not complete and applyable")

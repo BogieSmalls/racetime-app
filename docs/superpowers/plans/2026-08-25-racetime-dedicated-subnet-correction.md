@@ -69,15 +69,18 @@
 Require `/.tmp/` in `.gitignore` and prove `git check-ignore -q
 .tmp/evidence/probe.json` succeeds. Use synthetic Terraform JSON fixtures to require:
 
-- common: `applyable=true`, `complete=true`, `errored=false`, Terraform `1.12.2`, no
+- common: `applyable=true`, `errored=false`, Terraform `1.12.2`, no
   unexpected resource/action/address, binary plan SHA-256 equal to the reviewed digest,
   exact Git HEAD equal to the supplied source commit, and a clean worktree including no
   non-ignored untracked files;
-- `subnet-add`: exactly two creates, exact CIDR/DNS/public/route/DHCP/zero-ingress/
+- `subnet-add`: `complete=false` only when expected JSON contains the exact boolean
+  `targeted_plan=true`; otherwise `complete=true`. Require exactly two creates, exact
+  CIDR/DNS/public/route/DHCP/zero-ingress/
   one-egress values, omission of an `availability_domain` configuration expression
   (planned null or computed-unknown are both valid), and a configuration reference from
   subnet `security_list_ids` to `oci_core_security_list.racetime.id`;
-- `refresh-only`: `resource_drift` exactly
+- `refresh-only` and `replacement`: always `complete=true`; a targeted marker cannot
+  relax either phase. `refresh-only`: `resource_drift` exactly
   `oci_core_instance.racetime:["delete"]`, empty live `resource_changes`, and exactly
   `instance_id`, `instance_public_ip`, `instance_private_ip`, and `boot_volume_id`
   output changes;
@@ -267,7 +270,9 @@ git commit -m "fix: isolate RaceTime subnet security"
 
 **Files:**
 - Create ignored: `infra/oci/racetime-subnet-add.tfplan`
+- Create ignored: `infra/oci/racetime-subnet-diagnostic.tfplan`
 - Create ignored: `.tmp/evidence/racetime-subnet-add-plan.json`
+- Create ignored: `.tmp/evidence/racetime-subnet-diagnostic-plan.json`
 - Create ignored: `.tmp/evidence/subnet-add-expected.json`
 - Create ignored: `.tmp/evidence/racetime-restream-baseline.json`
 - Create: `docs/evidence/2026-08-25-oci-subnet-correction.md`
@@ -283,14 +288,37 @@ the redacted evidence document with its SHA-256 and field/count summary, explici
 stating no Task 3 plan/apply has run. Stage exactly that one evidence file, verify the
 allowlist, and commit. The resulting clean evidence commit is the plan source commit.
 
-- [ ] **Step 2: Create a saved full plan from that clean exact commit**
+- [ ] **Step 2: Review a full diagnostic plan, then create the exact targeted saved plan**
+
+First create and inspect a full diagnostic plan, but never apply it. After the narrow
+Bastion `bastion_type` normalization ignore, it may contain only the two intended
+creates and the already-classified in-transit-encryption update on the stopped,
+disposable old instance. Any Bastion replacement, Restream action, destroy, or other
+address/action blocks. Preserve the redacted action summary in evidence.
 
 ```powershell
 $terraform = ".\.tmp\tools\terraform-1.12.2\terraform.exe"
 $tracked = @(git status --porcelain)
 if ($tracked.Count -ne 0) { throw 'tracked worktree must be clean before plan' }
 $sourceCommit = (git rev-parse HEAD).Trim()
-& $terraform "-chdir=infra/oci" plan -input=false -var-file=production.tfvars -out=racetime-subnet-add.tfplan *> .tmp/evidence/racetime-subnet-add-plan.log
+& $terraform "-chdir=infra/oci" plan -input=false `
+  -var-file=production.tfvars -out=racetime-subnet-diagnostic.tfplan *> .tmp/evidence/racetime-subnet-diagnostic.log
+if ($LASTEXITCODE -ne 0) { throw 'full diagnostic plan failed; do not create an actionable plan' }
+& $terraform "-chdir=infra/oci" show -json racetime-subnet-diagnostic.tfplan `
+  2> .tmp/evidence/racetime-subnet-diagnostic-show.err `
+  > .tmp/evidence/racetime-subnet-diagnostic-plan.json
+if ($LASTEXITCODE -ne 0) { throw 'full diagnostic show failed; do not create an actionable plan' }
+```
+
+Then create the actionable saved plan with exactly the two exceptional `-target`
+arguments below. This isolates the additive correction from the unrelated update on
+the instance that will be terminated:
+
+```powershell
+& $terraform "-chdir=infra/oci" plan -input=false `
+  -target=oci_core_security_list.racetime `
+  -target=oci_core_subnet.racetime `
+  -var-file=production.tfvars -out=racetime-subnet-add.tfplan *> .tmp/evidence/racetime-subnet-add-plan.log
 if ($LASTEXITCODE -ne 0) { throw 'subnet-add plan failed; inspect ignored log' }
 & $terraform "-chdir=infra/oci" show -json racetime-subnet-add.tfplan 2> .tmp/evidence/racetime-subnet-add-show.err > .tmp/evidence/racetime-subnet-add-plan.json
 if ($LASTEXITCODE -ne 0) { throw 'subnet-add show failed; inspect ignored error' }
@@ -302,7 +330,8 @@ Verify all raw paths with `git check-ignore` and do not print their contents.
 
 Create ignored `subnet-add-expected.json` containing the exact reviewed CIDR,
 route/DHCP IDs, phase/source/version, Terraform-binary SHA-256, binary-plan SHA-256, and
-exact custody JSON SHA-256, then run:
+exact custody JSON SHA-256, plus the exact top-level boolean `targeted_plan=true`, then
+run:
 
 ```powershell
 venv\Scripts\python.exe scripts/oci/verify_saved_plan.py --phase subnet-add `
@@ -316,7 +345,9 @@ venv\Scripts\python.exe scripts/oci/verify_saved_plan.py --phase subnet-add `
 
 Require exactly the security-list/subnet creates, exact CIDR, omitted availability-domain
 configuration with planned null or computed unknown, DNS/public/route/DHCP values, zero
-ingress, one all-IPv4 egress, custom-list reference, and no other/Restream action.
+ingress, one all-IPv4 egress, custom-list reference, no drift/output changes, and no
+other/Restream action. For this phase alone, require Terraform's targeted-plan
+`complete=false` marker; a complete plan paired with `targeted_plan=true` also fails.
 
 - [ ] **Step 4: Rerun verification and apply without changing HEAD**
 

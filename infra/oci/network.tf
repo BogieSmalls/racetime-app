@@ -130,6 +130,10 @@ resource "oci_bastion_bastion" "racetime" {
 
   lifecycle {
     prevent_destroy = true
+
+    # OCI returns STANDARD while the provider requires the documented
+    # lowercase configuration token, producing a case-only replacement diff.
+    ignore_changes = [bastion_type]
   }
 }
 

@@ -69,6 +69,13 @@ After an import, generate and review a fresh saved plan. Any action other than
 creating the two resources above—or no-op for an exactly imported resource—
 blocks this phase.
 
+For the one-time corrective additive apply, first retain a full diagnostic plan, then
+use a saved plan targeted to exactly `oci_core_security_list.racetime` and
+`oci_core_subnet.racetime`. This is an exceptional recovery from an inherited subnet
+mistake and provider normalization drift, not the routine apply path. The fail-closed
+plan verifier still requires the exact two creates, zero drift/output changes, and
+reviewed binary/JSON/source custody before apply.
+
 `z1rr-restream-control`, `z1rr-restream-control-staging`, the encoders, and all
 five retained boot volumes are data-only inventory. Any proposed change to one
 of them stops the plan. In particular, `z1rr-restream-control-staging` remains
@@ -85,6 +92,12 @@ The ARM64 Ubuntu host uses an OCI Bastion port-forwarding session to its private
 port 22. This is Oracle's documented path for A1 instances running Ubuntu and
 does not require the Bastion agent plugin; do not configure a managed-SSH
 session for this host.
+
+OCI returns the standard Bastion type as `STANDARD`, while provider 8.27.0 uses the
+documented lowercase `standard` configuration token. Terraform ignores changes only
+to this immutable case-normalized field to prevent a false replacement; live checks
+must still prove the Bastion is `STANDARD`, `ACTIVE`, and attached to the exact
+existing target subnet.
 
 ## G1 preflight
 

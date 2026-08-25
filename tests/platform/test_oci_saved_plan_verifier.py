@@ -416,6 +416,38 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         self.assertEqual(summary.resource_drift, 0)
         self.assertEqual(summary.output_changes, 0)
 
+    def test_accepts_only_explicit_targeted_subnet_add_incomplete_plan(self) -> None:
+        fixture = self.fixture(subnet_plan())
+        fixture.plan["complete"] = False
+        fixture.expected["targeted_plan"] = True
+        summary = fixture.verify("subnet-add")
+        self.assertEqual(summary.resource_changes, 2)
+
+    def test_rejects_incomplete_subnet_add_without_true_target_marker(self) -> None:
+        for marker in (None, False):
+            with self.subTest(marker=marker):
+                fixture = self.fixture(subnet_plan())
+                fixture.plan["complete"] = False
+                if marker is not None:
+                    fixture.expected["targeted_plan"] = marker
+                self.assert_rejected(fixture, "subnet-add")
+
+    def test_rejects_complete_subnet_add_with_target_marker(self) -> None:
+        fixture = self.fixture(subnet_plan())
+        fixture.expected["targeted_plan"] = True
+        self.assert_rejected(fixture, "subnet-add")
+
+    def test_rejects_incomplete_other_phases_even_with_target_marker(self) -> None:
+        for phase, plan in (
+            ("refresh-only", refresh_plan()),
+            ("replacement", replacement_plan()),
+        ):
+            with self.subTest(phase=phase):
+                fixture = self.fixture(plan)
+                fixture.plan["complete"] = False
+                fixture.expected["targeted_plan"] = True
+                self.assert_rejected(fixture, phase)
+
     def test_accepts_bound_golden_terraform_1_12_show_json(self) -> None:
         fixture = self.fixture(subnet_plan())
         resource = fixture.plan["resource_changes"][0]
