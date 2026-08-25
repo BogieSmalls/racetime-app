@@ -437,14 +437,34 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         fixture.expected["targeted_plan"] = True
         self.assert_rejected(fixture, "subnet-add")
 
-    def test_rejects_incomplete_other_phases_even_with_target_marker(self) -> None:
+    def test_rejects_non_boolean_target_marker(self) -> None:
+        for marker in ("true", 1, {}, []):
+            with self.subTest(marker=marker):
+                fixture = self.fixture(subnet_plan())
+                fixture.plan["complete"] = False
+                fixture.expected["targeted_plan"] = marker
+                self.assert_rejected(fixture, "subnet-add")
+
+    def test_rejects_incomplete_other_phases_without_target_escape(self) -> None:
+        for phase, plan in (
+            ("refresh-only", refresh_plan()),
+            ("replacement", replacement_plan()),
+        ):
+            for marker in (None, False):
+                with self.subTest(phase=phase, marker=marker):
+                    fixture = self.fixture(plan)
+                    fixture.plan["complete"] = False
+                    if marker is not None:
+                        fixture.expected["targeted_plan"] = marker
+                    self.assert_rejected(fixture, phase)
+
+    def test_rejects_target_marker_for_other_phases(self) -> None:
         for phase, plan in (
             ("refresh-only", refresh_plan()),
             ("replacement", replacement_plan()),
         ):
             with self.subTest(phase=phase):
                 fixture = self.fixture(plan)
-                fixture.plan["complete"] = False
                 fixture.expected["targeted_plan"] = True
                 self.assert_rejected(fixture, phase)
 

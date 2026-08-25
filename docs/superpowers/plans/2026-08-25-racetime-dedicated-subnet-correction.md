@@ -385,7 +385,7 @@ one-file allowlist before committing.
 
 - [ ] **Step 1: Verify Bastion egress and shared public routing before termination**
 
-Require Bastion `ACTIVE`, its exact original target-subnet OCID, exact restricted client
+Require Bastion type `STANDARD`, lifecycle `ACTIVE`, its exact original target-subnet OCID, exact restricted client
 CIDR allowlist, and its current private endpoint. Enumerate the live RaceTime NSG and
 require exactly one TCP/22 ingress rule whose source is that endpoint `/32`; reject every
 additional public or private SSH source. Read the unchanged Bastion subnet security

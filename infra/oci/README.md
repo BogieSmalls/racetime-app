@@ -65,9 +65,11 @@ terraform -chdir=infra/oci import oci_core_security_list.racetime <security-list
 terraform -chdir=infra/oci import oci_core_subnet.racetime <subnet-ocid>
 ```
 
-After an import, generate and review a fresh saved plan. Any action other than
-creating the two resources above—or no-op for an exactly imported resource—
-blocks this phase.
+After an import, generate and review a fresh saved plan. The actionable targeted plan
+must contain only the two creates above—or no-op for an exactly imported resource.
+The preceding full diagnostic plan may additionally contain only the already-classified
+in-transit-encryption update on the stopped, disposable old instance. Any other address
+or action blocks this phase, and the full diagnostic plan is never applied.
 
 For the one-time corrective additive apply, first retain a full diagnostic plan, then
 use a saved plan targeted to exactly `oci_core_security_list.racetime` and
