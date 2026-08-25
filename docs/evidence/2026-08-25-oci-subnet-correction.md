@@ -1,6 +1,7 @@
 # OCI subnet correction evidence
 
-**Status:** IN PROGRESS — additive network boundary verified; exposed empty instance and its boot volume disposed; Terraform state reconciliation pending.
+**Status:** IN PROGRESS — additive network boundary verified; exposed empty instance and
+its boot volume disposed; Terraform state reconciled; replacement planning pending.
 
 ## Reason for correction
 
@@ -182,16 +183,60 @@ Ignored evidence custody hashes:
 No Terraform destroy, state refresh, `prevent_destroy` change, Restream mutation, DNS
 change, Docker action, host bootstrap, or G1+ service action occurred in this task.
 
+## Saved refresh-only state reconciliation
+
+The refresh-only plan was created from a clean worktree at source commit
+`ad471ecdb57027e2b36888d9d480a6f7470910d2`. The remote state pulled immediately
+before planning has SHA-256
+`57da137f93853f7b0c116ed08770a061cbf3ebf9bf548db7bfcce6d2b36d031c`.
+
+Saved-plan custody:
+
+- Terraform version: `1.12.2`
+- Terraform binary SHA-256:
+  `2df340201e06986236e0a4f93d00e41ff1d2e819d2e153c70d16f55ea87a5151`
+- Saved refresh-only plan SHA-256:
+  `0374e8b93ed0e42794102fd5c23d3c646bd5785aa1c966d7fcafb3397215a60f`
+- Custody JSON SHA-256:
+  `0dc9332dbbf898bf74d781b4e95a58199116aad24c80fb71de918e411ef52067`
+- Plan metadata: format `1.2`, `applyable=true`, `complete=true`, and
+  `errored=false`
+
+The plan contained no live resource change after no-op normalization. Its drift set was
+exactly `oci_core_instance.racetime:["delete"]`, and its non-no-op output set was exactly
+`boot_volume_id`, `instance_id`, `instance_private_ip`, and `instance_public_ip`, each
+with an `update` action. The saved-plan verifier passed once during review and again
+immediately before apply with `resource_changes=0`, `resource_drift=1`, and
+`output_changes=4`.
+
+Terraform applied only that exact saved refresh-only plan and exited 0. The ignored apply
+log has SHA-256
+`c802956e51a05ec90ecaf8cdf9559f5c4d233ba1d401d6e94f8975601729ae88`,
+and the resulting remote state has SHA-256
+`ecac2db66ec2b6fe59a68e2d57ffb7e808e255d5ea56add7a60f985953ea264b`.
+State membership changed from 30 to 29 entries by removing only
+`oci_core_instance.racetime`; no entry was added. The retained 29 entries include the
+dedicated subnet and security list, NSG and all four NSG rules, Bastion, backup bucket,
+IAM dynamic group and policy, notification topic, all seven alarms, the Bastion subnet
+data source, all four Restream instance data sources, and all five retained Restream
+boot-volume data sources.
+
+This was state reconciliation only. No normal apply, destroy, `state rm`, import,
+`prevent_destroy` change, OCI resource mutation, Restream mutation, DNS change, Docker
+action, bootstrap action, or G1+ service action occurred.
+
 ## Current gate
 
 - Dedicated subnet/security list: created and live-verified
 - Exposed RaceTime instance: exact identity terminated; operator record says
   `--if-match` was used, but retained OCI artifacts do not independently prove the header
 - Exposed RaceTime boot volume: terminated; not preserved or orphaned
+- Terraform state: reconciled through the verified saved refresh-only plan; the
+  terminated instance is absent and all 29 required remaining entries are retained
 - Restream infrastructure mutation by this correction: none
 - DNS: unchanged
 - Host bootstrap: not started
 
-The next permitted action is saved refresh-only state reconciliation. Replacement
-planning remains blocked until the stale terminated instance is removed from Terraform
-state by that reviewed refresh-only path.
+The next permitted action is replacement planning through the dedicated-subnet and
+reserved-address path. Replacement apply remains blocked until that saved plan passes
+its own reviewed verifier and all pre-apply gates.
