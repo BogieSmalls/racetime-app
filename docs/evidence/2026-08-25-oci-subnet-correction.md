@@ -74,12 +74,14 @@ matched the original baseline exactly.
 
 - Audited transition summary SHA-256: `3b4e9a9c3d1899a4852214b4ad71fa8e0f57740d84da4c94393d2e056a581cce`
 - Raw OCI Audit response SHA-256: `b1a7130afaf5020e7ea36d3cc1c1bb878ba15b55e5104dbfadc7360b06041855`
-- Continuing post-transition baseline SHA-256: `bf8d0d1b67518b15d820d9ee4d5d7a9d7dbf091b2d4db1f80ca5054f4f7d6f3e`
+- Continuing post-transition baseline at that checkpoint SHA-256:
+  `bf8d0d1b67518b15d820d9ee4d5d7a9d7dbf091b2d4db1f80ca5054f4f7d6f3e`
 - Both normalized inventories and the raw Audit response remain ignored local evidence.
 
 The lifecycle transition is therefore classified as an independent duty-cycle action,
-not a Terraform mutation. The post-transition inventory is the continuing baseline for
-the replacement and no-drift checks; the original baseline remains retained for audit.
+not a Terraform mutation. The post-transition inventory became the continuing baseline
+at that checkpoint; it and the original baseline remain retained for audit, and the
+later duty-cycle sequence below supersedes it for replacement and no-drift checks.
 
 ## Pre-termination proof
 
@@ -226,6 +228,64 @@ This was state reconciliation only. No normal apply, destroy, `state rm`, import
 `prevent_destroy` change, OCI resource mutation, Restream mutation, DNS change, Docker
 action, bootstrap action, or G1+ service action occurred.
 
+## Task 5 Restream duty-cycle classification
+
+Review of the retained refresh evidence found that the pre-refresh Terraform state had
+both Restream control planes `STOPPED`, while the post-refresh state had `control`
+`STOPPED` and `control_staging` `RUNNING`. The refresh also repopulated computed network
+fields. These observations were classified before replacement planning through OCI
+Audit and a second full explicit-ID inventory at source commit
+`77a5146dfbf15b6c4bfd468233a2a7720a05d3c7`.
+
+Audit records this complete ordered sequence after the prior continuing baseline:
+
+1. `control` — successful `SOFTSTOP` at `2026-08-25T18:03:49.372-04:00`,
+   `RUNNING` to `STOPPING`.
+2. `control_staging` — successful `START` at
+   `2026-08-25T18:17:07.717-04:00`, `STOPPED` to `STARTING`.
+3. `control_staging` — successful `SOFTSTOP` at
+   `2026-08-25T18:34:32.67-04:00`, `RUNNING` to `STOPPING`.
+4. `control_staging` — successful `START` at
+   `2026-08-25T18:43:02.598-04:00`, `STOPPED` to `STARTING`.
+
+Every request returned status 200. All four came from one hashed principal in the
+established Oracle Python SDK/CLI on Linux duty-cycle automation family, not Terraform.
+There was no failed lifecycle request or different caller in either exact-target Audit
+segment.
+
+The second normalized inventory ran from `2026-08-25T22:51:26.6040614Z` through
+`2026-08-25T22:52:10.5878941Z`, using the same explicit four instance, four VNIC-
+attachment, four VNIC, four subnet, five boot-volume, and five boot-volume-attachment
+identities. Repeated reads at the end proved `control` remained `STOPPED` and
+`control_staging` remained `RUNNING`; no lifecycle action occurred during the recapture.
+Against the preceding continuing baseline, the only net deltas were:
+
+- `control.state`: `RUNNING` to `STOPPED`
+- `control_staging.state`: `STOPPED` to `RUNNING`
+
+Every other explicit field matched exactly, including all instance configuration,
+attachment identities and states, VNIC addressing and topology, subnet CIDR/security-
+list/route/DHCP/VCN identities, and boot-volume size/VPU/attachment fields. This also
+classifies the refresh-repopulated computed network values as unchanged live data.
+
+Ignored evidence custody:
+
+- Expanded raw OCI Audit segment SHA-256:
+  `e29122912d7925318b026a00f6d713d25a457b9e6ca8a31f485f4b19b68018b6`
+- Incremental raw OCI Audit segment SHA-256:
+  `606a39ff84d284ac29fe26646b69335ad25f16e80c72beceacb11940f67952d5`
+- Normalized ordered-transition summary SHA-256:
+  `b08d1515d4737c6ec45031e7ebadd24ec2b9b0cce87f95110e54a7ae2310396e`
+- Superseded continuing baseline SHA-256:
+  `bf8d0d1b67518b15d820d9ee4d5d7a9d7dbf091b2d4db1f80ca5054f4f7d6f3e`
+- New continuing baseline SHA-256:
+  `e6e1f102e4a890e1663b25985f39892a00aed301efa836989175c49c07cbf578`
+
+The new normalized inventory is the continuing Restream baseline for replacement and
+no-drift checks. The lifecycle sequence is classified as independent duty-cycle
+activity; it does not change the conclusion that this correction made no Restream
+infrastructure mutation.
+
 ## Current gate
 
 - Dedicated subnet/security list: created and live-verified
@@ -234,6 +294,8 @@ action, bootstrap action, or G1+ service action occurred.
 - Exposed RaceTime boot volume: terminated; not preserved or orphaned
 - Terraform state: reconciled through the verified saved refresh-only plan; the
   terminated instance is absent and all 29 required remaining entries are retained
+- Restream continuing baseline: promoted after exact-ID recapture and complete
+  out-of-band duty-cycle classification
 - Restream infrastructure mutation by this correction: none
 - DNS: unchanged
 - Host bootstrap: not started
