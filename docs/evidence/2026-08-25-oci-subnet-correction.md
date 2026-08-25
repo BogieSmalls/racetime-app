@@ -70,6 +70,7 @@ instances, four VNIC attachments, four VNICs, five boot volumes, and their attac
 matched the original baseline exactly.
 
 - Audited transition summary SHA-256: `3b4e9a9c3d1899a4852214b4ad71fa8e0f57740d84da4c94393d2e056a581cce`
+- Raw OCI Audit response SHA-256: `b1a7130afaf5020e7ea36d3cc1c1bb878ba15b55e5104dbfadc7360b06041855`
 - Continuing post-transition baseline SHA-256: `bf8d0d1b67518b15d820d9ee4d5d7a9d7dbf091b2d4db1f80ca5054f4f7d6f3e`
 - Both normalized inventories and the raw Audit response remain ignored local evidence.
 
