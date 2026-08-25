@@ -207,8 +207,7 @@ def _change_map(
         if not isinstance(address, str) or not address or address in seen:
             raise VerificationError(f"{key} contains an invalid address")
         seen.add(address)
-        previous_address = entry.get("previous_address")
-        if previous_address is not None and previous_address != "":
+        if "previous_address" in entry:
             raise VerificationError(f"{key} contains a previous address")
         change = _require_mapping(entry.get("change"), key)
         if any(

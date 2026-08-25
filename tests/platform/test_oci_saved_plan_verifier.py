@@ -866,13 +866,9 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
                 ] = previous_address
                 self.assert_rejected(fixture, phase)
 
-    def test_accepts_null_or_empty_previous_address_metadata(self) -> None:
+    def test_rejects_null_or_empty_previous_address_metadata(self) -> None:
         refresh = self.fixture(refresh_plan())
         refresh.plan["resource_drift"][0]["previous_address"] = None
-        try:
-            refresh.verify("refresh-only")
-        except self.verifier.VerificationError as exc:
-            self.fail(f"null previous_address was rejected: {exc}")
 
         subnet = self.fixture(subnet_plan())
         unchanged = change(
@@ -882,10 +878,13 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         )
         unchanged["previous_address"] = ""
         subnet.plan["resource_changes"].append(unchanged)
-        try:
-            subnet.verify("subnet-add")
-        except self.verifier.VerificationError as exc:
-            self.fail(f"empty previous_address was rejected: {exc}")
+
+        for label, fixture, phase in (
+            ("null drift", refresh, "refresh-only"),
+            ("empty no-op", subnet, "subnet-add"),
+        ):
+            with self.subTest(label=label):
+                self.assert_rejected(fixture, phase)
 
     def test_rejects_malformed_output_noop_before_filtering(self) -> None:
         malformed = (
