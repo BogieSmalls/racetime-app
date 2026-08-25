@@ -53,6 +53,11 @@ in Caddy after the TLS handshake, never in an OCI NSG, security list, or host
 firewall. Port 22 has no public rule; operators use time-limited OCI Bastion
 sessions from explicitly listed client CIDRs.
 
+The ARM64 Ubuntu host uses an OCI Bastion port-forwarding session to its private
+port 22. This is Oracle's documented path for A1 instances running Ubuntu and
+does not require the Bastion agent plugin; do not configure a managed-SSH
+session for this host.
+
 ## G1 preflight
 
 After Plan B is activated, record and independently verify:

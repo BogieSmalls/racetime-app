@@ -43,10 +43,6 @@ resource "oci_core_instance" "racetime" {
       name          = "Compute Instance Monitoring"
     }
 
-    plugins_config {
-      desired_state = "ENABLED"
-      name          = "Bastion"
-    }
   }
 
   availability_config {

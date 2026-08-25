@@ -88,11 +88,9 @@ class TerraformContractTests(unittest.TestCase):
         self.assertIn("arm64_ubuntu_24_04_image", self.files["terraform.tfvars.example"])
 
         compute = self.files["compute.tf"]
-        self.assertRegex(
-            compute,
-            r'plugins_config\s*\{[\s\S]*?desired_state\s*=\s*"ENABLED"'
-            r'[\s\S]*?name\s*=\s*"Bastion"[\s\S]*?\}',
-        )
+        self.assertNotRegex(compute, r'name\s*=\s*"Bastion"')
+        self.assertIn("Bastion port-forwarding session", self.files["README.md"])
+        self.assertIn("does not require the Bastion agent plugin", self.files["README.md"])
 
     def test_existing_restream_inventory_is_data_only(self):
         data = self.files["data.tf"]
