@@ -1,4 +1,15 @@
-mock_provider "oci" {}
+mock_provider "oci" {
+  mock_data "oci_core_private_ips" {
+    defaults = {
+      private_ips = [
+        {
+          id         = "ocid1.privateip.oc1.iad.example"
+          is_primary = true
+        }
+      ]
+    }
+  }
+}
 
 variables {
   tenancy_ocid         = "ocid1.tenancy.oc1..example"

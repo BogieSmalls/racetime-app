@@ -34,6 +34,26 @@ resource "oci_core_subnet" "racetime" {
   }
 }
 
+resource "oci_core_public_ip" "racetime" {
+  compartment_id = var.compartment_ocid
+  display_name   = "racetime"
+  lifetime       = "RESERVED"
+  private_ip_id  = one(data.oci_core_private_ips.racetime.private_ips).id
+  freeform_tags  = local.common_tags
+
+  lifecycle {
+    prevent_destroy = true
+
+    precondition {
+      condition = (
+        length(data.oci_core_private_ips.racetime.private_ips) == 1 &&
+        one(data.oci_core_private_ips.racetime.private_ips).is_primary
+      )
+      error_message = "The reserved RaceTime public IP requires exactly one primary private IP."
+    }
+  }
+}
+
 resource "oci_core_network_security_group" "racetime" {
   compartment_id = var.compartment_ocid
   display_name   = "racetime"

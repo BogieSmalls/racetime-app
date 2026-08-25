@@ -92,7 +92,8 @@ class TerraformContractTests(unittest.TestCase):
             ("boot_volume_vpus_per_gb", "10"),
             ("preserve_boot_volume", "true"),
             ("prevent_destroy", "true"),
-            ("assign_public_ip", "true"),
+            ("assign_public_ip", "false"),
+            ("assign_ipv6ip", "false"),
         ):
             with self.subTest(name=name):
                 self.assertRegex(compute, rf"(?m)^\s*{name}\s*=\s*{re.escape(value)}\s*$")
@@ -100,6 +101,86 @@ class TerraformContractTests(unittest.TestCase):
         self.assertNotRegex(compute, r'data\s+"oci_core_images"')
         self.assertIn("VM.Standard.E5.Flex", self.files["README.md"])
         self.assertIn("1 OCPU / 6 GB", self.files["README.md"])
+
+    def test_replacement_uses_dedicated_subnet_and_reserved_public_ip(self):
+        compute = self.files["compute.tf"]
+        data = self.files["data.tf"]
+        network = self.files["network.tf"]
+        outputs = self.files["outputs.tf"]
+        readme = self.files["README.md"]
+
+        create_vnic = _hcl_block(compute, "create_vnic_details")
+        for name, value in (
+            ("subnet_id", "oci_core_subnet.racetime.id"),
+            ("assign_public_ip", "false"),
+            ("assign_ipv6ip", "false"),
+        ):
+            with self.subTest(vnic_argument=name):
+                self.assertRegex(
+                    create_vnic,
+                    rf"(?m)^\s*{name}\s*=\s*{re.escape(value)}\s*$",
+                )
+
+        private_ips = _hcl_block(
+            data, 'data "oci_core_private_ips" "racetime"'
+        )
+        self.assertRegex(
+            private_ips,
+            r"(?m)^\s*subnet_id\s*=\s*oci_core_subnet\.racetime\.id\s*$",
+        )
+        self.assertRegex(
+            private_ips,
+            r"(?m)^\s*ip_address\s*=\s*oci_core_instance\.racetime\.private_ip\s*$",
+        )
+
+        public_ip = _hcl_block(
+            network, 'resource "oci_core_public_ip" "racetime"'
+        )
+        for name, value in (
+            ("lifetime", '"RESERVED"'),
+            (
+                "private_ip_id",
+                "one(data.oci_core_private_ips.racetime.private_ips).id",
+            ),
+        ):
+            with self.subTest(public_ip_argument=name):
+                self.assertRegex(
+                    public_ip,
+                    rf"(?m)^\s*{name}\s*=\s*{re.escape(value)}\s*$",
+                )
+        public_ip_lifecycle = _hcl_block(public_ip, "lifecycle")
+        self.assertRegex(
+            public_ip_lifecycle, r"(?m)^\s*prevent_destroy\s*=\s*true\s*$"
+        )
+        precondition = _hcl_block(public_ip_lifecycle, "precondition")
+        self.assertIn(
+            "length(data.oci_core_private_ips.racetime.private_ips) == 1",
+            precondition,
+        )
+        self.assertIn(
+            "one(data.oci_core_private_ips.racetime.private_ips).is_primary",
+            precondition,
+        )
+
+        public_output = _hcl_block(outputs, 'output "instance_public_ip"')
+        self.assertRegex(
+            public_output,
+            r"(?m)^\s*value\s*=\s*oci_core_public_ip\.racetime\.ip_address\s*$",
+        )
+        terraform_and_docs = "\n".join(
+            self.files[name]
+            for name in sorted(EXPECTED)
+            if name.endswith(".tf") or name == "README.md"
+        )
+        self.assertNotIn("oci_core_instance.racetime.public_ip", terraform_and_docs)
+        self.assertIn(
+            "terraform -chdir=infra/oci import oci_core_public_ip.racetime <public-ip-ocid>",
+            readme,
+        )
+
+        activation_test = ACTIVATION_TEST.read_text(encoding="utf-8")
+        self.assertIn('mock_data "oci_core_private_ips"', activation_test)
+        self.assertIn("is_primary = true", activation_test)
 
     def test_tenancy_root_and_ubuntu_bastion_contract_are_explicit(self):
         variables = self.files["variables.tf"]

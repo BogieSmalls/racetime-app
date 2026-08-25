@@ -5,7 +5,7 @@ output "instance_id" {
 }
 
 output "instance_public_ip" {
-  value       = oci_core_instance.racetime.public_ip
+  value       = oci_core_public_ip.racetime.ip_address
   description = "Canonical DNS target after G1 verification."
   sensitive   = true
 }

@@ -41,13 +41,13 @@ and topic are destruction-protected. OCI creates an image-backed boot volume as
 part of instance launch; `prevent_destroy` on the instance, `preserve_boot_volume
 = true`, and `is_preserve_boot_volume_enabled = true` protect that 50-GB volume.
 
-## Dedicated-subnet correction: additive phase
+## Dedicated-subnet correction
 
-The first correction phase leaves the stopped `oci_core_instance.racetime`
-unchanged on `var.subnet_ocid`, including `assign_public_ip = true`. Apply only
-the two additive resources in this phase: `oci_core_security_list.racetime` and
-`oci_core_subnet.racetime`. Moving or replacing compute belongs to the later,
-separately reviewed correction phase.
+The completed additive phase created `oci_core_security_list.racetime` and
+`oci_core_subnet.racetime` while leaving the stopped original instance unchanged.
+The replacement graph binds the instance to that dedicated subnet without an
+ephemeral public or IPv6 address, then assigns a separately protected reserved
+IPv4 address to its uniquely resolved primary private IP.
 
 The dedicated subnet deliberately reuses the route table and DHCP options read
 from `data.oci_core_subnet.bastion`. This read-only shared-plumbing dependency is
@@ -192,6 +192,7 @@ saved plan and import to its exact address, for example:
 
 ```powershell
 terraform -chdir=infra/oci import oci_core_instance.racetime ocid1.instance.oc1..REPLACE
+terraform -chdir=infra/oci import oci_core_public_ip.racetime <public-ip-ocid>
 terraform -chdir=infra/oci import oci_core_network_security_group.racetime ocid1.networksecuritygroup.oc1..REPLACE
 terraform -chdir=infra/oci import oci_bastion_bastion.racetime ocid1.bastion.oc1..REPLACE
 terraform -chdir=infra/oci import oci_objectstorage_bucket.backups n/REPLACE_NAMESPACE/b/REPLACE_BUCKET

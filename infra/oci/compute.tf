@@ -20,13 +20,13 @@ resource "oci_core_instance" "racetime" {
   }
 
   create_vnic_details {
-    assign_public_ip          = true
-    assign_ipv6ip             = var.enable_ipv6
+    assign_public_ip          = false
+    assign_ipv6ip             = false
     assign_private_dns_record = true
     display_name              = "racetime-primary"
     hostname_label            = "racetime"
     nsg_ids                   = [oci_core_network_security_group.racetime.id]
-    subnet_id                 = var.subnet_ocid
+    subnet_id                 = oci_core_subnet.racetime.id
   }
 
   metadata = {
