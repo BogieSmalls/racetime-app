@@ -7,8 +7,9 @@
 The first `racetime` instance inherited the existing Restream subnet's default security
 list, which permits public TCP/22. OCI combines security-list and NSG allows, so the
 RaceTime NSG's Bastion-only SSH rule could not override that inherited rule. The new,
-unconfigured instance was stopped immediately after live verification. It remains stopped
-at this evidence boundary.
+unconfigured instance was stopped immediately after live verification. At the initial
+post-apply evidence boundary it was `STOPPED`; it stayed stopped until the later disposal
+recorded below.
 
 The approved correction creates a RaceTime-only subnet and zero-ingress security list,
 then disposes of the stopped empty instance and recreates it with a reserved IPv4 address.
@@ -56,8 +57,9 @@ Seventeen fail-closed live checks passed against OCI API responses and Terraform
   rule to `0.0.0.0/0` with `CIDR_BLOCK` destination type.
 - Subnet identity SHA-256: `585b0f9a263017e6ed19b8b8c06f389d4935c15c7b4c5ff08af1b9669879c93f`
 - Security-list identity SHA-256: `db1555e1e8615e69fcb7494394de78494d14082c4523dd5d7951e6cf2b58fdba`
-- The original RaceTime instance remains `STOPPED`, 1 OCPU/6 GB, with one VNIC still
-  on the original Restream subnet and its original 50-GB/10-VPU boot volume `AVAILABLE`.
+- At this additive, pre-disposal checkpoint, the original RaceTime instance was
+  `STOPPED`, 1 OCPU/6 GB, with one VNIC on the original Restream subnet and its
+  original 50-GB/10-VPU boot volume `AVAILABLE`.
 
 ## Independently audited Restream duty-cycle transition
 
