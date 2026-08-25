@@ -79,9 +79,11 @@ matched the original baseline exactly.
 - Both normalized inventories and the raw Audit response remain ignored local evidence.
 
 The lifecycle transition is therefore classified as an independent duty-cycle action,
-not a Terraform mutation. The post-transition inventory became the continuing baseline
-at that checkpoint; it and the original baseline remain retained for audit, and the
-later duty-cycle sequence below supersedes it for replacement and no-drift checks.
+not a Terraform mutation. The post-transition inventory was provisionally used as the
+continuing baseline at that checkpoint. The full-interval review below shows that its
+state fields were a mixed point-in-time read; it and the original baseline remain
+retained for audit, while the later stable recapture supersedes it for replacement and
+no-drift checks.
 
 ## Pre-termination proof
 
@@ -233,25 +235,44 @@ action, bootstrap action, or G1+ service action occurred.
 Review of the retained refresh evidence found that the pre-refresh Terraform state had
 both Restream control planes `STOPPED`, while the post-refresh state had `control`
 `STOPPED` and `control_staging` `RUNNING`. The refresh also repopulated computed network
-fields. These observations were classified before replacement planning through OCI
-Audit and a second full explicit-ID inventory at source commit
+fields. These observations were classified before replacement planning through three
+contiguous, exact-target OCI Audit segments covering
+`2026-08-25T20:53:43.2668153Z` through `2026-08-25T22:52:10.5878941Z` and a second full
+explicit-ID inventory at source commit
 `77a5146dfbf15b6c4bfd468233a2a7720a05d3c7`.
 
-Audit records this complete ordered sequence after the prior continuing baseline:
+Audit records this complete ordered sequence over that covered interval:
 
-1. `control` — successful `SOFTSTOP` at `2026-08-25T18:03:49.372-04:00`,
+1. `control_staging` — successful `START` at
+   `2026-08-25T16:54:04.474-04:00`, `STOPPED` to `STARTING`.
+2. `control` — successful `SOFTSTOP` at `2026-08-25T17:02:50.674-04:00`,
    `RUNNING` to `STOPPING`.
-2. `control_staging` — successful `START` at
+3. `control` — successful `START` at `2026-08-25T17:10:33.39-04:00`,
+   `STOPPED` to `STARTING`.
+4. `control_staging` — successful `SOFTSTOP` at
+   `2026-08-25T17:25:34.484-04:00`, `RUNNING` to `STOPPING`.
+5. `control` — successful `SOFTSTOP` at `2026-08-25T18:03:49.372-04:00`,
+   `RUNNING` to `STOPPING`.
+6. `control_staging` — successful `START` at
    `2026-08-25T18:17:07.717-04:00`, `STOPPED` to `STARTING`.
-3. `control_staging` — successful `SOFTSTOP` at
+7. `control_staging` — successful `SOFTSTOP` at
    `2026-08-25T18:34:32.67-04:00`, `RUNNING` to `STOPPING`.
-4. `control_staging` — successful `START` at
+8. `control_staging` — successful `START` at
    `2026-08-25T18:43:02.598-04:00`, `STOPPED` to `STARTING`.
 
-Every request returned status 200. All four came from one hashed principal in the
-established Oracle Python SDK/CLI on Linux duty-cycle automation family, not Terraform.
-There was no failed lifecycle request or different caller in either exact-target Audit
-segment.
+Every request returned status 200. Seven came from one hashed principal in the
+established Oracle Python SDK/CLI on Linux duty-cycle automation family. The 17:10
+`control` START came from a second principal whose identity hash exactly matches the
+configured primary-operator `API_KEY` profile and whose caller was Oracle Python SDK/CLI
+on Windows. Both paths are out of band from Terraform's Go provider. There was no failed
+lifecycle request and no unclassified caller in the covered interval.
+
+The earlier normalized inventory ran from `2026-08-25T20:53:43.2668153Z` through
+`2026-08-25T20:54:24.7621805Z`. Its `control_staging` instance response completed at
+`2026-08-25T20:53:44.7905459Z` and recorded `STOPPED`; Audit then accepted the first
+`START` at `2026-08-25T20:54:04.474Z`, before the remaining inventory capture finished.
+The recorded state was valid at its individual read time, but the aggregate inventory
+was a mixed point-in-time capture and was not stable for `control_staging.state`.
 
 The second normalized inventory ran from `2026-08-25T22:51:26.6040614Z` through
 `2026-08-25T22:52:10.5878941Z`, using the same explicit four instance, four VNIC-
@@ -270,12 +291,16 @@ classifies the refresh-repopulated computed network values as unchanged live dat
 
 Ignored evidence custody:
 
+- Early raw OCI Audit segment SHA-256:
+  `5cd9df79d4fda4598e356327a9db9d26a2afa19ef81aef958388734eec66b9c3`
 - Expanded raw OCI Audit segment SHA-256:
   `e29122912d7925318b026a00f6d713d25a457b9e6ca8a31f485f4b19b68018b6`
 - Incremental raw OCI Audit segment SHA-256:
   `606a39ff84d284ac29fe26646b69335ad25f16e80c72beceacb11940f67952d5`
+- Final recapture-tail raw OCI Audit segment SHA-256:
+  `293886092228aa11cd0d1132083332cf4e6e1bf9380e77121e2c2b772a67f252`
 - Normalized ordered-transition summary SHA-256:
-  `b08d1515d4737c6ec45031e7ebadd24ec2b9b0cce87f95110e54a7ae2310396e`
+  `e3a4c550cdd01744771d832481b49bd704b0f06aa0b92beac2ba2016b4726b9e`
 - Superseded continuing baseline SHA-256:
   `bf8d0d1b67518b15d820d9ee4d5d7a9d7dbf091b2d4db1f80ca5054f4f7d6f3e`
 - New continuing baseline SHA-256:
