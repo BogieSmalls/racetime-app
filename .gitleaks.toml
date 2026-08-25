@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Known non-production CI throttle HMAC fixture"
+condition = "AND"
+commits = ["b5093119e17327e649a7626f86cee102cbf6c27e"]
+paths = ['''^deploy/env/ci\.env$''']
+regexTarget = "match"
+regexes = ['''^RACETIME_THROTTLE_HMAC_KEY=(?:[A-Za-z0-9+/]{32}|[A-Za-z0-9+/]{43}=)$''']
