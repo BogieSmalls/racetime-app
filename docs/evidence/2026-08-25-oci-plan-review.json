@@ -2,10 +2,10 @@
   "schema_version": 1,
   "recorded_at": "2026-08-25",
   "activation_record": "G1-2026-08-25:racetime-bootstrap",
-  "source_commit": "94e6608f91b767f183eb8cb0772a3c5c71056855",
+  "source_commit": "0f0c54fb124d94f5268f371fa8bc426568f2f9fd",
   "terraform_version": "1.12.2",
   "oci_provider_version": "8.27.0",
-  "saved_plan_sha256": "b427f95fa3da20840c0689b68fd3fcbdcf6936f3a93c240120128043289c6d89",
+  "saved_plan_sha256": "e1e2105039a94b89c2615ee76620d4e0acd89ab37b686e3a83f1671ce0875084",
   "actions": {
     "create": 18,
     "update": 0,
@@ -55,6 +55,7 @@
     "projected_total_retained_boot_volume_usd_per_month": 3.61
   },
   "existing_restream_actions": [],
+  "iam_scope": "root resources use OCI policy location 'in tenancy'; no tenancy OCID is supplied as a compartment location",
   "review": "PASS",
   "apply_authorized": true,
   "g0_status": "HOLD",
