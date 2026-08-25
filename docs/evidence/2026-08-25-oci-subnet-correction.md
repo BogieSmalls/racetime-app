@@ -235,7 +235,7 @@ action, bootstrap action, or G1+ service action occurred.
 Review of the retained refresh evidence found that the pre-refresh Terraform state had
 both Restream control planes `STOPPED`, while the post-refresh state had `control`
 `STOPPED` and `control_staging` `RUNNING`. The refresh also repopulated computed network
-fields. These observations were classified before replacement planning through three
+fields. These observations were classified before replacement planning through four
 contiguous, exact-target OCI Audit segments covering
 `2026-08-25T20:53:43.2668153Z` through `2026-08-25T22:52:10.5878941Z` and a second full
 explicit-ID inventory at source commit
