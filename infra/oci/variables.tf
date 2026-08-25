@@ -150,7 +150,7 @@ variable "bastion_client_cidr_allow_list" {
 }
 
 variable "enable_ipv6" {
-  description = "Enable public IPv6 HTTP/HTTPS only after the existing subnet is verified IPv6-ready."
+  description = "Prestage IPv6 NSG rules only; this does not assign IPv6 to the instance VNIC and does not enable IPv6 service reachability."
   type        = bool
   default     = false
 }

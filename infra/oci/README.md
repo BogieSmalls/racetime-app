@@ -30,16 +30,19 @@ A reviewed first plan may create only:
 
 - one `racetime` `VM.Standard.A1.Flex` instance, initially 1 OCPU / 6 GB;
 - its image-created 50-GB Balanced boot volume at 10 VPUs/GB;
+- one reserved IPv4 address (`oci_core_public_ip.racetime`) bound to the
+  replacement instance's primary private IP;
 - one NSG and its explicit HTTP, HTTPS, Bastion SSH, and egress rules;
 - one standard OCI Bastion;
 - one private, versioned encrypted-backup bucket;
 - one instance-only dynamic group and narrow backup/metric policy;
 - one Notifications topic, configured subscriptions, and reviewed alarms.
 
-The instance, embedded boot volume, NSG, Bastion, bucket, dynamic group, policy,
-and topic are destruction-protected. OCI creates an image-backed boot volume as
-part of instance launch; `prevent_destroy` on the instance, `preserve_boot_volume
-= true`, and `is_preserve_boot_volume_enabled = true` protect that 50-GB volume.
+The instance, embedded boot volume, reserved IPv4 address, NSG, Bastion, bucket,
+dynamic group, policy, and topic are destruction-protected. OCI creates an
+image-backed boot volume as part of instance launch; `prevent_destroy` on the
+instance, `preserve_boot_volume = true`, and
+`is_preserve_boot_volume_enabled = true` protect that 50-GB volume.
 
 ## Dedicated-subnet correction
 

@@ -182,6 +182,27 @@ class TerraformContractTests(unittest.TestCase):
         self.assertIn('mock_data "oci_core_private_ips"', activation_test)
         self.assertIn("is_primary = true", activation_test)
 
+        managed_boundary = readme.split("## Managed boundary", 1)[1].split(
+            "## Dedicated-subnet correction", 1
+        )[0]
+        self.assertIn(
+            "one reserved IPv4 address (`oci_core_public_ip.racetime`)",
+            managed_boundary,
+        )
+        self.assertRegex(
+            managed_boundary,
+            r"reserved IPv4 address[\s\S]{0,160}?destruction-protected",
+        )
+
+    def test_ipv6_option_is_documented_as_nsg_prestaging_only(self):
+        enable_ipv6 = _hcl_block(
+            self.files["variables.tf"], 'variable "enable_ipv6"'
+        )
+        self.assertIn("Prestage IPv6 NSG rules only", enable_ipv6)
+        self.assertIn("does not assign IPv6 to the instance VNIC", enable_ipv6)
+        self.assertIn("does not enable IPv6 service reachability", enable_ipv6)
+        self.assertNotIn("Enable public IPv6 HTTP/HTTPS", enable_ipv6)
+
     def test_tenancy_root_and_ubuntu_bastion_contract_are_explicit(self):
         variables = self.files["variables.tf"]
         compartment = variables.split('variable "compartment_ocid"', 1)[1].split(
