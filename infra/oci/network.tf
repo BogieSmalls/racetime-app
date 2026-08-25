@@ -5,9 +5,10 @@ resource "oci_core_security_list" "racetime" {
   freeform_tags  = local.common_tags
 
   egress_security_rules {
-    destination = "0.0.0.0/0"
-    protocol    = "all"
-    stateless   = false
+    destination      = "0.0.0.0/0"
+    destination_type = "CIDR_BLOCK"
+    protocol         = "all"
+    stateless        = false
   }
 
   lifecycle {

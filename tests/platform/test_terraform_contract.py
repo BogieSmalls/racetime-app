@@ -204,6 +204,7 @@ class TerraformContractTests(unittest.TestCase):
         )
         for name, value in (
             ("destination", '"0.0.0.0/0"'),
+            ("destination_type", '"CIDR_BLOCK"'),
             ("protocol", '"all"'),
             ("stateless", "false"),
         ):
