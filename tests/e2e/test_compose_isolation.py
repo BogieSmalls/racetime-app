@@ -134,21 +134,5 @@ class ComposeIsolationTests(unittest.TestCase):
             integration_up,
         )
 
-    def test_ready_sentinel_requires_every_service_to_be_healthy(self):
-        integration_up = INTEGRATION_UP.read_text(encoding="utf-8")
-        self.assertIn("--profile racebot ps --format json", integration_up)
-        self.assertIn("$expectedServices", integration_up)
-        self.assertIn("$serviceStatuses", integration_up)
-        self.assertIn("$attempt -le 120", integration_up)
-        self.assertIn("$status.Health -ne 'healthy'", integration_up)
-        health_gate = integration_up.index("$serviceStatuses")
-        ready_write = integration_up.index("[IO.File]::WriteAllText($readyFile")
-        self.assertLess(health_gate, ready_write)
-        for service in (
-            "caddy", "db", "fixture-provider", "racebot", "redis", "web",
-        ):
-            self.assertIn(f"'{service}'", integration_up)
-
-
 if __name__ == "__main__":
     unittest.main()

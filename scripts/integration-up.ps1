@@ -11,6 +11,7 @@ $artifactRoot = Join-Path $repositoryRoot 'artifacts\integration'
 $readyFile = Join-Path $artifactRoot '.ready'
 $projectName = 'z1rr-racetime-integration'
 $origin = 'https://integration.racetime.test:8443'
+. (Join-Path $PSScriptRoot 'integration-health.ps1')
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw 'Docker is required to start the isolated integration stack.'
@@ -80,18 +81,12 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw 'Unable to inspect integration service health.'
             }
-            $serviceStatuses = @($serviceStatusesJson | ConvertFrom-Json)
-            $observedServices = @($serviceStatuses.Service | Sort-Object -Unique)
-            $servicesHealthy = (
-                $serviceStatuses.Count -eq $expectedServices.Count -and
-                -not (Compare-Object -ReferenceObject $expectedServices -DifferenceObject $observedServices)
+            $serviceStatuses = @(
+                ConvertFrom-IntegrationComposePsJson -InputText $serviceStatusesJson
             )
-            foreach ($status in $serviceStatuses) {
-                if ($status.State -ne 'running' -or $status.Health -ne 'healthy') {
-                    $servicesHealthy = $false
-                    break
-                }
-            }
+            $servicesHealthy = Test-IntegrationServicesHealthy `
+                -Statuses $serviceStatuses `
+                -ExpectedServices $expectedServices
             if (-not $servicesHealthy) {
                 Start-Sleep -Seconds 1
                 continue
