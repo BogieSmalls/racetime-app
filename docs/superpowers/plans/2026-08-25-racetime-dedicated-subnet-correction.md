@@ -366,8 +366,7 @@ Internet Gateway in the same VCN. Reconfirm the DHCP-options OCID. Stop immediat
 - [ ] **Step 2: Pull and hash state, then verify exact deletion targets**
 
 ```powershell
-& $terraform "-chdir=infra/oci" state pull 2> .tmp/evidence/racetime-pre-termination-state.err |
-  Set-Content -LiteralPath .tmp/evidence/racetime-pre-termination.tfstate -Encoding utf8NoBOM
+& $terraform "-chdir=infra/oci" state pull 2> .tmp/evidence/racetime-pre-termination-state.err > .tmp/evidence/racetime-pre-termination.tfstate
 if ($LASTEXITCODE -ne 0) { throw 'state pull failed; inspect ignored error' }
 ```
 
