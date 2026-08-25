@@ -16,7 +16,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | FR-CORE-002 upstream race semantics | Core Tasks 1, 11; Operations Tasks 6, 8 | APP-011, OPS-008 | full Django suite, disposable browser lifecycle, and post-issuance fresh-production dress rehearsal | G2 | Planned |
 | FR-CORE-003 one public `z1rr`, user creation | Core Task 7; Operations Tasks 6, 8 | APP-007, OPS-008 | bootstrap idempotency plus qualification and fresh-production ordinary-user race creation | G2 | Planned |
 | FR-CORE-004 Council owner boundary | Core Task 7; Operations Tasks 5–6, 8 | APP-007, OPS-009 | owner permission negative tests and qualification/fresh-production governance evidence | G2/G3 | Planned |
-| FR-CORE-005 idempotent bootstrap | Core Task 7 | APP-007 | two-run state equality and Council-change preservation | G0 | Planned |
+| FR-CORE-005 idempotent bootstrap | Core Task 7 | APP-007 | two-run state equality and Council-change preservation | G0 | Verified ([evidence](../evidence/2026-08-24-g0-readiness.md)) |
 | FR-CORE-006 health | Core Task 9; Platform Tasks 3, 9 | APP-008, OPS-005 | public/internal health and monitoring tests | G0/G2 | Planned |
 
 ## Identity and account lifecycle
@@ -35,9 +35,9 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 
 | Requirement | Plan/task | Artifacts | Primary automated verification | Gate | Status |
 | --- | --- | --- | --- | --- | --- |
-| FR-BOT-001 origin/category outcome switch | TTPBot Tasks 1–2 | BOT-001, BOT-002 | approved/self-hosted provider fixtures | G0 | Planned |
-| FR-BOT-002 derived REST/WSS/links | TTPBot Tasks 1, 4 | BOT-001, BOT-002 | URL resolution and room-creation tests | G0 | Planned |
-| FR-BOT-003 destination-bound state | TTPBot Task 3 | BOT-003 | migration/mismatch/atomic-write tests | G0 | Planned |
+| FR-BOT-001 origin/category outcome switch | TTPBot Tasks 1–2 | BOT-001, BOT-002 | approved/self-hosted provider fixtures | G0 | Verified ([evidence](../evidence/2026-08-24-g0-readiness.md)) |
+| FR-BOT-002 derived REST/WSS/links | TTPBot Tasks 1, 4 | BOT-001, BOT-002 | URL resolution and room-creation tests | G0 | Verified ([evidence](../evidence/2026-08-24-g0-readiness.md)) |
+| FR-BOT-003 destination-bound state | TTPBot Task 3 | BOT-003 | migration/mismatch/atomic-write tests | G0 | Verified ([evidence](../evidence/2026-08-24-g0-readiness.md)) |
 | FR-BOT-004 preserve schedule/seed/recovery | TTPBot Tasks 4, 7; Operations Task 8 | BOT-002, BOT-003, BOT-006 | existing suite plus post-issuance injected restart integration | G0/G2 | Planned |
 | FR-BOT-005 one scheduler | TTPBot Tasks 5–6; Operations Tasks 8, 10 | BOT-004, BOT-005 | `flock` and cutover-state tests/first-room evidence | G0/G3 | Planned |
 
@@ -45,10 +45,10 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 
 | Requirement | Plan/task | Artifacts | Primary automated verification | Gate | Status |
 | --- | --- | --- | --- | --- | --- |
-| FR-RESTREAM-001 Z1RR-first two-source UI | Restream Tasks 3, 7 | RST-002, RST-007 | React/Playwright source order and independent state | G0 | Planned |
-| FR-RESTREAM-002 independent source config | Restream Tasks 1–3, 8 | RST-001, RST-002, RST-008 | both outcome and invalid config tests | G0 | Planned |
+| FR-RESTREAM-001 Z1RR-first two-source UI | Restream Tasks 3, 7 | RST-002, RST-007 | React/Playwright source order and independent state | G0 | Verified ([evidence](../evidence/2026-08-24-g0-readiness.md)) |
+| FR-RESTREAM-002 independent source config | Restream Tasks 1–3, 8 | RST-001, RST-002, RST-008 | both outcome and invalid config tests | G0 | Verified ([evidence](../evidence/2026-08-24-g0-readiness.md)) |
 | FR-RESTREAM-003 provider identity propagation | Restream Tasks 2, 4–7; Operations Task 8 | RST-003–RST-007, OPS-008 | boundary matrix, Playwright E2E, and post-issuance fresh-production dress rehearsal | G0/G2 | Planned |
-| FR-RESTREAM-004 legacy migration | Restream Task 4 | RST-004 | copied legacy SQLite migration/integrity test | G0 | Planned |
+| FR-RESTREAM-004 legacy migration | Restream Task 4 | RST-004 | copied legacy SQLite migration/integrity test | G0 | Verified ([evidence](../evidence/2026-08-24-g0-readiness.md)) |
 | FR-RESTREAM-005 failure isolation | Restream Tasks 3, 6, 9; Operations Task 8 | RST-006, RST-007, OPS-008 | concurrent provider REST/WSS failure tests plus post-issuance verification | G0/G2 | Planned |
 
 ## LiveSplit

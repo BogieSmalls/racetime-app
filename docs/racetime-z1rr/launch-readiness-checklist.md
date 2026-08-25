@@ -15,7 +15,7 @@
 - [ ] Council understands G0 completion is not authorization for OCI/DNS/OAuth/cutover changes.
 
 **G0 decision:** [ ] Pass [x] Hold
-**Evidence:** [2026-08-24 G0 readiness](../evidence/2026-08-24-g0-readiness.md)
+**Evidence:** [2026-08-24 G0 readiness](../evidence/2026-08-24-g0-readiness.md); [redacted NAS parser/browser acceptance](../evidence/2026-08-24-nas-task5-parser-acceptance.md)
 **Council record:**
 
 ## G1 — Plan B activation and external prerequisites
