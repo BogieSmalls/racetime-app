@@ -205,9 +205,10 @@ Saved-plan custody:
 The plan contained no live resource change after no-op normalization. Its drift set was
 exactly `oci_core_instance.racetime:["delete"]`, and its non-no-op output set was exactly
 `boot_volume_id`, `instance_id`, `instance_private_ip`, and `instance_public_ip`, each
-with an `update` action. The saved-plan verifier passed once during review and again
-immediately before apply with `resource_changes=0`, `resource_drift=1`, and
-`output_changes=4`.
+with an `update` action. The operator execution record reports a review pass and a repeat
+immediately before apply, both with `resource_changes=0`, `resource_drift=1`, and
+`output_changes=4`. Retained ignored evidence contains only the immediate pre-apply
+verifier artifact; it independently proves that PASS and those counts.
 
 Terraform applied only that exact saved refresh-only plan and exited 0. The ignored apply
 log has SHA-256
