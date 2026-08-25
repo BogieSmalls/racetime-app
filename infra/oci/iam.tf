@@ -10,6 +10,10 @@ resource "oci_identity_dynamic_group" "racetime" {
   }
 }
 
+locals {
+  racetime_resource_scope = var.compartment_ocid == var.tenancy_ocid ? "in tenancy" : "in compartment id ${var.compartment_ocid}"
+}
+
 resource "oci_identity_policy" "racetime" {
   compartment_id = var.tenancy_ocid
   name           = "z1rr-racetime-instance"
@@ -18,9 +22,9 @@ resource "oci_identity_policy" "racetime" {
 
   statements = [
     "Allow dynamic-group ${oci_identity_dynamic_group.racetime.name} to read objectstorage-namespaces in tenancy",
-    "Allow dynamic-group ${oci_identity_dynamic_group.racetime.name} to read buckets in compartment id ${var.compartment_ocid} where target.bucket.name='${oci_objectstorage_bucket.backups.name}'",
-    "Allow dynamic-group ${oci_identity_dynamic_group.racetime.name} to manage objects in compartment id ${var.compartment_ocid} where all {target.bucket.name='${oci_objectstorage_bucket.backups.name}', target.object.name='production/*'}",
-    "Allow dynamic-group ${oci_identity_dynamic_group.racetime.name} to use metrics in compartment id ${var.compartment_ocid} where target.metrics.namespace='z1rr_racetime'",
+    "Allow dynamic-group ${oci_identity_dynamic_group.racetime.name} to read buckets ${local.racetime_resource_scope} where target.bucket.name='${oci_objectstorage_bucket.backups.name}'",
+    "Allow dynamic-group ${oci_identity_dynamic_group.racetime.name} to manage objects ${local.racetime_resource_scope} where all {target.bucket.name='${oci_objectstorage_bucket.backups.name}', target.object.name='production/*'}",
+    "Allow dynamic-group ${oci_identity_dynamic_group.racetime.name} to use metrics ${local.racetime_resource_scope} where target.metrics.namespace='z1rr_racetime'",
   ]
 
   lifecycle {

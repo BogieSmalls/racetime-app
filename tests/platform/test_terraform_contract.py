@@ -148,6 +148,11 @@ class TerraformContractTests(unittest.TestCase):
         self.assertIn("target.metrics.namespace='z1rr_racetime'", iam)
         self.assertNotIn("manage object-family", iam)
         self.assertNotRegex(iam, r"instance\.compartment\.id\s*=")
+        self.assertIn(
+            'var.compartment_ocid == var.tenancy_ocid ? "in tenancy" : "in compartment id ${var.compartment_ocid}"',
+            iam,
+        )
+        self.assertGreaterEqual(iam.count("${local.racetime_resource_scope}"), 3)
 
     def test_notifications_and_cost_controls_are_explicit(self):
         monitoring = self.files["monitoring.tf"]
