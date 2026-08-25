@@ -1,6 +1,6 @@
 # Synology G0 Worker Harness Design
 
-**Status:** Approved architecture; implementation pending
+**Status:** Approved architecture; revision 1 under review
 
 **Date:** 2026-08-25
 
@@ -54,8 +54,16 @@ The remote run uses a new absolute directory beneath
 `/volume1/docker/z1rr-racetime-g0-<commit>` and Docker resources carrying a
 `z1rr-racetime-g0` prefix and qualification labels. It receives tracked-file
 archives for the exact clean RaceTime, Restream, TTPBot, and LiveSplit commits
-named in the run manifest. Git history required for secret scanning is
-transferred as verified bundles, not fetched with production credentials.
+named in the run manifest. Each archive is derived from and compared with a
+complete verified Git bundle containing every ref needed to reconstruct the
+declared candidate and scan range. Git history is not fetched with production
+credentials.
+
+Untracked build artifacts required by the collector are transferred separately
+under a signed/hash-listed artifact manifest. That manifest covers the retained
+Restream build, LiveSplit DLL/package/update/signature material, and any prior
+review record. The harness verifies each artifact hash before use and never
+allows an artifact to alter a reconstructed source tree's clean Git status.
 
 The controller refuses paths outside the dedicated root, unexpected dirty
 source, commit mismatches, pre-existing same-name project resources, mutable
@@ -74,7 +82,8 @@ A checked-in lock document records, at minimum:
 - MariaDB 11.4 and Redis 7.4 image digests;
 - the pinned base and resulting immutable ID for the local systemd-analysis
   image; and
-- any helper image used for OCI-layout or provenance inspection.
+- the digest-pinned OCI-layout inspector/importer used to select manifests and
+  copy those exact manifests into the daemon.
 
 The controller downloads or pulls only these identities, verifies the Buildx
 checksum before making it executable, records resolved platform digests, and
@@ -92,9 +101,20 @@ Before privileged execution the harness:
 4. proves its cleanup command can target only the handler it will add; and
 5. installs cleanup traps before registration.
 
-If a usable ARM64 handler already exists, the harness leaves it untouched and
-later proves the entire table unchanged. Otherwise it installs only the exact
-ARM64 handler, proves an ARM64 container executes, and records the added name.
+If the table is not mounted in the NAS host namespace, the helper may mount it
+only inside its own ephemeral mount namespace to inspect the global registry;
+that mount disappears with the helper. A globally disabled registry or a
+kernel that cannot expose the registry without changing the host mount table
+fails preflight. The harness never changes the global enabled/disabled state
+and never installs a persistent host mount.
+
+If a usable ARM64 handler already exists, the harness leaves it untouched,
+runs a real no-mutation qualification branch, and later proves the entire table
+unchanged. Otherwise it installs only a uniquely locked ARM64 handler, proves
+an ARM64 container executes, and records the added name. The mandatory injected
+failure rehearsal is run only in the install branch; the existing-handler
+branch instead proves that the failure path performs no registration or
+unregistration.
 On success, failure, signal, or timeout it unregisters only that added handler,
 removes the registration container, and re-snapshots the table. Cleanup passes
 only when availability/enabled state, handler names, raw definitions, and
@@ -114,38 +134,75 @@ cleanup phase always runs.
 2. **Worker setup:** install the workspace-local Buildx plugin, create one
    labeled Docker-container builder with pinned BuildKit, and perform the
    transactional ARM64 registration.
-3. **Images:** build `web` and `racebot` from one RaceTime commit for
-   `linux/amd64` and `linux/arm64`; create a local multi-platform OCI layout
-   with BuildKit provenance; load per-architecture tags for smoke execution;
-   verify platform, non-root runtime, process contract, and embedded commit.
+3. **Images:** build separate `web` and `racebot` multi-platform OCI
+   layouts from one RaceTime commit for `linux/amd64` and `linux/arm64`,
+   with BuildKit provenance. A digest-pinned inspector selects each platform
+   manifest and copies that exact manifest into the Docker daemon; no second
+   build is permitted. The harness verifies that the daemon config and layer
+   digests equal the selected layout manifest before checking platform,
+   non-root runtime, process contract, and embedded commit.
 4. **Security and SBOM:** scan every target/platform with pinned Trivy using
    the repository's HIGH/CRITICAL policy, generate SPDX JSON with pinned Syft,
-   and validate that every report names the expected image identity.
+   and validate that every report names the selected layout manifest/config
+   identity. Scanner input may be the exact daemon import or layout, but its
+   recorded identity must cryptographically join back to the layout.
 5. **Services and configuration:** run the complete Django CI suite against
    isolated digest-pinned MariaDB 11.4 and Redis 7.4 with zero mandatory skips,
    then render production Compose with fixture-only values and inspect it
    without starting a production stack.
-6. **Recovery and service hardening:** run the existing hermetic backup,
-   decrypt, verify, restore, and failure-path behavior tests in containers; run
-   `systemd-analyze security --offline` against TTPBot's exact unit in a pinned
-   analysis image. No OCI endpoint or real backup key is used.
+6. **Recovery and service hardening:** retain the existing fake-command
+   failure tests, then run a real Docker rehearsal with digest-pinned MariaDB
+   and application images, representative account/category/race/ranking/media/
+   Caddy fixture data, real `mariadb-dump`, `age`, `zstd`, archive,
+   decrypt, volume recreation, database import, migration, and data validation.
+   A run-generated test-only age key and local filesystem Object Storage
+   transport double replace only external OCI transport; neither a real key nor
+   an external endpoint is used. Run `systemd-analyze security --offline`
+   against TTPBot's exact unit in a read-only, `--network none`, digest-pinned
+   analysis image. Acceptance requires valid machine-readable analysis, overall
+   exposure at or below a checked-in reviewed ceiling, no writable path outside
+   `/var/lib/ttpbot` and `/run/ttpbot/scheduler.lock`, and the exact runtime
+   lock/StateDirectory contract.
 7. **Cross-repository evidence:** re-run candidate secret scans; compare the
    inherited Restream full-history findings with a reviewed metadata-only
    baseline without weakening the zero-finding candidate-range gate; verify
-   the retained LiveSplit and provider artifacts already named by Task 6.
+   the retained LiveSplit and provider artifacts already named by Task 6. The
+   baseline schema records repository/base/candidate commits plus, for every
+   inherited finding, rule, path, source commit, line, a one-way finding
+   fingerprint, classification, and disposition evidence—but never the match
+   or secret. The full-history metadata set must equal the reviewed baseline
+   exactly and the candidate range must remain empty.
 8. **Identities and gates:** create run-local immutable image identity input,
    run the checked-in release-identity collector, validate the evidence and
-   traceability matrix, and report `PASS` only if every G0-due requirement is
-   genuinely supportable. The harness does not fabricate version files,
-   rewrite branches, or waive a collector mismatch.
+   current traceability matrix, and report `WORKER_QUALIFICATION=PASS` only if
+   every worker-side G0 requirement is genuinely supportable.
 9. **Cleanup:** remove only the dedicated builder, containers, networks,
    volumes, images designated transient by the run manifest, tool downloads,
    and readiness sentinels; restore/verify `binfmt_misc`; preserve only the
    source workspace and redacted evidence explicitly designated for custody.
 
+### Release-identity correction
+
+The current collector incorrectly requires one common version represented by
+whole-file tokens in all four repositories. The implementation may change that
+G0 tool under TDD, while preserving its existing safety properties, to accept:
+
+- one exact expected commit and actual expected branch per component;
+- component-specific version evidence from tracked JSON, Python, XML, or raw
+  files; and
+- an explicit `commit-only` policy for a component such as RaceTime that has
+  no embedded release version.
+
+The durable config uses logical workspace-relative repository/artifact paths
+resolved by an explicit `--workspace-root`; it contains no workstation or NAS
+private path. Version sources must be tracked at the expected commit, structured
+selectors must match exactly once, and no source/version file or branch may be
+synthesized or rewritten. The output remains path-free and identifies the
+actual per-component version or `commit-only` policy.
+
 ## Evidence and provenance
 
-The run produces a machine-readable JSON record plus a concise Markdown
+The worker run produces a machine-readable JSON record plus a concise Markdown
 summary. They contain exact source commits, tool versions/digests, OCI-layout
 index and per-platform image digests, embedded revisions, scan/SBOM hashes,
 test counts and skips, Compose hash, recovery/systemd results, prior/post
@@ -153,9 +210,22 @@ test counts and skips, Compose hash, recovery/systemd results, prior/post
 captured per phase, scanned for credential canaries, reduced to safe summaries,
 and not committed wholesale.
 
-The final evidence is bound to one exact harness commit. Any executable harness
-change after the remote run requires rerunning the affected live acceptance
-path before G0 can pass.
+The versioned run manifest assigns every output a custody class. Retained:
+source/artifact manifests, extracted provenance attestations, selected
+manifest/config/layer identities, Trivy reports, SPDX SBOMs, safe test
+summaries, release identities, `binfmt` snapshot hashes, and cleanup proof.
+Transient: OCI layer blobs/layout archives, daemon images, builder/cache,
+service volumes, raw logs, downloaded tools, and test keys. Transient material
+is deleted only after the retained hashes and summaries validate.
+
+G0 closes in two stages. First, the exact frozen harness/candidate commit
+produces `WORKER_QUALIFICATION=PASS`; the remote run does not claim final G0.
+Second, the operator imports the redacted evidence, updates only designated
+evidence/checklist/traceability files, commits that closeout, proves the diff
+from the qualified commit contains no executable/source change, and runs the
+final validators locally. Unaffected live phases do not rerun for that
+docs-only closeout. Any executable or candidate-source change does require the
+affected remote acceptance path to rerun.
 
 ## Failure behavior
 
@@ -166,7 +236,8 @@ path before G0 can pass.
 - Failure to restore exact prior `binfmt` state is reported separately and is
   never hidden by the original failure.
 - A failed cleanup, vulnerability threshold, mandatory skip, identity mismatch,
-  dirty tree, missing digest, or validator failure leaves G0 at `HOLD`.
+  dirty tree, missing digest, worker qualification, docs-only diff proof, or
+  final validator leaves G0 at `HOLD`.
 
 ## Test strategy
 
@@ -178,10 +249,12 @@ artifact identity, phase ordering, and fail-closed evidence. Static contract
 tests prove no publication or G1 command exists.
 
 After local review, the authorized Synology acceptance run executes the real
-controller from the exact commit, including an injected post-registration
-failure rehearsal that proves restoration before the full run. Acceptance
-requires all requested phases to pass, no mandatory skip, exact project
-teardown, no tunnel/readiness residue, and exact prior `binfmt` state restored.
+controller from the exact commit. When the harness adds an ARM64 handler it
+first performs an injected post-registration failure rehearsal that proves
+restoration; when it reuses a compatible existing handler it performs the
+equivalent real no-mutation failure branch. Acceptance requires all requested
+phases to pass, no mandatory skip, exact project teardown, no tunnel/readiness
+residue, and exact prior `binfmt` state restored.
 
 ## Non-goals
 
