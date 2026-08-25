@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-25",
+  "activation_record": "G1-2026-08-25:racetime-bootstrap",
+  "profile": "API_KEY",
+  "region": "us-ashburn-1",
+  "home_region": true,
+  "compartment_layout": {
+    "selected": "tenancy-root",
+    "active_child_compartments": 0
+  },
+  "instances": [
+    {"name": "coop-relay", "state": "RUNNING", "shape": "VM.Standard.E2.1.Micro", "ocpus": 1, "memory_gb": 1, "availability_domain": "US-ASHBURN-AD-2"},
+    {"name": "z1rr-restream-control", "state": "STOPPED", "shape": "VM.Standard.A1.Flex", "ocpus": 2, "memory_gb": 6, "availability_domain": "US-ASHBURN-AD-1"},
+    {"name": "z1rr-restream-control-staging", "state": "STOPPED", "shape": "VM.Standard.A1.Flex", "ocpus": 2, "memory_gb": 6, "availability_domain": "US-ASHBURN-AD-1"},
+    {"name": "z1rr-restream-encoder-a1", "state": "STOPPED", "shape": "VM.Standard.A1.Flex", "ocpus": 12, "memory_gb": 16, "availability_domain": "US-ASHBURN-AD-1"},
+    {"name": "z1rr2-restream-encoder-a1", "state": "STOPPED", "shape": "VM.Standard.A1.Flex", "ocpus": 12, "memory_gb": 16, "availability_domain": "US-ASHBURN-AD-1"}
+  ],
+  "retained_boot_volumes": {
+    "count": 5,
+    "each_size_gb": 47,
+    "each_vpus_per_gb": 10,
+    "total_gb": 235
+  },
+  "selected_platform": {
+    "instance_name": "racetime",
+    "shape": "VM.Standard.A1.Flex",
+    "ocpus": 1,
+    "memory_gb": 6,
+    "boot_volume_gb": 50,
+    "boot_volume_vpus_per_gb": 10,
+    "availability_domain": "US-ASHBURN-AD-1",
+    "vcn": "vcn-restream",
+    "subnet": "subnet-restream-public",
+    "subnet_cidr": "10.1.0.0/24",
+    "image": "Canonical-Ubuntu-24.04-aarch64-2026.07.17-0",
+    "ipv6": false
+  },
+  "capacity": {
+    "a1_ad1_cores_used": 28,
+    "a1_ad1_cores_available": 222,
+    "a1_ad1_memory_gb_used": 44,
+    "a1_ad1_memory_gb_available": 1622,
+    "requested_cores": 1,
+    "requested_memory_gb": 6
+  },
+  "allowance": {
+    "paid_tenancy_basis_confirmed": true,
+    "monthly_a1_ocpu_hours": 3000,
+    "monthly_a1_gb_hours": 18000,
+    "racetime_full_month_ocpu_floor": 744,
+    "august_remaining_max_ocpu_hours_at_activation": 168,
+    "current_month_usage_api": "pending: bounded OCI usage-summary request exceeded 90 seconds",
+    "operator_forecast": "previously recorded Restream range 750-2000 OCPU-hours; refresh before G1 completion"
+  },
+  "access": {
+    "operator_ssh_fingerprint": "SHA256:6UyvMw0vEh+ZUuKfLoITdIxr3cdQcbSuVg7mI/LHhtw",
+    "provisional_recovery_ssh_fingerprint": "SHA256:DiXYmjuIIgurPPbIAFy8RmvHMBJrvRLavMucg0DLvSc",
+    "bastion_client_cidr": "captured only in ignored Terraform input",
+    "recovery_custody": "pending before G1 completion"
+  },
+  "object_storage": {
+    "existing_buckets": ["z1rr-crops-backups", "z1rr-racetime-source-custody"],
+    "terraform_state_bucket": "authorized but not yet created",
+    "application_backup_bucket": "planned in Terraform"
+  },
+  "dns": {
+    "hostname": "racetime.z1rracing.com",
+    "record_type": "A",
+    "value": "pending Terraform public-IP output",
+    "aaaa": "not created while IPv6 is disabled",
+    "proxying": "disabled"
+  },
+  "mutations_performed_by_preflight": [],
+  "g0_status": "HOLD",
+  "g1_status": "HOLD"
+}
