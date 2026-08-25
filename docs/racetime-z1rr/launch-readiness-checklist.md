@@ -22,8 +22,8 @@
 
 - [ ] Council activation record states the reason, date, target launch window, primary technical operator, recovery custodian, and rollback authority.
 - [ ] OCI inventory, actual A1 usage, and the dated Restream forecast are refreshed; July/August measurements and the next three-to-four-month forecast are reconciled to OCI evidence.
-- [ ] Terraform plan creates only the dedicated `racetime` A1 initially at 1 OCPU/6 GB and one new 50-GB Balanced boot volume; `z1rr-restream-control-staging` and existing retained volumes remain unchanged.
-- [ ] Terraform plan has human review; destructive replacement and unexpected retained resources are absent.
+- [x] Terraform plan creates only the dedicated `racetime` A1 initially at 1 OCPU/6 GB and one new 50-GB Balanced boot volume; `z1rr-restream-control-staging` and existing retained volumes remain unchanged. ([evidence](../evidence/2026-08-25-oci-plan-review.json))
+- [x] Terraform plan has human review; destructive replacement and unexpected retained resources are absent. ([evidence](../evidence/2026-08-25-oci-plan-review.json))
 - [ ] Public IP, NSG/Bastion, private backup bucket, dynamic group/policy, notifications, and alarms exist and match reviewed definitions.
 - [ ] TCP 443 is open to `0.0.0.0/0` (and `::/0` if enabled) for TLS-ALPN-01; source-IP restriction exists only in Caddy's post-handshake HTTP handler.
 - [ ] Canonical `racetime.z1rracing.com` DNS resolves to the reserved RaceTime public IP before either staging or production ACME issuance; launch requires no later DNS promotion.

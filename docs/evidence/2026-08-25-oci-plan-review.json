@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-08-25",
+  "activation_record": "G1-2026-08-25:racetime-bootstrap",
+  "source_commit": "94e6608f91b767f183eb8cb0772a3c5c71056855",
+  "terraform_version": "1.12.2",
+  "oci_provider_version": "8.27.0",
+  "saved_plan_sha256": "b427f95fa3da20840c0689b68fd3fcbdcf6936f3a93c240120128043289c6d89",
+  "actions": {
+    "create": 18,
+    "update": 0,
+    "delete": 0,
+    "replace": 0
+  },
+  "resources": [
+    "oci_bastion_bastion.racetime",
+    "oci_core_instance.racetime",
+    "oci_core_network_security_group.racetime",
+    "oci_core_network_security_group_security_rule.egress_ipv4",
+    "oci_core_network_security_group_security_rule.http_ipv4",
+    "oci_core_network_security_group_security_rule.https_ipv4",
+    "oci_core_network_security_group_security_rule.ssh_from_bastion",
+    "oci_identity_dynamic_group.racetime",
+    "oci_identity_policy.racetime",
+    "oci_monitoring_alarm.a1_allowance_escalation",
+    "oci_monitoring_alarm.a1_forecast_warning",
+    "oci_monitoring_alarm.instance_cpu",
+    "oci_monitoring_alarm.object_storage_escalation",
+    "oci_monitoring_alarm.object_storage_warning",
+    "oci_monitoring_alarm.retained_volume_cost_escalation",
+    "oci_monitoring_alarm.retained_volume_cost_warning",
+    "oci_objectstorage_bucket.backups",
+    "oci_ons_notification_topic.operations"
+  ],
+  "instance": {
+    "name": "racetime",
+    "shape": "VM.Standard.A1.Flex",
+    "ocpus": 1,
+    "memory_gb": 6,
+    "boot_volume_gb": 50,
+    "boot_volume_vpus_per_gb": 10,
+    "public_ipv4": true,
+    "ipv6": false,
+    "image": "Canonical-Ubuntu-24.04-aarch64-2026.07.17-0"
+  },
+  "network": {
+    "ingress": ["tcp/80 from 0.0.0.0/0", "tcp/443 from 0.0.0.0/0", "tcp/22 from Bastion private endpoint only"],
+    "public_ssh": false,
+    "database_ports_published": false
+  },
+  "storage": {
+    "terraform_state_bucket": {"name": "z1rr-racetime-terraform-state", "public_access": "NoPublicAccess", "versioning": "Enabled"},
+    "application_backup_bucket": {"name": "z1rr-racetime-production-backups", "public_access": "NoPublicAccess", "versioning": "Enabled"},
+    "projected_incremental_boot_volume_usd_per_month": 2.13,
+    "projected_total_retained_boot_volume_usd_per_month": 3.61
+  },
+  "existing_restream_actions": [],
+  "review": "PASS",
+  "apply_authorized": true,
+  "g0_status": "HOLD",
+  "g1_status": "HOLD"
+}
