@@ -1,6 +1,6 @@
 # Synology G0 Worker Harness Design
 
-**Status:** Approved architecture; revision 1 under review
+**Status:** Worker selection blocked after Synology capability spike
 
 **Date:** 2026-08-25
 
@@ -35,6 +35,22 @@ Alternatives considered:
 
 The Synology path is the smallest authorized path and exercises the Docker
 Engine already used for the accepted native-amd64 integration run.
+
+### Capability-spike result
+
+The authorized 2026-08-25 spike found that the DSM kernel advertises
+`binfmt_misc`, but the digest-pinned installer could not create a usable
+ARM64 handler. It returned success while an independent private-mount snapshot
+remained empty and the installer status reported no emulator. This is
+consistent with the NAS's Linux 4.4 kernel being older than the 4.8 minimum
+required for the `fix_binary` registration used by modern container QEMU.
+Every attempt restored and re-verified the original empty, unmounted table.
+See [the spike evidence](../../evidence/2026-08-25-nas-binfmt-spike.md).
+
+The Synology design therefore cannot proceed unchanged. Worker selection must
+choose either a modern disposable Linux/WSL2 worker that can satisfy the exact
+runtime-smoke contract, or a separately reviewed BuildKit-only NAS design with
+a different ARM64 runtime-evidence contract.
 
 ## Container and host boundary
 
@@ -71,6 +87,12 @@ tool references, or production-like environment material. Password-backed
 sudo is supplied only through SSH standard input and is never written,
 printed, placed in arguments, or stored in environment variables.
 
+Preflight requires at least 12 GiB total memory, 8 GiB currently available,
+and 20 GiB free in the workspace filesystem unless a measured artifact-size
+study raises those floors. Native image phases receive a 60-minute per-target
+budget; emulated ARM64 phases receive a separate 240-minute budget. The run
+manifest records actual resources and every phase-specific timeout.
+
 ## Tool lock
 
 A checked-in lock document records, at minimum:
@@ -88,6 +110,9 @@ A checked-in lock document records, at minimum:
 The controller downloads or pulls only these identities, verifies the Buildx
 checksum before making it executable, records resolved platform digests, and
 fails on a mutable tag at the execution boundary. Nothing is pushed.
+Trivy evidence also records the vulnerability database schema/version,
+downloaded/updated timestamp, and database digest used for every scan; pinning
+the scanner image alone is not treated as reproducible scan provenance.
 
 ## `binfmt_misc` transaction
 
@@ -170,8 +195,11 @@ cleanup phase always runs.
    baseline schema records repository/base/candidate commits plus, for every
    inherited finding, rule, path, source commit, line, a one-way finding
    fingerprint, classification, and disposition evidence—but never the match
-   or secret. The full-history metadata set must equal the reviewed baseline
-   exactly and the candidate range must remain empty.
+   or secret. Disposition records separately whether a finding is outside the
+   candidate range and whether it represents a live credential; any credential
+   that may still be valid is rotated independently of G0 classification. The
+   full-history metadata set must equal the reviewed baseline exactly and the
+   candidate range must remain empty.
 8. **Identities and gates:** create run-local immutable image identity input,
    run the checked-in release-identity collector, validate the evidence and
    current traceability matrix, and report `WORKER_QUALIFICATION=PASS` only if
@@ -183,9 +211,12 @@ cleanup phase always runs.
 
 ### Release-identity correction
 
-The current collector incorrectly requires one common version represented by
-whole-file tokens in all four repositories. The implementation may change that
-G0 tool under TDD, while preserving its existing safety properties, to accept:
+The collector's purpose is to prove that all four artifacts come from declared
+clean commits and match their component's own embedded identity. Its current
+requirement that independent repositories share one common version represented
+by whole-file tokens is a defect, not a security property. The implementation
+may correct that G0 tool under TDD, while preserving its existing safety
+properties, to accept:
 
 - one exact expected commit and actual expected branch per component;
 - component-specific version evidence from tracked JSON, Python, XML, or raw
