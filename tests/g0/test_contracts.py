@@ -6,7 +6,7 @@ import re
 import tempfile
 import unittest
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest import mock
 
 import scripts.g0.contracts as g0_contracts
@@ -691,6 +691,77 @@ class ContractTests(unittest.TestCase):
                 retained_sha256,
             )
             self.assertNotEqual(exact_json_sha256(manifest), retained_sha256)
+
+    def test_run_manifest_preflight_rejects_global_custody_leaf_collisions(self):
+        source_source = valid_run_manifest()
+        source_source["sources"][1]["bundle_path"] = (
+            "other/" + PurePosixPath(
+                source_source["sources"][0]["bundle_path"]
+            ).name
+        )
+        source_source["sources"][1]["bundle_sha256"] = source_source[
+            "sources"
+        ][0]["bundle_sha256"]
+
+        output_output = valid_run_manifest()
+        output_output["outputs"].append(
+            {
+                "name": output_output["outputs"][0]["name"],
+                "path": "duplicate/" + output_output["outputs"][0]["name"],
+                "custody_class": "retained",
+            }
+        )
+
+        source_output = valid_run_manifest()
+        source_output["outputs"].append(
+            {
+                "name": "qualification-report.json",
+                "path": "evidence/qualification-report.json",
+                "custody_class": "retained",
+            }
+        )
+        source_output["sources"][0][
+            "archive_path"
+        ] = "custody/qualification-report.json"
+
+        cases = [
+            ("source to source with identical digest", source_source),
+            ("output to output", output_output),
+            ("source to output", source_output),
+        ]
+        for reserved_name in (
+            "run-manifest.json",
+            "docker-bootstrap-lock.json",
+            "tool-lock.json",
+            "control-record.json",
+            "worker-evidence.json",
+            "worker-disposal.json",
+        ):
+            reserved = valid_run_manifest()
+            reserved["sources"][0]["bundle_path"] = f"custody/{reserved_name}"
+            cases.append((f"reserved {reserved_name}", reserved))
+            if reserved_name != "worker-evidence.json":
+                reserved_output = valid_run_manifest()
+                reserved_output["outputs"].append(
+                    {
+                        "name": reserved_name,
+                        "path": f"evidence/{reserved_name}",
+                        "custody_class": "retained",
+                    }
+                )
+                cases.append((f"reserved output {reserved_name}", reserved_output))
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            for index, (label, mutation) in enumerate(cases):
+                path = root / f"manifest-{index}.json"
+                path.write_bytes(exact_json_bytes(mutation))
+                with self.subTest(case=label, entrypoint="direct"):
+                    with self.assertRaises(ContractError):
+                        validate_run_manifest(mutation)
+                with self.subTest(case=label, entrypoint="exact-byte load"):
+                    with self.assertRaises(ContractError):
+                        g0_contracts.load_run_manifest_with_sha256(path)
 
     def test_schema_version_commit_digest_and_utc_timestamp_are_exact(self):
         mutations = []

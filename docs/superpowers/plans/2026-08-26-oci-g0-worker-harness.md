@@ -115,9 +115,11 @@ binds the fixed manifest/control hashes to their exact file bytes, and performs
 the complete trusted-context transition validation. Once the earliest mature
 authenticated-remote, heartbeat-loss, or absolute-terminal trigger is latched,
 its cause, exact nine-fractional-digit monotonic-seconds timestamp, and all
-trigger-basis fields are immutable across later disposal transitions. Evidence
-leaf names are globally unique across fixed control records, source artifacts,
-and manifest outputs, even when colliding entries carry identical digests.
+trigger-basis fields are immutable across later disposal transitions. The loader
+that preserves exact bytes and the run-manifest validator establish one globally
+unique custody leaf namespace across fixed control records, source artifacts, and
+manifest outputs, even when colliding entries carry identical digests; disposal
+validation repeats the check as defense in depth.
 
 - [ ] **Step 4: Run GREEN and schema self-validation**
 

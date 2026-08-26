@@ -162,6 +162,13 @@ _FIXED_COMPLETE_HASH_NAMES = {
     "tool-lock": "tool-lock.json",
     "control-record": "control-record.json",
 }
+_RESERVED_CUSTODY_LEAF_NAMES = frozenset(
+    {
+        *_FIXED_COMPLETE_HASH_NAMES.values(),
+        "worker-evidence.json",
+        "worker-disposal.json",
+    }
+)
 _MAX_CONTRACT_BYTES = 1_048_576
 _MAX_JSON_DEPTH = 32
 _MAX_JSON_NODES = 100_000
@@ -474,6 +481,26 @@ def _validate_image_lock(value: object, label: str) -> dict:
     return result
 
 
+def _validate_custody_leaf_namespace(sources: list, outputs: list) -> None:
+    claimed: set[str] = set()
+    for output in outputs:
+        leaf_name = output["name"]
+        if leaf_name in claimed or (
+            leaf_name in _RESERVED_CUSTODY_LEAF_NAMES
+            and leaf_name != "worker-evidence.json"
+        ):
+            raise ContractError("run manifest custody leaf namespace collides")
+        claimed.add(leaf_name)
+
+    claimed.update(_RESERVED_CUSTODY_LEAF_NAMES)
+    for source in sources:
+        for path_key in ("bundle_path", "archive_path"):
+            leaf_name = PurePosixPath(source[path_key]).name
+            if leaf_name in claimed:
+                raise ContractError("run manifest custody leaf namespace collides")
+            claimed.add(leaf_name)
+
+
 def validate_run_manifest(value: object) -> dict:
     _require_plain_json(value, "run manifest")
     result = _object(
@@ -626,6 +653,7 @@ def validate_run_manifest(value: object) -> dict:
         output_paths.append(str(path))
     _unique(output_names, "run manifest output names")
     _unique(output_paths, "run manifest output paths")
+    _validate_custody_leaf_namespace(sources, outputs)
 
     phases = _array(result["phases"], "run manifest phases", minimum=9)
     if len(phases) != len(_PHASE_NAMES):
