@@ -755,14 +755,22 @@ def _verify_launch_encryption(
     if private_ips_change.get("before") is not None:
         raise VerificationError("private-IP data read has a prior value")
     private_ips_after = _after(private_ips_change)
-    if (
-        private_ips_after.get("ip_address") != private_ip
-        or private_ips_after.get("subnet_id") != expected_subnet_id
-        or _truthy_unknown_fields(
-            private_ips_change.get("after_unknown", {})
-        )
-        != {"id", "private_ips"}
-    ):
+    if private_ips_after != {
+        "filter": [],
+        "ip_address": private_ip,
+        "ip_state": None,
+        "lifetime": None,
+        "subnet_id": expected_subnet_id,
+        "vlan_id": None,
+        "vnic_id": None,
+    } or _require_mapping(
+        private_ips_change.get("after_unknown"),
+        "private-IP data read after_unknown",
+    ) != {
+        "filter": [],
+        "id": True,
+        "private_ips": True,
+    }:
         raise VerificationError("private-IP data read exceeds the contract")
 
     public_ip_change = resources["oci_core_public_ip.racetime"]
@@ -831,13 +839,19 @@ def _verify_launch_encryption(
         raise VerificationError("launch_options configuration does not match")
 
     private_ip_expressions = _expressions(configured_private_ips)
-    if _references(private_ip_expressions.get("ip_address")) != [
-        "oci_core_instance.racetime.private_ip",
-        "oci_core_instance.racetime",
-    ] or _references(private_ip_expressions.get("subnet_id")) != [
-        "oci_core_subnet.racetime.id",
-        "oci_core_subnet.racetime",
-    ]:
+    if (
+        set(private_ip_expressions) != {"ip_address", "subnet_id"}
+        or _references(private_ip_expressions.get("ip_address"))
+        != [
+            "oci_core_instance.racetime.private_ip",
+            "oci_core_instance.racetime",
+        ]
+        or _references(private_ip_expressions.get("subnet_id"))
+        != [
+            "oci_core_subnet.racetime.id",
+            "oci_core_subnet.racetime",
+        ]
+    ):
         raise VerificationError("private-IP data references do not match")
     if _references(
         _expressions(configured_public_ip).get("private_ip_id")

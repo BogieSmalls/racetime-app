@@ -302,13 +302,19 @@ def launch_encryption_plan() -> dict:
         "data.oci_core_private_ips.racetime",
         ["read"],
         {
+            "filter": [],
             "ip_address": private_ip,
+            "ip_state": None,
+            "lifetime": None,
             "subnet_id": subnet_id,
+            "vlan_id": None,
+            "vnic_id": None,
         },
     )
     private_ips["action_reason"] = "read_because_dependency_pending"
     private_ips["change"]["before"] = None
     private_ips["change"]["after_unknown"] = {
+        "filter": [],
         "id": True,
         "private_ips": True,
     }
@@ -1104,6 +1110,32 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
                 data_config["expressions"]["ip_address"][
                     "references"
                 ] = references
+                self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_rejects_extra_private_ip_constraints_and_known_values(
+        self,
+    ) -> None:
+        for config_extra, after_extra in (
+            (True, False),
+            (False, True),
+            (True, True),
+        ):
+            with self.subTest(
+                config_extra=config_extra,
+                after_extra=after_extra,
+            ):
+                fixture = self.fixture(launch_encryption_plan())
+                if config_extra:
+                    data_config = fixture.plan["configuration"]["root_module"][
+                        "resources"
+                    ][1]
+                    data_config["expressions"]["vnic_id"] = {
+                        "constant_value": "ocid1.vnic.unexpected"
+                    }
+                if after_extra:
+                    fixture.plan["resource_changes"][1]["change"]["after"][
+                        "vnic_id"
+                    ] = "ocid1.vnic.unexpected"
                 self.assert_rejected(fixture, "launch-encryption")
 
     def test_launch_encryption_requires_only_deferred_public_ip_binding(self) -> None:

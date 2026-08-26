@@ -785,7 +785,8 @@ G0 completion.
 - [ ] **Step 2: Request spec and code-quality review**
 
 Reviewers must compare the final graph and evidence to the approved spec, verify the
-three-stage state sequence, and confirm no public SSH or Restream mutation.
+four-stage state sequence (subnet add, refresh-only reconciliation, replacement, and
+launch-encryption update), and confirm no public SSH or Restream mutation.
 
 - [ ] **Step 3: Correct findings and repeat verification**
 
