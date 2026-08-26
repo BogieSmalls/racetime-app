@@ -197,14 +197,14 @@ class SmokeValidationTests(unittest.TestCase):
 
     def test_public_origin_requires_a_bare_https_origin(self):
         self.assertEqual(
-            self.module._origin("https://racetime.z1rracing.com"),
-            ("racetime.z1rracing.com", 443),
+            self.module._origin("https://raceroom.z1rracing.com"),
+            ("raceroom.z1rracing.com", 443),
         )
         for value in (
-            "http://racetime.z1rracing.com",
-            "https://user@racetime.z1rracing.com",
-            "https://racetime.z1rracing.com/healthz",
-            "https://racetime.z1rracing.com?token=bad",
+            "http://raceroom.z1rracing.com",
+            "https://user@raceroom.z1rracing.com",
+            "https://raceroom.z1rracing.com/healthz",
+            "https://raceroom.z1rracing.com?token=bad",
         ):
             with self.subTest(value=value), self.assertRaises(
                 self.module.SmokeError
@@ -397,7 +397,7 @@ class DeployScriptBehaviorTests(unittest.TestCase):
             "Z1RR_COSIGN_OIDC_ISSUER": (
                 "https://token.actions.githubusercontent.com"
             ),
-            "Z1RR_PUBLIC_ORIGIN": "https://racetime.z1rracing.com",
+            "Z1RR_PUBLIC_ORIGIN": "https://raceroom.z1rracing.com",
             "Z1RR_SMOKE_WEBSOCKET_PATH": "/ws/race/deploy-smoke",
             "Z1RR_DEPLOY_ACTOR": "test-operator",
             "RACETIME_ENV_FILE": "/etc/z1rr-racetime/racetime.env",

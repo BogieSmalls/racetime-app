@@ -1,4 +1,4 @@
-# Respond to RaceTime incidents
+# Respond to Raceroom incidents
 
 ## Purpose
 

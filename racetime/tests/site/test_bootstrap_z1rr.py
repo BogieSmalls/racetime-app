@@ -8,7 +8,7 @@ from django.test import TestCase
 from racetime.models import Bot, Category, ExternalIdentity, Goal, User
 
 
-CANONICAL_DOMAIN = "racetime.z1rracing.com"
+CANONICAL_DOMAIN = "raceroom.z1rracing.com"
 INTEGRATION_DOMAIN = "integration.racetime.test"
 OWNER_SUBJECT = "123456789012345678"
 
@@ -86,7 +86,7 @@ class BootstrapZ1RRCommandTests(TestCase):
 
         site = Site.objects.get(pk=settings.SITE_ID)
         self.assertEqual(site.domain, CANONICAL_DOMAIN)
-        self.assertEqual(site.name, "Z1RR RaceTime")
+        self.assertEqual(site.name, "Z1RR Raceroom")
         category = Category.objects.get(slug="z1rr")
         self.assertEqual(category.name, "Zelda 1 Randomizer Racing")
         self.assertEqual(category.short_name, "Z1RR")
@@ -180,7 +180,7 @@ class BootstrapZ1RRCommandTests(TestCase):
 
         stdout, _ = self.run_command(
             site_domain=INTEGRATION_DOMAIN,
-            site_name="Z1RR RaceTime Integration",
+            site_name="Z1RR Raceroom Integration",
             dry_run=True,
         )
 
@@ -199,7 +199,7 @@ class BootstrapZ1RRCommandTests(TestCase):
     def test_only_canonical_and_isolated_integration_domains_are_accepted(self):
         before = self.snapshot()
         for domain in (
-            "staging.racetime.z1rracing.com",
+            "staging.raceroom.z1rracing.com",
             "racetime.example.com",
             "localhost",
         ):

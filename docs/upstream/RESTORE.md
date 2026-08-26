@@ -1,6 +1,6 @@
-# RaceTime upstream source archive and recovery
+# Raceroom upstream source archive and recovery
 
-This runbook preserves the exact public RaceTime upstream source, its named refs,
+This runbook preserves the exact public Raceroom upstream source, its named refs,
 and its wiki before Z1RR implementation diverges. Bundle files are deliberately
 **not committed** to Git. The committed manifest and checksums describe the
 independently stored bundle files.

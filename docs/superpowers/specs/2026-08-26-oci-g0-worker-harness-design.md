@@ -22,9 +22,9 @@ it hosts public RaceTime traffic. The instance is a native ARM64
 `VM.Standard.A1.Flex` with 1 OCPU, 6 GB RAM, a 50-GB Balanced boot volume, a
 reserved IPv4 address, and the independently verified dedicated subnet and NSG
 boundary. The operator has prepositioned the canonical
-`racetime.z1rracing.com` A record to the reserved-address identity with a
+`raceroom.z1rracing.com` A record to the reserved-address identity with a
 300-second TTL; independent public resolution finds no AAAA or CNAME. TLS,
-OAuth, RaceTime application state, production credentials, and any public
+OAuth, racetime.gg application state, production credentials, and any public
 application listener remain absent during G0. The DNS record is inert
 addressing, not service activation or qualification evidence.
 

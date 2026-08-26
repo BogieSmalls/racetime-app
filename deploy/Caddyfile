@@ -92,6 +92,37 @@ https://{$CADDY_SITE_HOST} {
 	}
 }
 
+# redirect-only-alias-begin
+https://{$CADDY_ALIAS_HOST} {
+	import phaseTLS
+
+	route {
+		@aliasSourceDenied not remote_ip {$CADDY_ALLOWED_CIDRS}
+		respond @aliasSourceDenied 404
+
+		redir https://{$CADDY_SITE_HOST}{uri} 308
+	}
+
+	log {
+		output stdout
+		format filter {
+			request>uri query {
+				replace code REDACTED
+				replace state REDACTED
+				replace token REDACTED
+				replace access_token REDACTED
+				replace refresh_token REDACTED
+				replace client_secret REDACTED
+				replace password REDACTED
+				replace webhook REDACTED
+				replace error_description REDACTED
+			}
+			wrap json
+		}
+	}
+}
+# redirect-only-alias-end
+
 https://{$CADDY_SITE_HOST}:8081 {
 	import phaseTLS
 

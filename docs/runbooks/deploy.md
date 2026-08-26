@@ -1,8 +1,8 @@
-# Deploy RaceTime
+# Deploy Raceroom
 
 ## Purpose
 
-Deploy one immutable RaceTime release without interrupting an active race or
+Deploy one immutable Raceroom release without interrupting an active race or
 promoting an unverified migration. This procedure implements `OPS-001` and
 `FR-OPS-001/002`; it never creates OCI or DNS resources.
 

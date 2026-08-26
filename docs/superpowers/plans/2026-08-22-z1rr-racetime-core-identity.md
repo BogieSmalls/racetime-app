@@ -1,8 +1,8 @@
-# Z1RR RaceTime Core Identity and Site Implementation Plan
+# Z1RR Raceroom Core Identity and Site Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn the upstream Racetime application into a tested Z1RR-branded service with Discord-only public accounts, safe OAuth/PKCE behavior, one idempotently bootstrapped `z1rr` category, and minimal health interfaces.
+**Goal:** Turn the upstream racetime.gg application into a tested Z1RR-branded service with Discord-only public accounts, safe OAuth/PKCE behavior, one idempotently bootstrapped `z1rr` category, and minimal health interfaces.
 
 **Architecture:** Keep the upstream `User` model and racing engine intact. Link Discord with a separate `ExternalIdentity`, complete new-account creation only after display-name selection, use feature flags to remove public password/email/Patreon/category-request surfaces, and keep local superusers for the loopback-only operator path supplied by the platform plan.
 
@@ -12,7 +12,7 @@
 
 ## Control documents
 
-**Spec:** [Plan-B RaceTime architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
+**Spec:** [Plan-B Raceroom architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
 **Requirements and gates:** [Requirements and decision record](../../racetime-z1rr/requirements-and-decisions.md)
 **Artifact register:** [Launch artifact register](../../racetime-z1rr/artifact-register.md)
 **Master plan:** [Contingency launch master plan](2026-08-22-z1rr-racetime-launch-master.md)
@@ -21,11 +21,11 @@
 ## Global Constraints
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
-- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
+- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `raceroom.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
+- racetime.gg application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
-- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
+- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed Raceroom build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
 
 ## File map
 
@@ -375,7 +375,7 @@ Build the account/category URL lists conditionally at import using flags. Disabl
 
 - [ ] **Step 5: Update account templates and branding**
 
-Show one `Continue with Discord` action, explain Twitch is a separate racing connection, remove Patreon/security tabs for unusable-password accounts, and replace every user-facing `racetime.gg account` phrase with `Z1RR RaceTime account`.
+Show one `Continue with Discord` action, explain Twitch is a separate racing connection, remove Patreon/security tabs for unusable-password accounts, and replace every user-facing `racetime.gg account` phrase with `Z1RR Raceroom account`.
 
 - [ ] **Step 6: Run public-surface and existing profile/Twitch tests**
 
@@ -473,7 +473,7 @@ manage.py bootstrap_z1rr --site-domain DOMAIN [--site-name NAME]
                          [--goal NAME ...] [--reconcile-managed-fields] [--dry-run]
 ```
 
-Defaults: site name `Z1RR RaceTime`, slug `z1rr`, public/active, owner ceiling 20, moderator ceiling 50, bot ceiling 20, and goal `Beat the game`. Restricted qualification and fresh production both require `racetime.z1rracing.com` plus `--exclusive-public-category`; the isolated local harness alone supplies `integration.racetime.test`. Validate Site/category field names against current models before coding. Never create users, Discord identities, OAuth secrets, or bot credentials.
+Defaults: site name `Z1RR Raceroom`, slug `z1rr`, public/active, owner ceiling 20, moderator ceiling 50, bot ceiling 20, and goal `Beat the game`. Restricted qualification and fresh production both require `raceroom.z1rracing.com` plus `--exclusive-public-category`; the isolated local harness alone supplies `integration.racetime.test`. Validate Site/category field names against current models before coding. Never create users, Discord identities, OAuth secrets, or bot credentials.
 
 - [ ] **Step 4: Run tests and a two-run local smoke**
 
@@ -567,12 +567,17 @@ git commit -m "feat: add minimal racetime health checks"
 - Create: `docs/policies/contact.md`
 - Create: `racetime/tests/site/test_branding_and_policies.py`
 - Modify: `racetime/templates/racetime/base.html`
-- Modify: `racetime/static/racetime/image/favicon.svg`
+- Add: `racetime/static/racetime/image/dodongo_5horns_256x256.png`
+- Add: `racetime/static/racetime/image/favicon-{16,32,48}.png`
+- Add: `racetime/static/racetime/image/favicon.ico`
+- Add: `racetime/static/racetime/image/apple-touch-icon.png`
+- Add: `racetime/static/racetime/image/icon-192.png`
+- Remove: `racetime/static/racetime/image/{favicon,logo,icon}.svg`
 - Modify: `project/settings/base.py`
 
 - [ ] **Step 1: Write failing content/link tests**
 
-Assert visible `Z1RR RaceTime`, `Operated by Z1Rracing`, `Powered by the open-source Racetime project`, fork source/GPL links, privacy/acceptable use/deletion/contact links, and no statement implying Racetime.gg endorsement/shared administration.
+Assert visible `Z1RR Raceroom`, `Operated by Z1Rracing`, `Powered by the open-source racetime.gg project`, fork source/GPL links, privacy/acceptable use/deletion/contact links, and no statement implying racetime.gg endorsement/shared administration.
 
 - [ ] **Step 2: Run and observe failures**
 
@@ -582,13 +587,13 @@ Write the Council-reviewable canonical policy text in `docs/policies/*.md`; the 
 
 - [ ] **Step 4: Add original Z1RR branding assets**
 
-Use existing Council-owned assets or create code-native SVG/CSS; preserve upstream GPL notices and add third-party attribution. Do not reuse Racetime.gg trademarks as Z1RR identity.
+Use the community-licensed Dodongo artwork and generated PNG/ICO variants; preserve upstream GPL notices and add third-party attribution. Do not reuse racetime.gg trademarks as Z1RR identity. The available crop is 250 px, so a genuine 512×512 icon remains pending a larger artist source rather than upscaling. The current Apple touch icon retains alpha; flatten it onto `#e05000` after the theme color is visually confirmed.
 
 - [ ] **Step 5: Run tests and commit**
 
 ```powershell
 git add racetime\templates racetime\static project\settings\base.py racetime\tests\site docs\policies
-git commit -m "feat: brand and document Z1RR RaceTime"
+git commit -m "feat: brand and document Z1RR Raceroom"
 ```
 
 ## Task 11: Verify the core release candidate

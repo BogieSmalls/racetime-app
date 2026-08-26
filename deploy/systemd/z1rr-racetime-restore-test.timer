@@ -1,5 +1,5 @@
 [Unit]
-Description=Run isolated Z1RR RaceTime restore assurance quarterly
+Description=Run isolated Z1RR Raceroom restore assurance quarterly
 
 [Timer]
 OnCalendar=*-01,04,07,10-01 03:00:00

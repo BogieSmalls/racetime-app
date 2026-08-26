@@ -1,4 +1,4 @@
-# Z1RR RaceTime Launch Readiness Checklist
+# Z1RR Raceroom Launch Readiness Checklist
 
 **Use:** Operational gate sheet. Check a box only after linking dated evidence.
 **Requirement source:** `docs/racetime-z1rr/requirements-and-decisions.md`
@@ -8,8 +8,8 @@
 
 - [x] Architecture, requirements, ADRs, artifact/traceability controls, refreshed launch checklist, master plan, and all subsystem plans describe the same approved design and have independent review evidence. ([plan review](../evidence/2026-08-22-plan-review.md); [current G0 evidence](../evidence/2026-08-24-g0-readiness.md))
 - [x] Source archive restores to the recorded upstream baseline and has an off-workstation copy. ([evidence](../evidence/2026-08-24-source-custody.md))
-- [ ] RaceTime, Restream, TTPBot, and LiveSplit readiness branches build and test locally without production credentials.
-- [ ] RaceTime CI discovers substantive tests; the current `js-cookie` high-severity advisory is closed.
+- [ ] Raceroom, Restream, TTPBot, and LiveSplit readiness branches build and test locally without production credentials.
+- [ ] Raceroom CI discovers substantive tests; the current `js-cookie` high-severity advisory is closed.
 - [ ] Production Compose, Caddy, configuration validation, backup/restore, Terraform, monitoring, and runbooks validate without applying public infrastructure.
 - [x] Approved-outcome configuration (`racetime.gg/z1rr`) remains viable without self-hosted components. ([evidence](../evidence/2026-08-24-g0-readiness.md))
 - [ ] Council understands G0 completion is not authorization for OCI/DNS/OAuth/cutover changes.
@@ -26,12 +26,12 @@
 - [x] Terraform plan has human review; destructive replacement and unexpected retained resources are absent. ([evidence](../evidence/2026-08-25-oci-plan-review.json))
 - [x] Public IP, NSG/Bastion, private backup bucket, dynamic group/policy, notifications, and alarms exist and match reviewed definitions. ([evidence](../evidence/2026-08-25-oci-subnet-correction.md))
 - [ ] TCP 443 is open to `0.0.0.0/0` (and `::/0` if enabled) for TLS-ALPN-01; source-IP restriction exists only in Caddy's post-handshake HTTP handler.
-- [ ] Canonical `racetime.z1rracing.com` DNS resolves to the reserved RaceTime public IP before either staging or production ACME issuance; launch requires no later DNS promotion.
+- [ ] Canonical `raceroom.z1rracing.com` and redirect-only alias `racetime.z1rracing.com` A records resolve to the same reserved Raceroom public IP, with no AAAA/CNAME, before either staging or production ACME issuance; launch requires no later DNS promotion.
 - [ ] Caddy qualification config has exactly one Let's Encrypt staging issuer, pins `dir == test_dir`, enables TLS-ALPN-01, disables HTTP-01, and uses separate qualification state that persists across issuance/restarts, is never promoted to production, and is retired only after qualification completes.
 - [ ] Distinct qualification/production Discord, Twitch, TTPBot, LiveSplit, alert, and OAuth credentials use exact reviewed redirect URIs and scopes.
 - [ ] Root-owned production secrets and backup key, the primary operator's working recovery copy, and the tested sealed offline recovery package are verified; package version/fingerprints/seal date and custodian receipt are current without exposing secrets, and the recorded recovery route can regain OCI tenancy, GitHub/registry, and authoritative DNS account access without the primary operator's active session.
 - [ ] No secret appears in Git history, CI logs, image layers, Compose rendering, or evidence.
-- [ ] Cost evidence confirms the 3,000/18,000 entitlement and records the default 744-hour RaceTime floor and dated combined forecast; below 2,650 hours the forecast-relative/slope warning is active, while at or above 2,650 forecast acceptance records utilization/expected cost and suppresses that near-duplicate warning; the 2,900-hour escalation, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms remain active.
+- [ ] Cost evidence confirms the 3,000/18,000 entitlement and records the default 744-hour Raceroom floor and dated combined forecast; below 2,650 hours the forecast-relative/slope warning is active, while at or above 2,650 forecast acceptance records utilization/expected cost and suppresses that near-duplicate warning; the 2,900-hour escalation, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms remain active.
 - [ ] Routine metered overage and technically justified shape changes are operator-authorized; each requires a dated reason, updated forecast, and replacement load/recovery evidence.
 
 **G1 decision:** [ ] Pass [ ] Hold
@@ -86,7 +86,7 @@
 - [ ] Fresh production MariaDB, Redis, media, operational volumes, secrets, sessions, and credentials are created; qualification state is never promoted.
 - [ ] Qualification OAuth/bot/alert credentials and sessions/tokens are revoked while the application remains stopped behind the barrier.
 - [ ] Production Caddy uses a separate persistent state volume and exactly one Let's Encrypt production issuer with `dir == test_dir`, TLS-ALPN-01 enabled, and HTTP-01 disabled.
-- [ ] Production issuance completes within the bounded deadline; normal public trust succeeds, Caddy state is backed up, and the accepted Certificate Transparency disclosure is recorded.
+- [ ] Both production issuances (canonical and redirect-only alias) complete within the bounded deadline; normal public trust succeeds, Caddy state is backed up, and the accepted Certificate Transparency disclosure for both names is recorded.
 - [ ] Final production bootstrap runs locally; hard default-deny relaxes only to the normal reviewed G2 source-IP allowlist.
 
 ### Final integrations after production issuance
@@ -96,7 +96,7 @@
 - [ ] TTPBot persists the correct self-hosted canonical URL and refuses destination-mismatched state.
 - [ ] Restream shows Z1RR first and Z1R pickup second; each source has visible host attribution.
 - [ ] Restream provider identity survives selection, draft save/reload, hydration, crops, WebSocket updates, active broadcast, history, and link rendering.
-- [ ] Taking either Racetime provider offline does not disable the other section.
+- [ ] Taking either racetime.gg provider offline does not disable the other section.
 - [ ] Stock and Z1RR LiveSplit providers load side by side; Z1RR login/join/ready/start/split/done/forfeit/reconnect/revoke pass.
 - [ ] LiveSplit wrong verifier/state, replay, occupied port, browser cancel, refresh failure, and revoked token cases pass without secret leakage.
 - [ ] LiveSplit consent requests exactly `read chat_message race_action`; `create_race` is absent from registration, authorization, and stored grants.
@@ -151,7 +151,7 @@
 - [ ] Backup/restore proof is current and the first weekly retention point exists.
 - [ ] Access and OAuth-client review removes temporary launch access.
 - [ ] Actual OCI A1 usage/slope, retained-volume cost, and Object Storage consumption are reconciled to the dated forecast; anomalies have an owner and routine authorized overage is recorded without a new approval gate.
-- [ ] RaceTime production and amd64 recovery definitions match the latest dated operator resource record and verified load/recovery evidence.
+- [ ] Raceroom production and amd64 recovery definitions match the latest dated operator resource record and verified load/recovery evidence.
 - [ ] Findings are assigned as P2/P3 backlog items with owner/date.
 - [ ] Council approves normal operations and may authorize the separate legacy archive design.
 

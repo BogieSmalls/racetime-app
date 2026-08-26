@@ -1,10 +1,10 @@
-# Z1RR RaceTime Operations, Qualification, and Cutover Implementation Plan
+# Z1RR Raceroom Operations, Qualification, and Cutover Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Convert locally verified release candidates into a restricted production candidate on the canonical hostname and, only after Council approval, execute a reversible public launch with measured recovery, capacity, security, and integration evidence.
 
-**Architecture:** G0 produces versioned runbooks, evidence/traceability validators, and a hermetic cross-repository release collector. After G1, the dedicated host uses `racetime.z1rracing.com` behind Caddy default-deny and a staging-ACME certificate; late G2 discards qualification state, creates fresh production state, issues once from production ACME, and only then runs TTPBot/Restream/LiveSplit integration evidence. G3 removes the source restriction and moves the scheduler; DNS is already canonical and does not move at launch.
+**Architecture:** G0 produces versioned runbooks, evidence/traceability validators, and a hermetic cross-repository release collector. After G1, the dedicated host uses `raceroom.z1rracing.com` behind Caddy default-deny and a staging-ACME certificate; late G2 discards qualification state, creates fresh production state, issues the canonical and redirect-alias certificates in one production-ACME phase, and only then runs TTPBot/Restream/LiveSplit integration evidence. G3 removes the source restriction and moves the scheduler; DNS is already canonical and does not move at launch.
 
 **Tech Stack:** Bash/Python/PowerShell, Docker Compose, OCI/Terraform/CLI, Caddy, Playwright, k6, OWASP ZAP baseline, GitHub releases, Namecheap-managed DNS, Discord/Twitch OAuth, Markdown/JSON evidence
 
@@ -12,7 +12,7 @@
 
 ## Control documents
 
-**Spec:** [Plan-B RaceTime architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
+**Spec:** [Plan-B Raceroom architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
 **Requirements and gates:** [Requirements and decision record](../../racetime-z1rr/requirements-and-decisions.md)
 **Artifact register:** [Launch artifact register](../../racetime-z1rr/artifact-register.md)
 **Master plan:** [Contingency launch master plan](2026-08-22-z1rr-racetime-launch-master.md)
@@ -21,11 +21,11 @@
 ## Global Constraints
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
-- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
+- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `raceroom.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
+- racetime.gg application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
-- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
+- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed Raceroom build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
 
 ## File map
 
@@ -153,7 +153,7 @@ Record `PLAN_B_ACTIVATED`, reason, date, target window, primary technical operat
 
 - [ ] **Step 2: Refresh OCI read-only inventory**
 
-List instances, shapes, OCPU/RAM/state, boot/block volumes/tags/size/VPUs, VNIC/public/private IP, VCN/subnet/security lists/NSGs, Bastion, buckets, dynamic groups/policies, alarms/budgets, limits/usage, current-month A1 OCPU/GB-hour slope, and cost. Confirm paid-tenancy status and the current 3,000/18,000 entitlement against the dated baseline; record the 744-hour RaceTime floor and refreshed combined Restream forecast.
+List instances, shapes, OCPU/RAM/state, boot/block volumes/tags/size/VPUs, VNIC/public/private IP, VCN/subnet/security lists/NSGs, Bastion, buckets, dynamic groups/policies, alarms/budgets, limits/usage, current-month A1 OCPU/GB-hour slope, and cost. Confirm paid-tenancy status and the current 3,000/18,000 entitlement against the dated baseline; record the 744-hour Raceroom floor and refreshed combined Restream forecast.
 
 - [ ] **Step 3: Verify recovery custody and account-level access routes**
 
@@ -201,9 +201,9 @@ Patch OS/runtime, install pinned Docker/Caddy support/OCI CLI, configure primary
 
 - [ ] **Step 4: Create canonical DNS and restricted qualification routing**
 
-Create the sole A/AAAA record for `racetime.z1rracing.com` at the Terraform reserved public IP before ACME issuance; never create `staging.racetime.z1rracing.com`. Start Caddy with the root-owned expiring allowlist and the persistent `caddy-qualification` volume. Pin the only issuer's `dir` and `test_dir` to Let's Encrypt staging, enable TLS-ALPN-01, disable HTTP-01, and prove unlisted clients cannot fetch any route or upgrade WebSockets.
+Create A records for canonical `raceroom.z1rracing.com` and redirect-only alias `racetime.z1rracing.com` at the same Terraform reserved public IP before ACME issuance; create no AAAA/CNAME and never create `staging.raceroom.z1rracing.com`. Start Caddy with the root-owned expiring allowlist covering both hostnames and the persistent `caddy-qualification` volume. Pin the only issuer's `dir` and `test_dir` to Let's Encrypt staging, enable TLS-ALPN-01, disable HTTP-01, and prove unlisted clients cannot fetch or redirect from either hostname or upgrade WebSockets.
 
-- [ ] **Step 5: Deploy exact RaceTime RC to qualification state**
+- [ ] **Step 5: Deploy exact Raceroom RC to qualification state**
 
 Run config validation, migrate/bootstrap/static, start the stack, and verify health at the canonical hostname through process-scoped staging-root trust. Use explicitly named qualification DB/Redis/media/secrets/Caddy state; never mount final production state or use production bot/OAuth/alert credentials.
 
@@ -224,11 +224,11 @@ Evidence includes reviewed/apply-plan hashes, before/after inventory, allowance/
 
 - [ ] **Step 1: Register distinct qualification and production Discord identity apps**
 
-Both use the exact callback `https://racetime.z1rracing.com/account/discord/callback`, scope `identify`, and no guild-membership requirement, but have distinct client IDs/secrets. Qualification credentials are active only against qualification state; production credentials remain disabled/unmounted until the fresh-production transition.
+Both use the exact callback `https://raceroom.z1rracing.com/account/discord/callback`, scope `identify`, and no guild-membership requirement, but have distinct client IDs/secrets. Qualification credentials are active only against qualification state; production credentials remain disabled/unmounted until the fresh-production transition.
 
 - [ ] **Step 2: Register distinct qualification and production Twitch apps**
 
-Both use exact callback `https://racetime.z1rracing.com/account/twitch_auth` and minimum existing scopes with distinct credentials. Test qualification link/unlink and streaming policy through process-scoped trust; do not reuse Restream Twitch apps.
+Both use exact callback `https://raceroom.z1rracing.com/account/twitch_auth` and minimum existing scopes with distinct credentials. Test qualification link/unlink and streaming policy through process-scoped trust; do not reuse Restream Twitch apps.
 
 - [ ] **Step 3: Register distinct qualification and production TTPBot clients/category bots**
 
@@ -244,7 +244,7 @@ Create the primary operator break-glass superuser and distinct escrow-only recov
 
 - [ ] **Step 6: Bootstrap Council governance**
 
-Council members first create qualification accounts; through the local-only operator path run `bootstrap_z1rr --site-domain racetime.z1rracing.com --site-name "Z1RR RaceTime Qualification" --exclusive-public-category --owner-discord-id ID ...` for all approved members. Verify exact Site identity, sole public `z1rr`, ceilings/owners/goals/bots/moderators, idempotent second run, and that owners lack staff/infrastructure access. This state is explicitly disposable and is never promoted.
+Council members first create qualification accounts; through the local-only operator path run `bootstrap_z1rr --site-domain raceroom.z1rracing.com --site-name "Z1RR Raceroom Qualification" --exclusive-public-category --owner-discord-id ID ...` for all approved members. Verify exact Site identity, sole public `z1rr`, ceilings/owners/goals/bots/moderators, idempotent second run, and that owners lack staff/infrastructure access. This state is explicitly disposable and is never promoted.
 
 - [ ] **Step 7: Record only public identifiers/hashes and access roles**
 
@@ -360,7 +360,7 @@ States: qualification running → maintenance/default-deny barrier → qualifica
 
 - [ ] **Step 3: Execute the fresh-production state transition**
 
-Enter the barrier; stop qualification schedulers/writes; seal qualification backups; create fresh production DB/Redis/media/secret volumes; stop and repoint Compose without copying data; revoke qualification OAuth/bot/alert credentials and sessions while stopped; start fresh state; and bootstrap `racetime.z1rracing.com`, sole `z1rr`, Council owners, final goals/bots/moderators through the local-only command. Record IDs/hashes only.
+Enter the barrier; stop qualification schedulers/writes; seal qualification backups; create fresh production DB/Redis/media/secret volumes; stop and repoint Compose without copying data; revoke qualification OAuth/bot/alert credentials and sessions while stopped; start fresh state; and bootstrap `raceroom.z1rracing.com`, sole `z1rr`, Council owners, final goals/bots/moderators through the local-only command. Record IDs/hashes only.
 
 - [ ] **Step 4: Switch once to production Caddy state and issue the certificate**
 
@@ -380,7 +380,7 @@ One scheduled room flows TTPBot → test Discord → browser/LiveSplit entrants 
 
 - [ ] **Step 8: Rehearse G3 cutover and rollback without changing DNS**
 
-Test scheduler states old running → old stopped/lock absent → new config/probed → new running/lock held → first-room observe, plus rollback duplicate protection. `verify-dns.py` proves the already-canonical A/AAAA, certificate/SAN, HTTPS/WSS, and reserved IP. Rehearse removing/reapplying only the Caddy source restriction, HSTS 300→public value, scheduler, release publication, and communications; no DNS record changes occur.
+Test scheduler states old running → old stopped/lock absent → new config/probed → new running/lock held → first-room observe, plus rollback duplicate protection. `verify-dns.py` proves both existing A records point to the reserved IP, no AAAA/CNAME exists, both certificates validate, the alias returns only the 308, and canonical HTTPS/WSS works. Rehearse removing/reapplying only the Caddy source restriction, HSTS 300→public value, scheduler, release publication, and communications; no DNS record changes occur.
 
 - [ ] **Step 9: Complete the G2 checklist/sign-off**
 
@@ -400,7 +400,7 @@ Record clean commits/image digests/migration/config/Restream/TTPBot/LiveSplit pa
 
 - [ ] **Step 2: Draft public user instructions**
 
-Explain Z1RR RaceTime scope, Discord account/name, Twitch link, LiveSplit checksum/install/rollback, browser fallback, organized-vs-pickup boundary, privacy/policies, support/status, and launch time. Do not announce until Go.
+Explain Z1RR Raceroom scope, Discord account/name, Twitch link, LiveSplit checksum/install/rollback, browser fallback, organized-vs-pickup boundary, privacy/policies, support/status, and launch time. Do not announce until Go.
 
 - [ ] **Step 3: Draft operational communication**
 
@@ -442,7 +442,7 @@ Verify authoritative/public DNS still resolves the unchanged Terraform reserved 
 
 - [ ] **Step 5: Bootstrap/review final Council/category/client state**
 
-Run `bootstrap_z1rr --site-domain racetime.z1rracing.com --site-name "Z1RR RaceTime" --exclusive-public-category --owner-discord-id ID ...`, then review exact Site identity, sole public `z1rr`, owners/mods/goals/bots/OAuth/Twitch/Discord callbacks and ordinary-user create permission. Confirm the second run is unchanged. No secret output.
+Run `bootstrap_z1rr --site-domain raceroom.z1rracing.com --site-name "Z1RR Raceroom" --exclusive-public-category --owner-discord-id ID ...`, then review exact Site identity, sole public `z1rr`, owners/mods/goals/bots/OAuth/Twitch/Discord callbacks and ordinary-user create permission. Confirm the second run is unchanged. No secret output.
 
 - [ ] **Step 6: Run final controlled production smoke without scheduler**
 
@@ -529,6 +529,7 @@ Council/operations approve stabilized normal operations. Only then begin the sep
 .\venv\Scripts\python.exe -m unittest discover -s tests\operations -v
 .\venv\Scripts\python.exe scripts\ops\collect-release-identities.py --config docs\operations\release-paths.json
 .\venv\Scripts\python.exe scripts\ops\validate-evidence.py docs\evidence\<date>-dress-rehearsal.json
+.\venv\Scripts\python.exe scripts\ops\verify-dns.py --hostname raceroom.z1rracing.com --expected-from-terraform infra\oci\public-ip.json
 .\venv\Scripts\python.exe scripts\ops\verify-dns.py --hostname racetime.z1rracing.com --expected-from-terraform infra\oci\public-ip.json
 .\venv\Scripts\python.exe scripts\ops\validate-traceability.py --gate G0
 ```

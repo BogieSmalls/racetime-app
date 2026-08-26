@@ -237,16 +237,16 @@ DISCORD_CLIENT_ID = None
 DISCORD_CLIENT_SECRET = None
 
 RT_SITE_INFO = {
-    'title': 'Z1RR RaceTime',
-    'header_text': 'Z1RR <span class="dot">.</span> RaceTime',
-    'header_logo': 'racetime/image/favicon.svg',
-    'theme_color': '#21d48e',
-    'meta_site_name': 'Z1RR RaceTime',
+    'title': 'Z1RR Raceroom',
+    'header_text': 'Z1RR <span class="dot">.</span> Raceroom',
+    'header_logo': 'racetime/image/icon-192.png',
+    'theme_color': '#e05000',
+    'meta_site_name': 'Z1RR Raceroom',
     'meta_description': (
         'Organized Zelda 1 Randomizer racing, operated by Z1Rracing.'
     ),
     'operator_text': 'Operated by Z1Rracing',
-    'upstream_text': 'Powered by the open-source Racetime project',
+    'upstream_text': 'Powered by the open-source racetime.gg project',
     'source_url': 'https://github.com/BogieSmalls/racetime-app',
     'license_url': (
         'https://github.com/BogieSmalls/racetime-app/'

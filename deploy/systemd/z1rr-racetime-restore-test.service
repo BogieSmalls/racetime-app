@@ -1,5 +1,5 @@
 [Unit]
-Description=Quarterly isolated Z1RR RaceTime restore assurance
+Description=Quarterly isolated Z1RR Raceroom restore assurance
 After=docker.service network-online.target time-sync.target
 Wants=network-online.target time-sync.target
 Requires=docker.service

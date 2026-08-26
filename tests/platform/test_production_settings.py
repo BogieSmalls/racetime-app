@@ -112,7 +112,7 @@ class ProductionSettingsTests(unittest.TestCase):
         self.assert_invalid("DJANGO_SECRET_KEY", "changeme")
         self.assert_invalid("ALLOWED_HOSTS", "*")
         self.assert_invalid("CSRF_TRUSTED_ORIGINS", "https://*.example.com")
-        self.assert_invalid("RT_SITE_URI", "http://racetime.z1rracing.com")
+        self.assert_invalid("RT_SITE_URI", "http://raceroom.z1rracing.com")
         self.assert_invalid(
             "REDIS_URL",
             "redis://user:secret-value@example.invalid/0?token=canary",

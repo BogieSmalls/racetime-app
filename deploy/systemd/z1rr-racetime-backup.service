@@ -1,5 +1,5 @@
 [Unit]
-Description=Z1RR RaceTime verified database/media backup and retention
+Description=Z1RR Raceroom verified database/media backup and retention
 After=docker.service network-online.target time-sync.target
 Wants=network-online.target time-sync.target
 Requires=docker.service

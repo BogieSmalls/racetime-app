@@ -1,4 +1,4 @@
-"""Fail-closed production settings for Z1RR RaceTime."""
+"""Fail-closed production settings for Z1RR Raceroom."""
 
 import base64
 import binascii

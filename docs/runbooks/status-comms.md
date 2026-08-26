@@ -32,7 +32,7 @@ monitoring [safe condition]. Next update by [time]. Ref [ID].
 RESOLVED — [service/feature] has been stable since [time]. Impact window was
 [start–end]. [Safe user action if any.] Follow-up [when/where]. Ref [ID].
 
-ROLLBACK — We are returning RaceTime/integrations to the prior verified release.
+ROLLBACK — We are returning Raceroom/integrations to the prior verified release.
 [Canonical host restriction impact.] Next update by [time]. Ref [ID].
 ```
 

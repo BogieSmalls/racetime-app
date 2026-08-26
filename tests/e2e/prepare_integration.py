@@ -41,7 +41,7 @@ ExternalIdentity.objects.get_or_create(
 call_command(
     "bootstrap_z1rr",
     site_domain="integration.racetime.test",
-    site_name="Z1RR RaceTime Integration",
+    site_name="Z1RR Raceroom Integration",
     exclusive_public_category=True,
     owner_discord_id=[OWNER_SUBJECT],
     reconcile_managed_fields=True,

@@ -1,4 +1,4 @@
-# Cut over RaceTime publicly
+# Cut over Raceroom publicly
 
 ## Purpose
 
@@ -57,7 +57,7 @@ Hold on any mismatch; never change DNS to fix a cutover problem.
 ## Verification
 
 ```bash
-python scripts/ops/verify-dns.py --origin https://racetime.z1rracing.com \
+python scripts/ops/verify-dns.py --origin https://raceroom.z1rracing.com \
   --expected-ip-file /root/racetime-reserved-ip
 python scripts/ops/validate-evidence.py /srv/evidence/cutover.json
 ```

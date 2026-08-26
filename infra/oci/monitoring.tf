@@ -1,7 +1,7 @@
 resource "oci_ons_notification_topic" "operations" {
   compartment_id = var.compartment_ocid
   name           = "z1rr-racetime-operations"
-  description    = "Secret-free Z1RR RaceTime infrastructure notifications"
+  description    = "Secret-free Z1RR Raceroom infrastructure notifications"
   freeform_tags  = local.common_tags
 
   lifecycle {
@@ -46,7 +46,7 @@ locals {
 resource "oci_monitoring_alarm" "a1_forecast_warning" {
   compartment_id               = local.alarm_common.compartment_id
   destinations                 = local.alarm_common.destinations
-  display_name                 = "Z1RR RaceTime A1 allowance forecast warning"
+  display_name                 = "Z1RR Raceroom A1 allowance forecast warning"
   is_enabled                   = local.alarm_common.is_enabled
   metric_compartment_id        = local.alarm_common.metric_compartment_id
   namespace                    = "z1rr_racetime"
@@ -130,7 +130,7 @@ resource "oci_monitoring_alarm" "object_storage_escalation" {
 resource "oci_monitoring_alarm" "instance_cpu" {
   compartment_id               = local.alarm_common.compartment_id
   destinations                 = local.alarm_common.destinations
-  display_name                 = "Z1RR RaceTime sustained CPU"
+  display_name                 = "Z1RR Raceroom sustained CPU"
   is_enabled                   = local.alarm_common.is_enabled
   metric_compartment_id        = local.alarm_common.metric_compartment_id
   namespace                    = "oci_computeagent"

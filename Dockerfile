@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 FROM python-base AS runtime-base
 
 ARG VCS_REF=uncommitted
-LABEL org.opencontainers.image.title="Z1RR RaceTime" \
+LABEL org.opencontainers.image.title="Z1RR Raceroom" \
       org.opencontainers.image.source="https://github.com/Z1Rracing/racetime-app" \
       org.opencontainers.image.licenses="GPL-3.0-only"
 LABEL org.opencontainers.image.revision="${VCS_REF}"

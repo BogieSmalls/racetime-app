@@ -1,9 +1,9 @@
-# Z1RR RaceTime Launch Artifact Register
+# Z1RR Raceroom Launch Artifact Register
 
 **Date:** 2026-08-22
 **Control document:** `docs/racetime-z1rr/requirements-and-decisions.md`
 
-This register is the definition of deliverables. An artifact is not complete because a file exists; its acceptance evidence must also exist. `G0` artifacts may be built locally while the Racetime.gg request is pending. `G1+` artifacts require the corresponding decision gate.
+This register is the definition of deliverables. An artifact is not complete because a file exists; its acceptance evidence must also exist. `G0` artifacts may be built locally while the racetime.gg request is pending. `G1+` artifacts require the corresponding decision gate.
 
 ## 1. Planning and source-control artifacts
 
@@ -49,7 +49,7 @@ This register is the definition of deliverables. An artifact is not complete bec
 | PLT-006 | G0 | `infra/oci/*.tf`, `infra/oci/*.tfvars.example`, `infra/oci/README.md` | Dedicated `racetime` instance/volume/network/bucket/IAM/alarms definitions | `terraform fmt/check/validate`; saved plan creates only reviewed dedicated resources, preserves Restream inventory, leaves 443 public for TLS-ALPN, and cannot apply before G1 |
 | PLT-007 | G0 | `deploy/scripts/preflight.sh`, `deploy/scripts/deploy.sh`, `deploy/scripts/rollback.sh` | Race-aware release and rollback tooling | Shell tests cover active-race refusal, backup gate, migration failure, smoke failure, override audit |
 | PLT-008 | G0 | `deploy/backup/backup.sh`, `verify.sh`, `restore-test.sh`, retention tests | Encrypted DB/media/production-Caddy-state backup and isolated multi-architecture restore automation | Local fake-OCI tests plus decrypt/integrity/retention tests pass; qualification Caddy state is excluded and production retains current plus two verified generations |
-| PLT-009 | G1 | OCI resource inventory/evidence | Dedicated `racetime` A1 VM initially at 1 OCPU/6 GB with new 50-GB Balanced boot volume, NSG, Bastion, private bucket, dynamic group/policy, and alarms | Read-only inventory matches the reviewed Terraform plan; verified 3,000/18,000 entitlement, default 744-hour RaceTime floor, and dated combined A1 forecast are recorded; forecast-relative utilization/slope warning below 2,650 hours, high-forecast record at or above 2,650, 2,900-hour escalation, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms exist |
+| PLT-009 | G1 | OCI resource inventory/evidence | Dedicated `racetime` A1 VM initially at 1 OCPU/6 GB with new 50-GB Balanced boot volume, NSG, Bastion, private bucket, dynamic group/policy, and alarms | Read-only inventory matches the reviewed Terraform plan; verified 3,000/18,000 entitlement, default 744-hour Raceroom floor, and dated combined A1 forecast are recorded; forecast-relative utilization/slope warning below 2,650 hours, high-forecast record at or above 2,650, 2,900-hour escalation, separate retained-volume $3.61 +$1/+$3 alarms, and Object Storage 75%/90% alarms exist |
 | PLT-010 | G1 | DNS/OAuth/secrets inventories (private) | Production secret, external-app, and account-recovery records | Primary-operator access, redirect URI review, secret scan, sealed-package version/fingerprint/custody confirmation, and verified OCI/GitHub/registry/DNS recovery route |
 
 ## 4. Restream artifacts (`Z1RR.Restream`)
@@ -84,7 +84,7 @@ This register is the definition of deliverables. An artifact is not complete bec
 | LS-002 | G0 | solution/projects and pinned LiveSplit reference script | .NET 4.8.1 side-by-side plugin build | Clean Windows runner builds against pinned LiveSplit 1.8.37 artifact |
 | LS-003 | G0 | OAuth core and loopback listener | S256 PKCE public-client implementation | RFC-style verifier/challenge vectors and adversarial callback/token tests pass |
 | LS-004 | G0 | Windows credential store | Refresh-token storage and deletion | Store/read/overwrite/delete tests; logs contain no token material |
-| LS-005 | G0 | REST/WebSocket protocol client | Z1RR RaceTime race/chat/action protocol | Mock-server contract suite and reconnect/idempotency tests pass |
+| LS-005 | G0 | REST/WebSocket protocol client | Z1RR Raceroom race/chat/action protocol | Mock-server contract suite and reconnect/idempotency tests pass |
 | LS-006 | G0 | provider factory/API/settings/info/UI | LiveSplit integration with distinct identity | Stock and Z1RR DLL load side by side; settings/credentials do not collide |
 | LS-007 | G0 | CI/release scripts, update XML, SBOM, signed checksums | Reproducible distributable | Two clean builds match, manifest verifies, update feed resolves pinned release |
 | LS-008 | G2 | late-G2 restricted-production E2E evidence | Browser authorize plus complete timer race lifecycle after production certificate issuance and normal G2 allowlist restoration | Ordinary certificate validation with no CA override/bypass; login/join/ready/start/split/done/forfeit/reconnect/revoke cases pass |

@@ -20,7 +20,7 @@ class ProviderContractTests(unittest.TestCase):
             endpoints.websocket_origin,
             "wss://integration.racetime.test:8443",
         )
-        self.assertNotIn("racetime.z1rracing.com", endpoints.origin)
+        self.assertNotIn("raceroom.z1rracing.com", endpoints.origin)
         self.assertNotIn("racetime.gg", endpoints.origin)
 
     def test_fixture_provider_is_internal_and_canonical_browser_route_is_local(self):

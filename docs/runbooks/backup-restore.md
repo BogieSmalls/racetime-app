@@ -1,4 +1,4 @@
-# Back up and restore RaceTime
+# Back up and restore Raceroom
 
 ## Purpose
 

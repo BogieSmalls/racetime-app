@@ -1,10 +1,10 @@
-# Z1RR RaceTime acceptable use and moderation
+# Z1RR Raceroom acceptable use and moderation
 
 Last updated: August 23, 2026
 
 ## Use the service fairly
 
-Z1RR RaceTime exists for organized Zelda 1 Randomizer competition. Protect
+Z1RR Raceroom exists for organized Zelda 1 Randomizer competition. Protect
 race integrity, follow the announced rules for each event, and treat racers,
 volunteers, commentators, and spectators with respect.
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Rebuild RaceTime on an empty host after instance/boot-volume loss while meeting
+Rebuild Raceroom on an empty host after instance/boot-volume loss while meeting
 the four-hour RTO when compatible OCI capacity exists and preserving the clean
 qualification/production boundary.
 

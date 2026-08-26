@@ -1,8 +1,8 @@
-# TTPBot Racetime Provider-Safe Destination Implementation Plan
+# TTPBot racetime.gg Provider-Safe Destination Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make TTPBot switch safely between `racetime.gg/z1rr` and `racetime.z1rracing.com/z1rr` by configuration while preserving schedule behavior and preventing duplicate rooms, webhooks, or concurrent schedulers.
+**Goal:** Make TTPBot switch safely between `racetime.gg/z1rr` and `raceroom.z1rracing.com/z1rr` by configuration while preserving schedule behavior and preventing duplicate rooms, webhooks, or concurrent schedulers.
 
 **Architecture:** Replace separate host/scheme assumptions with one validated provider origin plus category. Encapsulate absolute URL resolution and version all idempotency state with a destination key; state mismatch fails closed and cutover requires an explicit migration/archive operation plus a host-level single-scheduler lock.
 
@@ -12,7 +12,7 @@
 
 ## Control documents
 
-**Spec:** [Plan-B RaceTime architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
+**Spec:** [Plan-B Raceroom architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
 **Requirements and gates:** [Requirements and decision record](../../racetime-z1rr/requirements-and-decisions.md)
 **Artifact register:** [Launch artifact register](../../racetime-z1rr/artifact-register.md)
 **Master plan:** [Contingency launch master plan](2026-08-22-z1rr-racetime-launch-master.md)
@@ -21,11 +21,11 @@
 ## Global Constraints
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
-- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
+- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `raceroom.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
+- racetime.gg application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
-- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
+- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed Raceroom build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
 
 ## Repository and file map
 
@@ -55,7 +55,7 @@ TTPBOT_RACE_SEEKERS_ROLE_ID=
 TTPBOT_DATA_DIR=/var/lib/ttpbot
 ```
 
-Plan B changes only `TTPBOT_RACETIME_ORIGIN` and credentials. The approved-category outcome leaves origin at Racetime.gg. `TTPBOT_ALLOW_INSECURE_LOOPBACK=true` exists only for tests/local development and is rejected when service environment is `production`.
+Plan B changes only `TTPBOT_RACETIME_ORIGIN` and credentials. The approved-category outcome leaves origin at racetime.gg. `TTPBOT_ALLOW_INSECURE_LOOPBACK=true` exists only for tests/local development and is rejected when service environment is `production`.
 
 ## Task 1: Add the canonical provider contract
 
@@ -67,12 +67,12 @@ Plan B changes only `TTPBOT_RACETIME_ORIGIN` and credentials. The approved-categ
 
 ```python
 provider = RacetimeProvider(
-    origin="https://racetime.z1rracing.com",
+    origin="https://raceroom.z1rracing.com",
     category="z1rr",
 )
-self.assertEqual(provider.host, "racetime.z1rracing.com")
+self.assertEqual(provider.host, "raceroom.z1rracing.com")
 self.assertTrue(provider.secure)
-self.assertEqual(provider.destination_key, "https://racetime.z1rracing.com|z1rr")
+self.assertEqual(provider.destination_key, "https://raceroom.z1rracing.com|z1rr")
 ```
 
 Reject blank, non-HTTPS production, path other than `/`, query, fragment, username/password, IP-literal production origin, malformed/uppercase/unsafe category, and trailing host confusion. Accept and normalize one trailing slash. Accept HTTP only for `localhost`/`127.0.0.1` when explicitly allowed.
@@ -173,7 +173,7 @@ Both created-race and sent-webhook documents use:
 ```json
 {
   "schema_version": 2,
-  "destination_key": "https://racetime.z1rracing.com|z1rr",
+  "destination_key": "https://raceroom.z1rracing.com|z1rr",
   "entries": {}
 }
 ```
@@ -234,7 +234,7 @@ Use `self.http_uri(...)` for authenticated request only after racetime-bot is co
 
 - [ ] **Step 5: Make messages destination-neutral**
 
-Descriptions say `Racetime provider` or `Z1RR racing`, not `racetime.gg Z1R`, where referring to infrastructure. Keep `Zelda 1 Randomizer` where referring to the game.
+Descriptions say `racetime.gg provider` or `Z1RR racing`, not `racetime.gg Z1R`, where referring to infrastructure. Keep `Zelda 1 Randomizer` where referring to the game.
 
 - [ ] **Step 6: Run room/policy/handler tests**
 

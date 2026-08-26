@@ -1,4 +1,4 @@
-# Z1RR RaceTime Plan B Architecture Design
+# Z1RR Raceroom Plan B Architecture Design
 
 **Date:** 2026-08-12; revised 2026-08-23
 **Status:** Approved for G0 local contingency-readiness work; external deployment remains conditional on G1 Plan-B activation
@@ -10,11 +10,11 @@
 Z1RR will first ask racetime.gg to create a separately administered `z1rr`
 category for organized Z1RR activity. If that request is approved, ordinary
 pickup races remain in `racetime.gg/z1r`, organized Z1RR programs move to
-`racetime.gg/z1rr`, and no independent Racetime deployment is needed.
+`racetime.gg/z1rr`, and no independent racetime.gg deployment is needed.
 
 If the request is declined, **Plan B** creates an independent deployment of the
-open-source Racetime application at `https://racetime.z1rracing.com`. The site
-will be branded **Z1RR RaceTime**, contain one public `z1rr` category, accept
+open-source racetime.gg application at `https://raceroom.z1rracing.com`. The site
+will be branded **Z1RR Raceroom**, contain one public `z1rr` category, accept
 any valid Discord account, and become the immediate production home for
 organized Z1RR races. It will have its own accounts, race history, category
 governance, OAuth clients, and operational ownership. It will not synchronize
@@ -23,8 +23,8 @@ accounts or live data with racetime.gg.
 The deployment will run as a containerized, single-node production system on a
 dedicated OCI Ampere A1 VM. TTPBot remains independently hosted on the existing
 `coop-relay` VM. Z1RR.Restream supports the logical `z1rr` source regardless of
-which Racetime host provides it. A separate LiveSplit provider is required only
-if `z1rr` is hosted at `racetime.z1rracing.com`.
+which racetime.gg host provides it. A separate LiveSplit provider is required only
+if `z1rr` is hosted at `raceroom.z1rracing.com`.
 
 This design favors low recurring cost, upstream compatibility, operational
 simplicity, and recoverability over high availability. Planned maintenance of
@@ -34,13 +34,13 @@ approximately 5–15 minutes is acceptable when no race is active.
 
 | Concern | Dyn approves `racetime.gg/z1rr` | Plan B: self-hosted `z1rr` |
 | --- | --- | --- |
-| Z1RR category | `racetime.gg/z1rr` | `racetime.z1rracing.com/z1rr` |
+| Z1RR category | `racetime.gg/z1rr` | `raceroom.z1rracing.com/z1rr` |
 | Ordinary pickup races | Remain at `racetime.gg/z1r` | Remain at `racetime.gg/z1r` |
-| Organized Z1RR races | Move to `racetime.gg/z1rr` | Move to Z1RR RaceTime |
-| Category owners | Z1RR Council on racetime.gg | Z1RR Council on Z1RR RaceTime |
+| Organized Z1RR races | Move to `racetime.gg/z1rr` | Move to Z1RR Raceroom |
+| Category owners | Z1RR Council on racetime.gg | Z1RR Council on Z1RR Raceroom |
 | TTPBot change | Category changes to `z1rr`; host remains racetime.gg | Host and category change |
-| Z1RR.Restream | Adds logical `z1rr` source on racetime.gg | Adds logical `z1rr` source on Z1RR RaceTime |
-| LiveSplit | Stock Racetime provider is sufficient | Separate Z1RR provider is required |
+| Z1RR.Restream | Adds logical `z1rr` source on racetime.gg | Adds logical `z1rr` source on Z1RR Raceroom |
+| LiveSplit | Stock racetime.gg provider is sufficient | Separate Z1RR provider is required |
 | Independent site work | G0 artifacts canceled | Local readiness at G0; external deployment at G1 |
 | Legacy TTP archive | Optional Council archive | Post-launch read-only site archive |
 
@@ -55,14 +55,14 @@ apply, OCI/DNS/external-app mutation, deployment, publication, or cutover.
 
 Plan B must:
 
-- Provide a production-quality, public Racetime service for organized Z1RR
+- Provide a production-quality, public racetime.gg service for organized Z1RR
   racing without requiring cooperation or data access from racetime.gg.
-- Preserve familiar Racetime room behavior, APIs, WebSockets, chat, race
+- Preserve familiar racetime.gg room behavior, APIs, WebSockets, chat, race
   recording, leaderboards, moderation, and OAuth integration.
-- Let any valid Discord account sign in and let users choose their Racetime
+- Let any valid Discord account sign in and let users choose their racetime.gg
   display names.
 - Let any registered user create races in the `z1rr` category, matching normal
-  Racetime behavior.
+  racetime.gg behavior.
 - Give all Z1RR Council members category-owner rights while limiting routine
   server, database, secrets, and Django superuser access to the primary
   technical operator. A distinct sealed offline recovery package is held by a
@@ -74,7 +74,7 @@ Plan B must:
 - Recover from application failure, database corruption, operator error, or VM
   loss using versioned infrastructure configuration and encrypted backups.
 - Preserve upstream attribution and make Z1RR branding unmistakable without
-  implying authorship of the underlying Racetime project.
+  implying authorship of the underlying racetime.gg project.
 
 ## 4. Non-goals
 
@@ -87,7 +87,7 @@ Plan B will not:
   rooms into the new live ratings database.
 - Fork or redistribute the entire LiveSplit application.
 - Provide active-active high availability or zero-downtime database migration.
-- Build a new racing engine when the upstream Racetime application already
+- Build a new racing engine when the upstream racetime.gg application already
   supplies the required semantics.
 - Require Z1RR Discord-server membership for authentication.
 - Require transactional email for public account creation or recovery.
@@ -97,7 +97,7 @@ Plan B will not:
 
 ### 5.1 Selected: containerized single VM
 
-Run Caddy, Racetime web/Daphne, the upstream racebot, MariaDB, Redis, and backup
+Run Caddy, racetime.gg web/Daphne, the upstream racebot, MariaDB, Redis, and backup
 jobs in Docker Compose on a dedicated OCI A1 VM. Keep TTPBot on `coop-relay`.
 
 This approach stays close to upstream's existing service topology while adding
@@ -162,7 +162,7 @@ License reference: <https://www.gnu.org/licenses/gpl-faq.en.html#UnreleasedMods>
 
 ### 7.1 Public request path
 
-Only Caddy is public. DNS for `racetime.z1rracing.com` resolves to a reserved or
+Only Caddy is public. DNS for `raceroom.z1rracing.com` resolves to a reserved or
 stable OCI public address. Caddy:
 
 - terminates TLS and renews certificates;
@@ -170,7 +170,7 @@ stable OCI public address. Caddy:
 - proxies normal HTTP and WebSocket upgrades to Daphne;
 - serves collected static assets and uploaded media from read-only/shared
   volumes as appropriate; and
-- applies request-size and selected rate limits without changing Racetime room
+- applies request-size and selected rate limits without changing racetime.gg room
   semantics.
 
 Only ports 80 and 443 are internet-facing. SSH is key-only and restricted by
@@ -190,9 +190,9 @@ layer.
 The normal production stack contains:
 
 - **Caddy:** TLS, reverse proxy, WebSocket forwarding, static/media delivery.
-- **Racetime web:** Django served by Daphne/ASGI. Upstream's development
+- **racetime.gg web:** Django served by Daphne/ASGI. Upstream's development
   `manage.py runserver` is not used in production.
-- **Racetime racebot:** the upstream racebot process as an independent service.
+- **racetime.gg racebot:** the upstream racebot process as an independent service.
 - **MariaDB:** authoritative accounts, categories, races, results, rankings,
   OAuth applications, and audit data.
 - **Redis:** Channels layer and cache; never treated as durable authority.
@@ -252,9 +252,9 @@ After G1 activation, create a new Terraform-managed Compute instance named
 - 6 GB RAM; and
 - a new 50 GB Balanced boot volume, the current Terraform/image-source minimum.
 
-Z1RR RaceTime owns this VM exclusively. `z1rr-restream-control-staging` remains
+Z1RR Raceroom owns this VM exclusively. `z1rr-restream-control-staging` remains
 unchanged and available for its existing staging purpose until a separately
-approved migration moves that work elsewhere. RaceTime production does not
+approved migration moves that work elsewhere. Raceroom production does not
 share a host, Compose project, networks, volumes, or secrets with Restream
 staging.
 
@@ -278,7 +278,7 @@ have not changed and records Limits, Quotas and Usage, Cost Analysis, and
 current-month A1 usage before Terraform apply. It does not re-adjudicate the
 entitlement.
 
-RaceTime is the only A1 workload in this tenancy that cannot sleep. A
+Raceroom is the only A1 workload in this tenancy that cannot sleep. A
 continuously running 1-OCPU/6-GB VM consumes 744 OCPU-hours and 4,464 GB-hours
 in a 31-day month: 24.8% of the 3,000-hour planning allowance. A 2-OCPU
 deployment would consume 1,488 hours, 49.6%, before Restream runs. The
@@ -308,7 +308,7 @@ the combined A1/Restream forecast, and the paid recovery target. G2/G3 remain
 blocked until the complete load and recovery gates pass on the recorded shapes;
 there is no performance waiver.
 
-At the default shape, record the 744-hour RaceTime floor, dated combined A1
+At the default shape, record the 744-hour Raceroom floor, dated combined A1
 forecast, and expected compute. For an active forecast below 2,650 hours, the
 allowance-utilization warning is not a spend alert: it fires when projected
 month-end A1 OCPU-hours exceed the forecast by the greater of 100 hours or 5%,
@@ -349,11 +349,11 @@ References:
 Discord is the only public sign-in and account-creation mechanism.
 
 1. The user selects **Continue with Discord**.
-2. Z1RR RaceTime creates an OAuth authorization-code request with a short-lived,
+2. Z1RR Raceroom creates an OAuth authorization-code request with a short-lived,
    session-bound `state` value.
 3. Discord returns basic identity after consent.
-4. Z1RR RaceTime uses the immutable Discord user ID as the external account key.
-5. On first login, the user selects an editable Racetime display name. The
+4. Z1RR Raceroom uses the immutable Discord user ID as the external account key.
+5. On first login, the user selects an editable racetime.gg display name. The
    existing discriminator behavior resolves duplicate names.
 6. The account is saved with an unusable local password.
 7. Later logins resolve the same account even when the Discord username or
@@ -377,7 +377,7 @@ accounts receive a unique, internal, non-deliverable address such as
 - remains an implementation detail, not a recovery credential.
 
 As decided by ADR-001, an `ExternalIdentity` model links Discord to the
-Racetime user. It stores `provider`, immutable provider `subject`, owning
+racetime.gg user. It stores `provider`, immutable provider `subject`, owning
 `User`, and timestamps, with unique constraints on `(provider, subject)` and
 `(provider, user)`. No Z1RR-specific `discord_id` field is added to the upstream
 `User` table.
@@ -389,7 +389,7 @@ Transactional site email is not a launch dependency.
 ### 9.3 Display name and connections
 
 Discord authenticates the person but does not dictate the public racing name.
-Users choose and later edit their Racetime display name under existing name
+Users choose and later edit their racetime.gg display name under existing name
 rules. Name changes remain forbidden while the user is in an active race.
 
 Twitch remains a separate optional connection. A connected Twitch channel is
@@ -429,7 +429,7 @@ sessions and active races continue.
 
 The site contains one active public category, slug `z1rr`. All Z1RR Council
 members are category owners. They can administer category details, goals,
-moderators, bots, leaderboards, and race support through normal Racetime
+moderators, bots, leaderboards, and race support through normal racetime.gg
 category-owner interfaces.
 
 The category's `max_owners` value is set by a site operator high enough for the
@@ -442,7 +442,7 @@ secrets, OCI, backup, or deployment access.
 
 ### 9.6 Branding and attribution
 
-Visible branding is **Z1RR RaceTime**. The site must clearly state that it is a
+Visible branding is **Z1RR Raceroom**. The site must clearly state that it is a
 Z1RR-operated deployment powered by the open-source racetime.gg project, link
 to the source fork and GPL license, and avoid implying endorsement by or shared
 administration with racetime.gg.
@@ -493,7 +493,7 @@ Restream must separate **provider hosts** from **logical category sources**.
 The provider registry supports at least:
 
 - `racetime-gg` -> `https://racetime.gg`; and
-- `z1rr-racetime` -> `https://racetime.z1rracing.com`.
+- `z1rr-racetime` -> `https://raceroom.z1rracing.com`.
 
 Logical sources are configured independently:
 
@@ -528,7 +528,7 @@ historical broadcasts retain their original host and never silently resolve
 against the new provider.
 
 Providers fail independently. A racetime.gg error affects only its section and
-associated active connections; it cannot make the Z1RR RaceTime section
+associated active connections; it cannot make the Z1RR Raceroom section
 unusable, and vice versa.
 
 ### 11.2 TTPBot
@@ -537,10 +537,10 @@ TTPBot remains a standalone systemd service on `coop-relay`, preserving its
 schedule, state files, Discord announcements, chat archives, seed behavior,
 restart recovery, and duplicate-prevention logic.
 
-Its Racetime destination becomes a first-class production configuration:
+Its racetime.gg destination becomes a first-class production configuration:
 
 - if approved: host `racetime.gg`, category `z1rr`;
-- under Plan B: host `racetime.z1rracing.com`, category `z1rr`, secure mode;
+- under Plan B: host `raceroom.z1rracing.com`, category `z1rr`, secure mode;
 - distinct OAuth/category-bot credentials for the selected destination.
 
 Hard-coded `racetime.gg` URL construction and `z1r`-specific naming are removed
@@ -554,7 +554,7 @@ scheduled room is observed for exactly-once creation and announcement.
 
 ### 11.3 LiveSplit: Plan B only
 
-If Dyn approves `racetime.gg/z1rr`, the stock LiveSplit Racetime provider is
+If Dyn approves `racetime.gg/z1rr`, the stock LiveSplit racetime.gg provider is
 sufficient and no Z1RR component is built.
 
 Under Plan B, create an independently installable
@@ -562,9 +562,9 @@ Under Plan B, create an independently installable
 component loader supports side-by-side DLL providers. The Z1RR provider has:
 
 - a distinct assembly, factory, component, and menu identity;
-- `racetime.z1rracing.com` REST and WSS endpoints;
+- `raceroom.z1rracing.com` REST and WSS endpoints;
 - its own settings and Windows credential names;
-- a Z1RR RaceTime OAuth application;
+- a Z1RR Raceroom OAuth application;
 - a separate signed/reproducible release and update feed; and
 - no collision with stock `LiveSplit.Racetime.dll`.
 
@@ -581,7 +581,7 @@ a secret.
 The fork pins `django-oauth-toolkit>=3.0,<4.0`; that library supports PKCE and
 authorization-code exchange without a secret for public clients. Production
 requires PKCE for the LiveSplit public-client application. The existing
-Racetime compatibility behavior that strips PKCE parameters for an application
+racetime.gg compatibility behavior that strips PKCE parameters for an application
 named `LiveSplit` must be removed or explicitly prevented from matching the
 Z1RR application. End-to-end authorization, refresh, revocation, replay, wrong
 verifier, wrong state, and occupied-loopback-port tests are release gates. If
@@ -591,7 +591,7 @@ PKCE is not an acceptable fallback.
 
 The official `LiveSplit.Racetime` repository currently does not declare a
 license. Z1RR should recreate the provider against LiveSplit interfaces and
-Racetime's documented public API/WebSocket behavior rather than copy and
+racetime.gg's documented public API/WebSocket behavior rather than copy and
 redistribute unlicensed source. This licensing check is a release gate.
 
 ## 12. Legacy TTP archive
@@ -604,13 +604,13 @@ export process snapshots public TTP Seasons 1–4 data from racetime.gg:
 - public room metadata and results where useful; and
 - original racetime.gg links and source timestamps.
 
-Z1RR RaceTime presents the data in a separate, clearly labeled, read-only
+Z1RR Raceroom presents the data in a separate, clearly labeled, read-only
 **Legacy TTP Archive**. It does not:
 
 - create local users for historical racers;
 - insert old rooms into production race tables;
 - affect new ratings or leaderboards; or
-- claim the rooms were hosted by Z1RR RaceTime.
+- claim the rooms were hosted by Z1RR Raceroom.
 
 The raw export is reproducible and versioned or checksummed. The presentation
 can be static data/templates or a bounded archive model, chosen during its own
@@ -653,8 +653,14 @@ expand/migrate/contract sequencing across releases.
 
 The new `racetime` VM is the production candidate used for G2 qualification.
 Its first externally reachable deployment uses the final canonical hostname,
-`racetime.z1rracing.com`. There is no `staging.racetime.z1rracing.com` record or
+`raceroom.z1rracing.com`. There is no `staging.raceroom.z1rracing.com` record or
 hostname/DNS promotion at G3.
+
+The legacy `racetime.z1rracing.com` hostname is a redirect-only alias. It has
+its own certificate from the same pinned issuer, applies the same pre-G3
+source-IP allowlist before returning a 308 to the canonical origin, and never
+serves application, static, media, OAuth, or WebSocket routes. It is edge
+behavior, not a second configured origin or a DNS promotion step.
 
 The restriction is a Caddy default-deny source-IP allowlist implemented as the
 first ordinary HTTP handler after the TLS handshake and before every
@@ -695,6 +701,7 @@ Qualification certificate automation is explicit:
   retries remain production-only. A deadline breach alerts operators, leaves the
   maintenance/default-deny barrier in place, and blocks G2; Caddy never serves
   or promotes an untrusted fallback certificate. Successful issuance makes
+  both `raceroom.z1rracing.com` and its redirect-only alias
   `racetime.z1rracing.com` visible in public CT logs; the Council accepts this
   narrowly timed disclosure after G1 activation.
 - The production Caddy state volume persists across application-state resets,
@@ -716,7 +723,8 @@ end-to-end integration evidence. After the production certificate is issued and
 the hard barrier returns to the normal G2 allowlist, final evidence includes
 successful allowed browser/OAuth/TTPBot/Restream/LiveSplit/WSS flows using
 ordinary certificate validation with no bypass; staging and production issuer
-identity; HTTP-01 denial; exactly one production issuance; and persistence of
+identity; HTTP-01 denial; exactly two production issuances, one per hostname;
+and persistence of
 the production Caddy state across an application redeploy.
 
 Qualification runs the exact immutable production image and production Compose
@@ -757,7 +765,7 @@ While the canonical host is still restricted under G2, operators:
 Rollback may use the last valid production backup/release, but never
 qualification data, backups, sessions, tokens, or credentials.
 `z1rr-restream-control-staging` remains a separate Restream staging host and is
-not part of the RaceTime qualification deployment.
+not part of the Raceroom qualification deployment.
 
 References:
 
@@ -935,7 +943,7 @@ Verify:
 
 - first Discord login and account creation;
 - repeat login after Discord username/display-name changes;
-- user-selected Racetime display names and duplicate-name discrimination;
+- user-selected racetime.gg display names and duplicate-name discrimination;
 - denied/canceled/expired OAuth and invalid `state` handling;
 - logout and session expiry;
 - disabled public password/email/category-request surfaces;
@@ -991,13 +999,14 @@ Verify:
   operator-recorded recovery shape before G3;
 - staging-ACME qualification, test-only trust, adapted-config issuer pinning,
   a hermetic no-cross-environment fallback test, a bounded transition deadline,
-  TLS-ALPN-only validation, HTTP-01 denial, one late-G2 production issuance,
+  TLS-ALPN-only validation, HTTP-01 denial, two late-G2 production issuances
+  (canonical and redirect-only alias),
   production Caddy-state persistence, TLS renewal, HSTS transition, and
   WebSocket proxy behavior;
 - OCI/host/service/billing alerts reach operations Discord, and launch/rollback
   public communications meet the independent-path timing and cadence contract;
 - the verified 3,000/18,000 paid-tenancy entitlement is confirmed at G1; the
-  default 744-hour RaceTime floor and dated combined A1 forecast are recorded;
+  default 744-hour Raceroom floor and dated combined A1 forecast are recorded;
   the forecast-relative warning below 2,650 hours, high-forecast record at or
   above 2,650, 2,900-hour escalation, and separate retained-volume and Object
   Storage alarms reach operators; routine
@@ -1024,7 +1033,7 @@ contacts Dyn. Restream's provider/category abstraction is outcome-independent.
 During G0, the team may also implement and verify all contingency application,
 image, IaC-definition, integration, release, and runbook artifacts locally or
 with hermetic test doubles. This work creates no public or billable Plan-B
-runtime resource and is discarded if the Racetime.gg category request succeeds.
+runtime resource and is discarded if the racetime.gg category request succeeds.
 The primary technical operator has authorized one narrow source-preservation
 exception: a private, versioned, server-side-encrypted OCI Object Storage bucket
 may hold only the two upstream Git bundles and their public manifest/checksum
@@ -1044,7 +1053,7 @@ Council votes on G3, G2 has already sealed the qualification evidence, switched
 the deployment to fresh production state and secrets, revoked qualification
 credentials and sessions, verified a production backup, and completed the
 restricted production smoke test and dress rehearsal. The canonical
-`racetime.z1rracing.com` DNS record and TLS configuration are already present
+`raceroom.z1rracing.com` DNS record and TLS configuration are already present
 and operator-restricted; G3 does not change the hostname or promote a staging
 record.
 
@@ -1053,7 +1062,7 @@ After the Council records G3 Go:
 1. Verify the signed G2 evidence, G3 decision record, frozen release hashes,
    eligible production backup, and existing canonical DNS, TLS, health checks,
    and alert delivery.
-2. Publish the exact corresponding RaceTime source, launch instructions, and
+2. Publish the exact corresponding Raceroom source, launch instructions, and
    Z1RR LiveSplit provider.
 3. Disable TTPBot's scheduler for the old destination and verify that it has no
    active room or pending creation job.
@@ -1067,7 +1076,7 @@ After the Council records G3 Go:
 
 Qualification state, backups, sessions, and credentials are never rollback
 assets. Early rollback re-applies the canonical-host restriction, disables the
-new scheduler, and restores the old Racetime.gg destination only after the
+new scheduler, and restores the old racetime.gg destination only after the
 single-scheduler and room-integrity checks pass. Application rollback may use
 only eligible production backups and frozen production releases; it never
 changes DNS or restores qualification state.
@@ -1084,7 +1093,7 @@ If Dyn approves `racetime.gg/z1rr`, self-hosting work is canceled:
 - Restream enables its logical Z1RR source at `racetime-gg:z1rr`;
 - TTPBot changes only its category to `z1rr` and receives appropriate bot
   credentials;
-- the stock LiveSplit Racetime provider remains in use; and
+- the stock LiveSplit racetime.gg provider remains in use; and
 - the Plan B VM, Discord-auth changes, and separate LiveSplit provider are not
   deployed.
 

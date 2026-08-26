@@ -128,13 +128,13 @@ class EnvironmentParserTests(unittest.TestCase):
 
     def test_https_origin_rejects_insecure_non_origin_and_credentials(self):
         with mock.patch.dict(os.environ, {
-            "ORIGIN": "https://racetime.z1rracing.com",
+            "ORIGIN": "https://raceroom.z1rracing.com",
         }, clear=True):
-            self.assertEqual(env.https_origin("ORIGIN"), "https://racetime.z1rracing.com")
+            self.assertEqual(env.https_origin("ORIGIN"), "https://raceroom.z1rracing.com")
         for value in (
-            "http://racetime.z1rracing.com",
-            "https://user:pass@racetime.z1rracing.com",
-            "https://racetime.z1rracing.com/path",
+            "http://raceroom.z1rracing.com",
+            "https://user:pass@raceroom.z1rracing.com",
+            "https://raceroom.z1rracing.com/path",
             "https://*.z1rracing.com",
         ):
             with self.subTest(value=value), mock.patch.dict(

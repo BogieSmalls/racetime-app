@@ -20,7 +20,7 @@ from urllib.request import Request, urlopen
 
 
 SCHEMA_VERSION = 1
-PUBLIC_HOST = "racetime.z1rracing.com"
+PUBLIC_HOST = "raceroom.z1rracing.com"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 CONTAINER_NAMES = ("web", "racebot", "db", "redis", "caddy")
 

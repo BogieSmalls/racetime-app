@@ -1,5 +1,5 @@
 [Unit]
-Description=Run Z1RR RaceTime backup every six hours
+Description=Run Z1RR Raceroom backup every six hours
 
 [Timer]
 OnCalendar=*-*-* 00,06,12,18:00:00

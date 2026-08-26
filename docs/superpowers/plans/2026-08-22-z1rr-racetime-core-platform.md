@@ -1,8 +1,8 @@
-# Z1RR RaceTime Core and Platform Implementation Plan
+# Z1RR Raceroom Core and Platform Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Coordinate the separately testable Z1RR RaceTime core-identity and production-platform workstreams into one deployable local release candidate.
+**Goal:** Coordinate the separately testable Z1RR Raceroom core-identity and production-platform workstreams into one deployable local release candidate.
 
 **Architecture:** Application behavior and infrastructure/recovery are intentionally specified in two focused plans. Execute the core identity plan first to lock its settings, health, migration, and bootstrap contracts; then execute the platform plan against those contracts and qualify them together in the isolated integration stack.
 
@@ -12,7 +12,7 @@
 
 ## Control documents
 
-**Spec:** [Plan-B RaceTime architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
+**Spec:** [Plan-B Raceroom architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
 **Requirements and gates:** [Requirements and decision record](../../racetime-z1rr/requirements-and-decisions.md)
 **Artifact register:** [Launch artifact register](../../racetime-z1rr/artifact-register.md)
 **Master plan:** [Contingency launch master plan](2026-08-22-z1rr-racetime-launch-master.md)
@@ -21,11 +21,11 @@
 ## Global Constraints
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
-- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
+- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `raceroom.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
+- racetime.gg application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
-- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
+- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed Raceroom build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
 
 ## Task 1: Execute and accept the core identity release candidate
 ## Integration interfaces

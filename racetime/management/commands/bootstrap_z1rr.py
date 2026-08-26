@@ -1,4 +1,4 @@
-"""Idempotently bootstrap the Z1RR RaceTime site and sole public category."""
+"""Idempotently bootstrap the Z1RR Raceroom site and sole public category."""
 
 from django.conf import settings
 from django.contrib.sites.models import Site
@@ -9,10 +9,10 @@ from django.db import IntegrityError, transaction
 from ...models import Category, ExternalIdentity, Goal
 
 
-CANONICAL_DOMAIN = "racetime.z1rracing.com"
+CANONICAL_DOMAIN = "raceroom.z1rracing.com"
 INTEGRATION_DOMAIN = "integration.racetime.test"
 ALLOWED_DOMAINS = frozenset((CANONICAL_DOMAIN, INTEGRATION_DOMAIN))
-DEFAULT_SITE_NAME = "Z1RR RaceTime"
+DEFAULT_SITE_NAME = "Z1RR Raceroom"
 CATEGORY_SLUG = "z1rr"
 CATEGORY_MANAGED_FIELDS = {
     "name": "Zelda 1 Randomizer Racing",
@@ -76,7 +76,7 @@ class Command(BaseCommand):
         domain = str(options["site_domain"]).strip().lower()
         if domain not in ALLOWED_DOMAINS:
             raise CommandError(
-                "--site-domain must be racetime.z1rracing.com or "
+                "--site-domain must be raceroom.z1rracing.com or "
                 "integration.racetime.test."
             )
         if not options["exclusive_public_category"]:

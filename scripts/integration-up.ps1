@@ -25,7 +25,7 @@ if (-not (Test-Path -LiteralPath $environmentFile -PathType Leaf)) {
 
 $sourceText = [IO.File]::ReadAllText($composeFile) + [IO.File]::ReadAllText($environmentFile)
 foreach ($forbidden in @(
-    'racetime.z1rracing.com',
+    'raceroom.z1rracing.com',
     '.env.production',
     'discord.com/api/webhooks',
     'hooks.slack.com'
@@ -43,7 +43,7 @@ $rendered = (& docker @compose config | Out-String)
 if ($LASTEXITCODE -ne 0) {
     throw 'docker compose config failed.'
 }
-foreach ($forbidden in @('racetime.z1rracing.com', '0.0.0.0:80', '0.0.0.0:443')) {
+foreach ($forbidden in @('raceroom.z1rracing.com', '0.0.0.0:80', '0.0.0.0:443')) {
     if ($rendered.Contains($forbidden, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Rendered integration configuration contains forbidden value: $forbidden"
     }

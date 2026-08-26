@@ -131,7 +131,7 @@ class PublicSurfaceTests(TestCase):
         self.assertContains(connections, "separate from Discord sign-in")
         account = self.client.get(reverse("edit_account"))
         self.assertNotContains(account, 'name="email"')
-        self.assertContains(account, "Z1RR RaceTime account")
+        self.assertContains(account, "Z1RR Raceroom account")
 
     def test_required_public_capabilities_remain(self):
         exact_routes = {

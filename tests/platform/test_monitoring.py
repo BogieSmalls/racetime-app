@@ -93,12 +93,12 @@ class ProbeContractTests(unittest.TestCase):
     def config(self):
         return {
             "schema_version": 1,
-            "public_origin": "https://racetime.z1rracing.com",
-            "websocket_url": "wss://racetime.z1rracing.com/ws/oob/",
+            "public_origin": "https://raceroom.z1rracing.com",
+            "websocket_url": "wss://raceroom.z1rracing.com/ws/oob/",
             "public_admin_path": "/admin/",
             "internal_readiness_url": "http://127.0.0.1:8000/healthz?scope=internal",
             "internal_token_env": "RACETIME_MONITOR_TOKEN",
-            "tls_host": "racetime.z1rracing.com",
+            "tls_host": "raceroom.z1rracing.com",
             "tls_port": 443,
             "container_names": ["web", "racebot", "db", "redis", "caddy"],
             "filesystem_path": "/srv/racetime",
@@ -138,7 +138,7 @@ class ProbeContractTests(unittest.TestCase):
 
     def test_rejects_non_loopback_internal_probe_and_noncanonical_urls(self):
         for key, value in (
-            ("public_origin", "http://racetime.z1rracing.com"),
+            ("public_origin", "http://raceroom.z1rracing.com"),
             ("websocket_url", "wss://example.test/ws/"),
             ("internal_readiness_url", "http://10.0.0.9:8000/healthz"),
         ):

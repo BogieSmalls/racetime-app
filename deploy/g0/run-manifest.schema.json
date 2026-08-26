@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://racetime.z1rracing.com/schemas/g0-run-manifest-v1.json",
-  "title": "Z1RR RaceTime OCI G0 run manifest",
+  "$id": "https://raceroom.z1rracing.com/schemas/g0-run-manifest-v1.json",
+  "title": "Z1RR Raceroom OCI G0 run manifest",
   "type": "object",
   "additionalProperties": false,
   "required": [

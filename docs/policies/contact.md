@@ -1,4 +1,4 @@
-# Contact Z1RR RaceTime
+# Contact Z1RR Raceroom
 
 Last updated: August 23, 2026
 
@@ -27,7 +27,7 @@ to investigate a report.
 
 ## Independent operation
 
-Z1RR RaceTime is operated by Z1Rracing. This deployment is not endorsed by or
+Z1RR Raceroom is operated by Z1Rracing. This deployment is not endorsed by or
 jointly administered with racetime.gg. For this site's accounts, races,
 moderation, policies, or availability, contact Z1Rracing rather than the
 racetime.gg administrators.

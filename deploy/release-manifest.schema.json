@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://racetime.z1rracing.com/schemas/release-manifest-v1.json",
-  "title": "Z1RR RaceTime immutable release manifest",
+  "$id": "https://raceroom.z1rracing.com/schemas/release-manifest-v1.json",
+  "title": "Z1RR Raceroom immutable release manifest",
   "type": "object",
   "additionalProperties": false,
   "required": [

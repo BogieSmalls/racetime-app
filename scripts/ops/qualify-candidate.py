@@ -307,7 +307,7 @@ def _validate_activation(path):
     if not isinstance(value["activation_id"], str) or not ACTIVATION_ID.fullmatch(value["activation_id"]):
         raise QualificationError("G1 activation ID is invalid")
     _timestamp(value["activated_at_utc"], "activated_at_utc")
-    if value["canonical_origin"] != "https://racetime.z1rracing.com":
+    if value["canonical_origin"] != "https://raceroom.z1rracing.com":
         raise QualificationError("G1 activation canonical origin is invalid")
     if not isinstance(value["allowlist_record_sha256"], str) or not SHA256.fullmatch(value["allowlist_record_sha256"]):
         raise QualificationError("G1 activation allowlist hash is invalid")

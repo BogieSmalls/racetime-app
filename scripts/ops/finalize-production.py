@@ -115,7 +115,7 @@ def _validate_activation(path):
     if not isinstance(value["activation_id"], str) or not CHANGE_ID.fullmatch(value["activation_id"]):
         raise FinalizationError("G1 activation ID is invalid")
     _timestamp(value["activated_at_utc"], "activated_at_utc")
-    if value["canonical_origin"] != "https://racetime.z1rracing.com":
+    if value["canonical_origin"] != "https://raceroom.z1rracing.com":
         raise FinalizationError("G1 canonical origin is invalid")
     if not isinstance(value["allowlist_record_sha256"], str) or not SHA256.fullmatch(value["allowlist_record_sha256"]):
         raise FinalizationError("G1 allowlist record hash is invalid")

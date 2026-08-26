@@ -1,8 +1,8 @@
-# Z1RR Restream Racetime Provider Abstraction Implementation Plan
+# Z1RR Restream racetime.gg Provider Abstraction Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make Z1RR.Restream consume Z1RR and pickup Z1R races from independently configured Racetime providers while preserving each race's original provider identity and URL forever.
+**Goal:** Make Z1RR.Restream consume Z1RR and pickup Z1R races from independently configured racetime.gg providers while preserving each race's original provider identity and URL forever.
 
 **Architecture:** Introduce a validated provider/logical-source registry and a single `RaceReference` value carried through REST, UI, drafts, sync, crops, realtime, tracker/broadcast state, and history. Existing SQLite records migrate additively to `racetime-gg:z1r`; every client resolves HTTP/WSS against the reference's provider, never a global current host.
 
@@ -12,7 +12,7 @@
 
 ## Control documents
 
-**Spec:** [Plan-B RaceTime architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
+**Spec:** [Plan-B Raceroom architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
 **Requirements and gates:** [Requirements and decision record](../../racetime-z1rr/requirements-and-decisions.md)
 **Artifact register:** [Launch artifact register](../../racetime-z1rr/artifact-register.md)
 **Master plan:** [Contingency launch master plan](2026-08-22-z1rr-racetime-launch-master.md)
@@ -21,11 +21,11 @@
 ## Global Constraints
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
-- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
+- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `raceroom.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
+- racetime.gg application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
-- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
+- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed Raceroom build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
 
 ## Repository and file map
 
@@ -55,7 +55,7 @@ Use one JSON environment variable so provider origin and logical-source ordering
     "sourceId": "z1rr",
     "label": "Z1RR organized racing",
     "providerId": "z1rr-racetime",
-    "origin": "https://racetime.z1rracing.com",
+    "origin": "https://raceroom.z1rracing.com",
     "category": "z1rr"
   },
   {
@@ -68,9 +68,9 @@ Use one JSON environment variable so provider origin and logical-source ordering
 ]
 ```
 
-For an approved Racetime.gg category, only the first source's provider/origin changes to `racetime-gg`/`https://racetime.gg`. The build does not change.
+For an approved racetime.gg category, only the first source's provider/origin changes to `racetime-gg`/`https://racetime.gg`. The build does not change.
 
-## Task 1: Make the low-level Racetime client origin-aware
+## Task 1: Make the low-level racetime.gg client origin-aware
 
 **Files:**
 - Modify: `lib/racetime.js`
@@ -81,12 +81,12 @@ For an approved Racetime.gg category, only the first source's provider/origin ch
 ```typescript
 const api = new RacetimeApi({
   providerId: 'z1rr-racetime',
-  baseUrl: 'https://racetime.z1rracing.com',
+  baseUrl: 'https://raceroom.z1rracing.com',
   category: 'z1rr',
 });
 await api.getRaceDetail('z1rr/example-room');
 expect(fetch).toHaveBeenCalledWith(
-  'https://racetime.z1rracing.com/z1rr/example-room/data',
+  'https://raceroom.z1rracing.com/z1rr/example-room/data',
   expect.any(Object),
 );
 ```
@@ -213,7 +213,7 @@ Contract:
 ```json
 {
   "sources": [
-    {"source": {"sourceId":"z1rr","label":"Z1RR organized racing","providerId":"z1rr-racetime","origin":"https://racetime.z1rracing.com","category":"z1rr"}, "races": [], "error": null},
+    {"source": {"sourceId":"z1rr","label":"Z1RR organized racing","providerId":"z1rr-racetime","origin":"https://raceroom.z1rracing.com","category":"z1rr"}, "races": [], "error": null},
     {"source": {"sourceId":"z1r","label":"Z1R pickup racing","providerId":"racetime-gg","origin":"https://racetime.gg","category":"z1r"}, "races": [], "error": null}
   ]
 }
@@ -358,7 +358,7 @@ git commit -m "refactor: carry race provider identity through restream"
 
 - [ ] **Step 1: Write failing URL-security tests**
 
-For self-hosted reference, relative `/ws/z1rr/room` becomes `wss://racetime.z1rracing.com/ws/z1rr/room`; HTTP loopback test becomes WS; same-origin absolute WSS passes. A `wss://racetime.gg/...` URL returned by self-hosted provider, credentials, non-WS protocol, category mismatch, and encoded host confusion are rejected.
+For self-hosted reference, relative `/ws/z1rr/room` becomes `wss://raceroom.z1rracing.com/ws/z1rr/room`; HTTP loopback test becomes WS; same-origin absolute WSS passes. A `wss://racetime.gg/...` URL returned by self-hosted provider, credentials, non-WS protocol, category mismatch, and encoded host confusion are rejected.
 
 - [ ] **Step 2: Write failing isolation tests**
 
@@ -409,7 +409,7 @@ State type is `RaceReference | null`. TanStack query keys include provider ID/ca
 
 - [ ] **Step 4: Render source sections and independent past browsing**
 
-Keep one screen/tab. Each source gets current list and its own past pagination/filter state. Use neutral labels `RaceTime` rather than `RT.gg`; host badge/link prevents mistaken destination.
+Keep one screen/tab. Each source gets current list and its own past pagination/filter state. Use neutral labels `Raceroom` rather than `RT.gg`; host badge/link prevents mistaken destination.
 
 - [ ] **Step 5: Update draft/detail components**
 

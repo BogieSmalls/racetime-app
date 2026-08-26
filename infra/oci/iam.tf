@@ -1,7 +1,7 @@
 resource "oci_identity_dynamic_group" "racetime" {
   compartment_id = var.tenancy_ocid
   name           = "z1rr-racetime-instance"
-  description    = "Only the dedicated Z1RR RaceTime instance"
+  description    = "Only the dedicated Z1RR Raceroom instance"
   matching_rule  = "ALL {instance.id = '${oci_core_instance.racetime.id}'}"
   freeform_tags  = local.common_tags
 

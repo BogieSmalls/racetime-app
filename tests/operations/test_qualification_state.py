@@ -137,7 +137,7 @@ class QualificationStateTests(unittest.TestCase):
         path.write_text(json.dumps({
             "schema_version": 1, "gate": "G1", "activation_id": "PLAN-B-20260824",
             "activated_at_utc": "2026-08-24T12:00:00Z",
-            "canonical_origin": "https://racetime.z1rracing.com",
+            "canonical_origin": "https://raceroom.z1rracing.com",
             "allowlist_record_sha256": "e" * 64,
         }) + "\n")
         return path

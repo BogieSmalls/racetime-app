@@ -3,7 +3,9 @@
 <html lang="en">
     <head>
         <title>{% block title %}{% endblock %}{{ site_info.title }}</title>
-        <link rel="icon" href="{% static 'racetime/image/favicon.svg' %}" type="image/svg+xml">
+        <link rel="icon" href="{% static 'racetime/image/favicon-32.png' %}" sizes="32x32" type="image/png">
+        <link rel="icon" href="{% static 'racetime/image/favicon-16.png' %}" sizes="16x16" type="image/png">
+        <link rel="apple-touch-icon" href="{% static 'racetime/image/apple-touch-icon.png' %}">
         <link href="https://fonts.googleapis.com/css?family=Roboto+Slab:400,700|Roboto:400,700&display=swap" rel="stylesheet">
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
         <link href="{% static 'jquery-ui.structure.css' %}" rel="stylesheet">
@@ -116,8 +118,10 @@
                         {% endfor %}
                     </div>
                     <span class="tagline">
-                        {{ site_info.operator_text }}<br>
-                        <a href="{{ site_info.upstream_url }}" target="_blank" rel="noopener noreferrer">{{ site_info.upstream_text }}</a>
+                        <a href="{{ site_info.source_url }}" target="_blank" rel="noopener noreferrer">{{ site_info.title }}</a>
+                        is operated by Z1Rracing,
+                        <a href="{{ site_info.upstream_url }}" target="_blank" rel="noopener noreferrer">{{ site_info.upstream_text|lower }}</a>
+                        (<a href="{{ site_info.license_url }}" target="_blank" rel="noopener noreferrer">GPL-3.0</a>)
                     </span>
                 </footer>
             {% endblock %}

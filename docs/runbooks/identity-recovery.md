@@ -44,7 +44,7 @@ manual database edits or transfer to an already-linked user.
    counts. Do not copy the Discord subject to evidence.
 3. Take verified DB backup, execute once in a transaction, and record audit hash.
 4. Revoke affected sessions/OAuth tokens and require fresh Discord login.
-5. Verify the returned account, editable RaceTime name, Twitch link separation,
+5. Verify the returned account, editable Raceroom name, Twitch link separation,
    historical race ownership, and collision constraints.
 6. For deletion, use the documented account lifecycle so ExternalIdentity
    cascades and backup expiry—not ad-hoc row deletion—governs residual data.

@@ -1,15 +1,15 @@
-# Z1RR RaceTime privacy notice
+# Z1RR Raceroom privacy notice
 
 Last updated: August 23, 2026
 
 ## Who operates this service
 
-Z1RR RaceTime is operated by Z1Rracing for organized Zelda 1 Randomizer
-racing. It is an independent deployment of the open-source Racetime project.
+Z1RR Raceroom is operated by Z1Rracing for organized Zelda 1 Randomizer
+racing. It is an independent deployment of the open-source racetime.gg project.
 
 ## Data we collect
 
-- **Account identity:** your Discord user ID, the Racetime display name you
+- **Account identity:** your Discord user ID, the display name you
   choose, account timestamps, and preferences. Discord profile data returned
   during sign-in is used only to complete authentication. The Discord
   authorization code and access token are transient and are not stored.
@@ -28,7 +28,7 @@ racing. It is an independent deployment of the open-source Racetime project.
 We use this data to authenticate accounts, run races and leaderboards, enforce
 race integrity and community rules, secure the service, and recover from
 failures. Public profile and race information is visible to other users as
-part of normal Racetime operation.
+part of normal racetime.gg operation.
 
 Data is processed by Discord or Twitch when you use those integrations and by
 infrastructure providers that host the service and its encrypted backups.

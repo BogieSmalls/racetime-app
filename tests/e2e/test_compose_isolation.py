@@ -94,7 +94,7 @@ class ComposeIsolationTests(unittest.TestCase):
     def test_rendered_source_contains_no_production_or_external_secret_path(self):
         combined = f"{self.integration_text}\n{self.integration_env}".lower()
         forbidden = (
-            "racetime.z1rracing.com",
+            "raceroom.z1rracing.com",
             ".env.production",
             "discord.com/api/oauth2/token",
             "discord.com/api/users/@me",

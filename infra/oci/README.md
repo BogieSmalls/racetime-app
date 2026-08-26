@@ -1,4 +1,4 @@
-# Z1RR RaceTime OCI infrastructure
+# Z1RR Raceroom OCI infrastructure
 
 This root module defines only the dedicated `racetime` platform and its direct
 supporting resources. It consumes explicit IDs for the existing VCN, subnet,
@@ -183,7 +183,11 @@ Do not recreate a plan between approval and apply. After apply, record the plan
 hash, Terraform/provider versions, resource IDs, boot size/VPUs, shape, NSG
 rules, bucket privacy/versioning, Bastion source CIDRs, dynamic-group match,
 policy statements, subscription confirmation state, alarms, usage forecast, and
-Cost Analysis baseline. DNS and application deployment are later gated steps.
+Cost Analysis baseline. Authoritative DNS is operator-managed in Namecheap, not
+by this OCI stack: create exactly two A records, `raceroom.z1rracing.com` and
+redirect-only `racetime.z1rracing.com`, both targeting the sensitive
+`instance_public_ip` output. Create no AAAA or CNAME. Application deployment
+and certificate issuance are later gated steps.
 
 ## Import and state recovery
 

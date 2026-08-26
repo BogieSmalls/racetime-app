@@ -1,10 +1,10 @@
-# Z1RR LiveSplit Racetime Provider Implementation Plan
+# Z1RR LiveSplit racetime.gg Provider Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a clean-room, side-by-side LiveSplit provider for `racetime.z1rracing.com` with correct public-client PKCE, safe token storage, Racetime race actions/chat/reconnect, and reproducible signed releases.
+**Goal:** Build a clean-room, side-by-side LiveSplit provider for `raceroom.z1rracing.com` with correct public-client PKCE, safe token storage, racetime.gg race actions/chat/reconnect, and reproducible signed releases.
 
-**Architecture:** A new repository references the official MIT-licensed LiveSplit 1.8.37 binaries/interfaces but copies no code from the unlicensed legacy Racetime provider. Protocol/authentication code is isolated from the Windows/LiveSplit adapter so deterministic unit and mock-server tests cover PKCE, REST/WSS, state transitions, reconnect, and timer actions before late-G2 restricted-production qualification.
+**Architecture:** A new repository references the official MIT-licensed LiveSplit 1.8.37 binaries/interfaces but copies no code from the unlicensed legacy racetime.gg provider. Protocol/authentication code is isolated from the Windows/LiveSplit adapter so deterministic unit and mock-server tests cover PKCE, REST/WSS, state transitions, reconnect, and timer actions before late-G2 restricted-production qualification.
 
 **Tech Stack:** C#/.NET Framework 4.8.1, Windows Forms, `HttpClient`, `ClientWebSocket`, `TcpListener`, Windows Credential Manager P/Invoke, NUnit, MSBuild/dotnet, GitHub Actions Windows runners, CycloneDX, minisign
 
@@ -12,7 +12,7 @@
 
 ## Control documents
 
-**Spec:** [Plan-B RaceTime architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
+**Spec:** [Plan-B Raceroom architecture](../specs/2026-08-12-plan-b-racetime-architecture-design.md)
 **Requirements and gates:** [Requirements and decision record](../../racetime-z1rr/requirements-and-decisions.md)
 **Artifact register:** [Launch artifact register](../../racetime-z1rr/artifact-register.md)
 **Master plan:** [Contingency launch master plan](2026-08-22-z1rr-racetime-launch-master.md)
@@ -21,11 +21,11 @@
 ## Global Constraints
 
 - G0 permits only local, non-public readiness work. OCI apply, DNS, production OAuth/apps, scheduler changes, publication, and cutover require their recorded G1–G3 gates.
-- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `racetime.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
-- RaceTime application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
+- Preserve both outcome lanes: `racetime.gg/z1rr` and self-hosted `raceroom.z1rracing.com/z1rr`. Do not alter ordinary `racetime.gg/z1r` pickup racing.
+- racetime.gg application work targets Django 5.2/Python 3.12 and produces same-commit immutable linux/arm64 and linux/amd64 images; A1 production runs ARM64 and the paid disaster-recovery fallback runs amd64. Provider work must preserve its plan's declared runtime.
 - Production origins are one validated HTTPS origin with no path/query/userinfo; every REST/WSS/link derives from it and historical references remain provider-qualified.
 - Discord is the sole public self-hosted login. Never persist Discord access/refresh tokens or grant category owners Django staff, host, database, secret, backup, or OCI access.
-- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed RaceTime build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
+- Preserve GPL-3.0/upstream attribution and corresponding source for every deployed Raceroom build; LiveSplit work stays clean-room and copies no unlicensed legacy-provider code.
 
 ## Repository boundary
 
@@ -38,7 +38,7 @@ LiveSplit release: 1.8.37
 Asset: LiveSplit_1.8.37.zip
 SHA-256: 14bc8ef8ded9ef4033fb2f0cb6a152386d393127da18a4de14f096c5347aa991
 Plugin target: net481
-Provider origin: https://racetime.z1rracing.com
+Provider origin: https://raceroom.z1rracing.com
 Category: z1rr
 Loopback redirect: http://127.0.0.1:4888/
 ```
@@ -81,7 +81,7 @@ Do not run `git clone` against the legacy provider.
 
 - [ ] **Step 2: Write the provenance record before implementation**
 
-Record permitted inputs: Z1RR architecture/requirements; Z1RR RaceTime GPL API/WebSocket behavior; official LiveSplit MIT release/binary/interfaces/source; OAuth 2.0/PKCE standards; observed network fixtures produced by Z1RR-owned local/qualification environments. Prohibited input: source/assets/resources/update feed from the unlicensed legacy provider.
+Record permitted inputs: Z1RR architecture/requirements; Z1RR Raceroom GPL API/WebSocket behavior; official LiveSplit MIT release/binary/interfaces/source; OAuth 2.0/PKCE standards; observed network fixtures produced by Z1RR-owned local/qualification environments. Prohibited input: source/assets/resources/update feed from the unlicensed legacy provider.
 
 - [ ] **Step 3: Write a failing clean-room contract test/script**
 
@@ -155,7 +155,7 @@ git commit -m "build: scaffold Z1RR LiveSplit provider"
 
 Expected: `artifacts/` absent from staged files.
 
-## Task 3: Define provider and Racetime protocol contracts
+## Task 3: Define provider and racetime.gg protocol contracts
 
 **Files:**
 - Create: `src/LiveSplit.Racetime.Z1RR.Core/Provider/ProviderConfiguration.cs`
@@ -183,7 +183,7 @@ Production defaults may include public origin/category/client ID only after G1 r
 
 - [ ] **Step 3: Write failing JSON/protocol model tests**
 
-Use sanitized Z1RR RaceTime fixtures for category/race/user/entrant/status, OAuth tokens/errors, and WebSocket `race.data`/chat/action messages. Cover unknown fields, missing required field, nullable timestamps, ISO durations, malformed JSON, and no dynamic execution.
+Use sanitized Z1RR Raceroom fixtures for category/race/user/entrant/status, OAuth tokens/errors, and WebSocket `race.data`/chat/action messages. Cover unknown fields, missing required field, nullable timestamps, ISO durations, malformed JSON, and no dynamic execution.
 
 - [ ] **Step 4: Implement minimal models/parser**
 
@@ -195,14 +195,14 @@ Pure state machine maps open/invitational/pending/in-progress/finished/canceled 
 
 - [ ] **Step 6: Document endpoints/messages from Z1RR server contracts**
 
-Link exact Z1RR RaceTime source paths/tests and official OAuth standard references. Do not cite/copy the legacy provider.
+Link exact Z1RR Raceroom source paths/tests and official OAuth standard references. Do not cite/copy the legacy provider.
 
 - [ ] **Step 7: Run tests and commit**
 
 ```powershell
 dotnet test tests\LiveSplit.Racetime.Z1RR.Core.Tests -c Release
 git add src tests docs\protocol-contract.md
-git commit -m "feat: define Z1RR Racetime protocol contracts"
+git commit -m "feat: define Z1RR racetime.gg protocol contracts"
 ```
 
 ## Task 4: Implement S256 PKCE and loopback callback
@@ -214,9 +214,9 @@ git commit -m "feat: define Z1RR Racetime protocol contracts"
 - Create: `src/LiveSplit.Racetime.Z1RR/Auth/LoopbackCallbackListener.cs`
 - Create: core/Windows auth tests
 
-**Interface — consumes from RaceTime:** the server-owned sanitized fixtures and endpoints `GET /o/authorize`, `POST /o/token`, `POST /o/revoke_token`, and authenticated `GET /o/userinfo`; redirect exactly `http://127.0.0.1:4888/`; scopes exactly `read chat_message race_action`.
+**Interface — consumes from Raceroom:** the server-owned sanitized fixtures and endpoints `GET /o/authorize`, `POST /o/token`, `POST /o/revoke_token`, and authenticated `GET /o/userinfo`; redirect exactly `http://127.0.0.1:4888/`; scopes exactly `read chat_message race_action`.
 
-**Interface — produces for RaceTime qualification:** authorize query, token/refresh/revoke form bodies, loopback callback cases, and redacted success/error transcripts that the server contract suite replays. The component sends no client secret or `create_race` scope and does not infer alternate OAuth paths.
+**Interface — produces for Raceroom qualification:** authorize query, token/refresh/revoke form bodies, loopback callback cases, and redacted success/error transcripts that the server contract suite replays. The component sends no client secret or `create_race` scope and does not infer alternate OAuth paths.
 
 - [ ] **Step 1: Write failing PKCE vector tests**
 
@@ -259,7 +259,7 @@ git commit -m "feat: authenticate LiveSplit with S256 PKCE"
 
 - [ ] **Step 1: Write failing token-store contract tests**
 
-Store/read/overwrite/delete/absent/corrupt/oversize/error. Target name is exactly `Z1RR RaceTime/LiveSplit/OAuth/<client-id-hash>` and cannot collide with stock provider. Persist refresh token and minimum expiry/account metadata; access token may remain memory-only. `ToString`/logs expose no token.
+Store/read/overwrite/delete/absent/corrupt/oversize/error. Target name is exactly `Z1RR Raceroom/LiveSplit/OAuth/<client-id-hash>` and cannot collide with stock provider. Persist refresh token and minimum expiry/account metadata; access token may remain memory-only. `ToString`/logs expose no token.
 
 - [ ] **Step 2: Implement interface/in-memory store**
 
@@ -277,7 +277,7 @@ Expected: PASS and test credential is deleted even on failure.
 
 ```powershell
 git add src tests
-git commit -m "feat: protect LiveSplit Racetime refresh tokens"
+git commit -m "feat: protect LiveSplit racetime.gg refresh tokens"
 ```
 
 ## Task 6: Implement REST and WebSocket clients
@@ -317,7 +317,7 @@ Expected: PASS for normal lifecycle plus network loss, message reorder/duplicati
 
 ```powershell
 git add src tests
-git commit -m "feat: implement Z1RR Racetime protocol client"
+git commit -m "feat: implement Z1RR racetime.gg protocol client"
 ```
 
 ## Task 7: Implement the side-by-side LiveSplit provider adapter
@@ -336,7 +336,7 @@ Use reflection/official LiveSplit source at the recorded release commit to recor
 
 - [ ] **Step 2: Write failing adapter identity tests**
 
-Assert assembly `LiveSplit.Racetime.Z1RR`, provider display `Z1RR RaceTime`, settings XML name `Z1RR.Racetime.Provider`, website `https://racetime.z1rracing.com`, distinct credential target/update URL, and no collision when a fake stock provider is loaded.
+Assert assembly `LiveSplit.Racetime.Z1RR`, provider display `Z1RR Raceroom`, settings XML name `Z1RR.Racetime.Provider`, website `https://raceroom.z1rracing.com`, distinct credential target/update URL, and no collision when a fake stock provider is loaded.
 
 - [ ] **Step 3: Write failing race-list/info tests**
 
@@ -354,7 +354,7 @@ Expected: PASS and plugin loads through reflection without type/assembly resolut
 
 ```powershell
 git add src tests docs\protocol-contract.md
-git commit -m "feat: integrate Z1RR Racetime with LiveSplit"
+git commit -m "feat: integrate Z1RR racetime.gg with LiveSplit"
 ```
 
 ## Task 8: Connect race lifecycle to the timer and UI

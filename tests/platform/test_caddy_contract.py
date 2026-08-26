@@ -15,7 +15,7 @@ ENV_FILES = {
     "production-public": ENV_DIRECTORY / "production-public.env.example",
 }
 EXPECTED_ENVIRONMENT = {
-    "CADDY_SITE_HOST", "CADDY_ACME_EMAIL", "CADDY_ACME_CA",
+    "CADDY_SITE_HOST", "CADDY_ALIAS_HOST", "CADDY_ACME_EMAIL", "CADDY_ACME_CA",
     "CADDY_ACME_TEST_CA", "CADDY_ACCESS_PHASE", "CADDY_ALLOWED_CIDRS",
     "CADDY_HSTS_VALUE",
 }
@@ -53,7 +53,8 @@ class CaddyEnvironmentContractTests(unittest.TestCase):
         environments = {name: parse_env(path) for name, path in ENV_FILES.items()}
         for name, values in environments.items():
             self.assertEqual(set(values), EXPECTED_ENVIRONMENT, name)
-            self.assertEqual(values["CADDY_SITE_HOST"], "racetime.z1rracing.com")
+            self.assertEqual(values["CADDY_SITE_HOST"], "raceroom.z1rracing.com")
+            self.assertEqual(values["CADDY_ALIAS_HOST"], "racetime.z1rracing.com")
             self.assertEqual(values["CADDY_ACME_CA"], values["CADDY_ACME_TEST_CA"])
             self.assertNotIn("zerossl", json.dumps(values).lower())
             self.assertTrue(values["CADDY_ACME_EMAIL"].endswith(".invalid"))
@@ -114,6 +115,21 @@ class CaddySourceContractTests(unittest.TestCase):
         self.assertNotIn("basicauth", self.source)
         self.assertIn("remote_ip {$CADDY_ALLOWED_CIDRS}", self.source)
 
+    def test_legacy_host_is_a_source_restricted_redirect_only_alias(self):
+        alias = self.source.split("# redirect-only-alias-begin", 1)[1].split(
+            "# redirect-only-alias-end", 1
+        )[0]
+        self.assertIn("https://{$CADDY_ALIAS_HOST}", alias)
+        self.assertLess(
+            alias.index("respond @aliasSourceDenied 404"),
+            alias.index("redir https://{$CADDY_SITE_HOST}{uri} 308"),
+        )
+        for forbidden in (
+            "reverse_proxy", "file_server", "/static/", "/media/",
+            "/account/", "/ws/",
+        ):
+            self.assertNotIn(forbidden, alias)
+
     def test_proxy_media_and_admin_controls_are_explicit(self):
         self.assertIn("request_body", self.source)
         self.assertIn("max_size 5MB", self.source)
@@ -127,16 +143,16 @@ class CaddySourceContractTests(unittest.TestCase):
         self.assertIn("@operatorOnly path /admin* /internal/*", self.source)
 
     def test_access_logs_redact_oauth_and_secret_query_values(self):
-        self.assertEqual(self.source.count("format filter"), 2)
-        self.assertEqual(self.source.count("request>uri query"), 2)
+        self.assertEqual(self.source.count("format filter"), 3)
+        self.assertEqual(self.source.count("request>uri query"), 3)
         for name in (
             "code", "state", "token", "access_token", "refresh_token",
             "client_secret", "password", "webhook", "error_description",
         ):
             self.assertEqual(
-                self.source.count(f"replace {name} REDACTED"), 2, name,
+                self.source.count(f"replace {name} REDACTED"), 3, name,
             )
-        self.assertEqual(self.source.count("wrap json"), 2)
+        self.assertEqual(self.source.count("wrap json"), 3)
 
 
 class AdaptedCaddyContractTests(unittest.TestCase):
@@ -182,12 +198,13 @@ class AdaptedCaddyContractTests(unittest.TestCase):
                 values = parse_env(ENV_FILES[name])
                 serialized = json.dumps(config, sort_keys=True)
                 self.assertIn(values["CADDY_SITE_HOST"], serialized)
+                self.assertIn(values["CADDY_ALIAS_HOST"], serialized)
                 self.assertIn(values["CADDY_HSTS_VALUE"], serialized)
                 self.assertIn("web:8000", serialized)
                 self.assertIn(":8081", serialized)
                 for cidr in values["CADDY_ALLOWED_CIDRS"].split():
                     self.assertIn(cidr, serialized)
-                self.assertEqual(serialized.count('"filter": "query"'), 2)
+                self.assertEqual(serialized.count('"filter": "query"'), 3)
                 for parameter in (
                     "code", "state", "access_token", "refresh_token", "client_secret",
                 ):

@@ -1,8 +1,8 @@
-# Z1RR RaceTime Contingency Launch Master Implementation Plan
+# Z1RR Raceroom Contingency Launch Master Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Produce, qualify, and—only after explicit Council gates—launch `racetime.z1rracing.com` as a recoverable Z1RR-operated Racetime service while preserving the simpler `racetime.gg/z1rr` outcome.
+**Goal:** Produce, qualify, and—only after explicit Council gates—launch `raceroom.z1rracing.com` as a recoverable Z1RR-operated racetime.gg service while preserving the simpler `racetime.gg/z1rr` outcome.
 
 **Architecture:** A dedicated single-node ARM64 OCI deployment runs Caddy, Django/Daphne, the upstream racebot, MariaDB, Redis, and backup jobs from same-commit ARM64/amd64 immutable images; amd64 is the paid disaster-recovery fallback. Discord supplies public identity, Restream and TTPBot consume a provider-origin contract, and a clean-room LiveSplit DLL is built only for the self-hosted outcome. Restricted qualification and public service share the canonical hostname but never data, credentials, sessions, or Caddy state.
 
@@ -38,7 +38,7 @@ Implementation uses @superpowers:test-driven-development within every code task,
 ```text
 Request pending (G0)
   ├─ Build/test provider-neutral + contingency artifacts locally
-  ├─ Racetime.gg grants z1rr
+  ├─ racetime.gg grants z1rr
   │    ├─ Configure Restream: racetime-gg:z1rr
   │    ├─ Configure TTPBot: https://racetime.gg + z1rr
   │    └─ Cancel self-hosted app/OCI/Discord auth/LiveSplit release
@@ -59,12 +59,12 @@ TTPBot/.worktrees/racetime-provider
 LiveSplit.Racetime.Z1RR/                 # new repository; Plan-B artifact
 ```
 
-The RaceTime repository has two permanent protected branches with distinct purposes:
+The Raceroom repository has two permanent protected branches with distinct purposes:
 
 - `master` is an upstream mirror. Only reviewed upstream synchronization commits/tags may land there; no Z1RR product commit is merged into it.
 - `z1rr-production` is the deployable Z1RR line. It is not created until G1 Plan-B activation; at G1 it is initialized once from the recorded upstream baseline, protected, made the default branch, and becomes the only branch allowed to publish production release candidates.
 
-G0 implementation work uses `feature/racetime-readiness` from the recorded baseline and remains off `master`; after G1 it targets `z1rr-production`. Restream and TTPBot use `feature/racetime-provider` and their existing protected production branches; the clean-room LiveSplit repository uses feature branches targeting protected `main`. The existing planning worktree/branch may be merged into `feature/racetime-readiness` before code begins, never into the RaceTime upstream-mirror `master`.
+G0 implementation work uses `feature/racetime-readiness` from the recorded baseline and remains off `master`; after G1 it targets `z1rr-production`. Restream and TTPBot use `feature/racetime-provider` and their existing protected production branches; the clean-room LiveSplit repository uses feature branches targeting protected `main`. The existing planning worktree/branch may be merged into `feature/racetime-readiness` before code begins, never into the Raceroom upstream-mirror `master`.
 
 ## Phase dependency graph
 
@@ -145,7 +145,7 @@ Expected: no application file enters this commit.
 - Create: `docs/evidence/2026-08-22-g0-baseline.md`
 - Modify: `docs/racetime-z1rr/artifact-register.md` only to add evidence links, not change requirements
 
-- [ ] **Step 1: Capture RaceTime baseline tests and dependency audit**
+- [ ] **Step 1: Capture Raceroom baseline tests and dependency audit**
 
 ```powershell
 .\venv\Scripts\python.exe manage.py test
@@ -218,7 +218,7 @@ git commit -am "docs: accept racetime source preservation artifacts"
 
 **Files:** See the core/platform, Restream, TTPBot, LiveSplit, and operations subsystem plans.
 
-- [ ] **Step 1: Execute the RaceTime core/platform plan through its G0 stop line**
+- [ ] **Step 1: Execute the Raceroom core/platform plan through its G0 stop line**
 
 Expected: APP-001–012 and PLT-001–008 are locally verified; no Terraform apply, public DNS, production app registration, or OCI mutation occurs except the separately authorized private G0 source-custody bucket and its four source-preservation objects.
 
@@ -240,7 +240,7 @@ Expected: GOV-004 and OPS-001–004 are locally verified; `validate-evidence.py`
 
 - [ ] **Step 6: Review each workstream independently**
 
-Use @superpowers:requesting-code-review for each workstream change set, consolidating reviews that share the RaceTime repository without dropping either the core/platform or G0-operations acceptance criteria. No cross-repository integration begins with an open blocking review item.
+Use @superpowers:requesting-code-review for each workstream change set, consolidating reviews that share the Raceroom repository without dropping either the core/platform or G0-operations acceptance criteria. No cross-repository integration begins with an open blocking review item.
 
 ## Task 5: Build the isolated local integration environment
 
@@ -313,7 +313,7 @@ The G0 integration runner performs both commands on a clean worker and caches on
 
 - [ ] **Step 6: Implement integration startup and ordinary unittest fixtures**
 
-`integration-up.ps1` validates fixture-only environment, builds images, starts the stack, waits for health, migrates, and runs `bootstrap_z1rr --site-domain integration.racetime.test --site-name "Z1RR RaceTime Integration" --exclusive-public-category`. `integration-down.ps1` addresses only the explicit integration Compose project and preserves failure logs. `fixtures.py` exports `IntegrationEndpoints.from_env()`, `chromium_page(...)`, deterministic fixture-Discord account helpers, and bounded wait/assertion helpers; every helper raises `unittest`-readable errors and redacts OAuth material.
+`integration-up.ps1` validates fixture-only environment, builds images, starts the stack, waits for health, migrates, and runs `bootstrap_z1rr --site-domain integration.racetime.test --site-name "Z1RR Raceroom Integration" --exclusive-public-category`. `integration-down.ps1` addresses only the explicit integration Compose project and preserves failure logs. `fixtures.py` exports `IntegrationEndpoints.from_env()`, `chromium_page(...)`, deterministic fixture-Discord account helpers, and bounded wait/assertion helpers; every helper raises `unittest`-readable errors and redacts OAuth material.
 
 - [ ] **Step 7: Run core integration tests**
 
@@ -393,7 +393,7 @@ The record must say one of:
 
 ```text
 APPROVED_CATEGORY: use https://racetime.gg/z1rr; cancel Plan-B deployment.
-PLAN_B_ACTIVATED: authorize G1 external prerequisites for https://racetime.z1rracing.com.
+PLAN_B_ACTIVATED: authorize G1 external prerequisites for https://raceroom.z1rracing.com.
 CONTINUE_WAITING: make no external changes; retain and periodically refresh G0 artifacts.
 ```
 
@@ -401,13 +401,13 @@ CONTINUE_WAITING: make no external changes; retain and periodically refresh G0 a
 
 For `CONTINUE_WAITING`, schedule monthly dependency/inventory drift checks. For `PLAN_B_ACTIVATED`, continue with Task 8. For `APPROVED_CATEGORY`, complete Steps 4–10 below; do not execute Plan-B Tasks 8–10.
 
-- [ ] **Step 4: Obtain and inventory Racetime.gg category access** (`APPROVED_CATEGORY` only)
+- [ ] **Step 4: Obtain and inventory racetime.gg category access** (`APPROVED_CATEGORY` only)
 
 Confirm the live `z1rr` category, Council owner/moderator access, goal configuration, and the minimum TTPBot confidential-client/category-bot credentials. Record credential owner, recovery route, permissions, redirect/callback values, and revocation path in the private access register without copying secrets into evidence. Acceptance: the primary technical operator can rotate credentials and Council category owners can administer the category without relying on the old `z1r` owners.
 
 - [ ] **Step 5: Stage the approved provider configuration** (`APPROVED_CATEGORY` only)
 
-Deploy the reviewed Restream and TTPBot release candidates to isolated staging. Set Restream's logical Z1RR source to provider `racetime-gg`, origin `https://racetime.gg`, category `z1rr`; keep pickup as `racetime.gg/z1r`. Set TTPBot origin/category to the same `z1rr` destination with staging credentials/state. Run both preflights and prove that no self-hosted hostname, self-hosted OAuth app, OCI RaceTime service, or Z1RR LiveSplit build is required.
+Deploy the reviewed Restream and TTPBot release candidates to isolated staging. Set Restream's logical Z1RR source to provider `racetime-gg`, origin `https://racetime.gg`, category `z1rr`; keep pickup as `racetime.gg/z1r`. Set TTPBot origin/category to the same `z1rr` destination with staging credentials/state. Run both preflights and prove that no self-hosted hostname, self-hosted OAuth app, OCI Raceroom service, or Z1RR LiveSplit build is required.
 
 - [ ] **Step 6: Rehearse approved-path cutover and rollback** (`APPROVED_CATEGORY` only)
 
@@ -439,7 +439,7 @@ Initialize `z1rr-production` at the recorded baseline, push/protect it with the 
 
 - [ ] **Step 2: Deploy immutable release candidates to restricted qualification**
 
-Expected: exact same-commit ARM64/amd64 image and provider hashes recorded on disposable qualification volumes at `racetime.z1rracing.com`; no production scheduler, production credentials, public route, or public announcement.
+Expected: exact same-commit ARM64/amd64 image and provider hashes recorded on disposable qualification volumes at `raceroom.z1rracing.com`; no production scheduler, production credentials, public route, or public announcement.
 
 - [ ] **Step 3: Execute pre-transition G2 functional, security, load, recovery, and failure tests**
 
@@ -511,7 +511,7 @@ Expected: reviewed changes are merged through the selected workflow, temporary w
 
 ## Final verification commands
 
-Run from the RaceTime readiness worktree after subsystem plans are complete:
+Run from the Raceroom readiness worktree after subsystem plans are complete:
 
 ```powershell
 git status --short

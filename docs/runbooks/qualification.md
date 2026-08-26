@@ -1,4 +1,4 @@
-# Qualify the restricted RaceTime candidate
+# Qualify the restricted Raceroom candidate
 
 ## Purpose
 
@@ -38,7 +38,8 @@ and a change ID. The canonical allowlist remains in force and G3/public is refus
 
 ## Safety preflight
 
-Confirm canonical DNS already resolves, 443 is public for TLS-ALPN-01, Caddy
+Confirm canonical and redirect-alias A records resolve to the same reserved IP,
+no AAAA/CNAME exists, 443 is public for TLS-ALPN-01 on both names, and Caddy
 default-deny precedes every route, staging issuer has `ca == test_ca`, HTTP-01 is
 disabled, state generation is qualification-only, schedulers are fake/disabled,
 and no ordinary trust store contains the staging root.

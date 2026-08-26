@@ -1,15 +1,15 @@
-# RaceTime monitoring and alert response
+# Raceroom monitoring and alert response
 
 ## Purpose
 
 Operate the secret-safe host probe and signed Discord alert adapter for
-`racetime.z1rracing.com`. This runbook covers normal checks, cost/utilization
+`raceroom.z1rracing.com`. This runbook covers normal checks, cost/utilization
 signals, validation, recovery notices, and the first response to an alert. It
 does not authorize G1 resources, public launch, or a production credential.
 
 ## Prerequisites
 
-- A deployed, immutable RaceTime release and its reviewed Compose manifest.
+- A deployed, immutable Raceroom release and its reviewed Compose manifest.
 - Root access through OCI Bastion and the account-recovery route in
   [vm-loss.md](vm-loss.md).
 - A root-owned monitoring config that conforms to
@@ -79,7 +79,7 @@ notices. It prints only `{"result":"delivered|deduped"}`, never the webhook.
    and output directory are root-owned, non-symlink paths with no group/world
    write permission.
 2. Confirm `public_origin`, WSS URL, and TLS host are exactly
-   `racetime.z1rracing.com`; internal readiness must resolve to loopback.
+   `raceroom.z1rracing.com`; internal readiness must resolve to loopback.
 3. Confirm the webhook allowlist is the exact reviewed Discord hostname and
    that `max_attempts` is no more than five.
 4. Confirm metric inputs contain aggregates only—no Discord IDs, access tokens,
@@ -131,7 +131,7 @@ notices. It prints only `{"result":"delivered|deduped"}`, never the webhook.
 - Retained volumes: P3 at $4.61 and P2 at $6.61 versus the $3.61 baseline.
 - Object Storage: P3 at 75% and P2 at 90% of verified byte/request entitlements.
 - Any normalized billing event: P3 attribution/reconciliation; it is not by
-  itself evidence of a RaceTime fault.
+  itself evidence of a Raceroom fault.
 
 ## Verification
 

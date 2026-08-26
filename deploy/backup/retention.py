@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan and apply Z1RR RaceTime backup retention without guessing state."""
+"""Plan and apply Z1RR Raceroom backup retention without guessing state."""
 
 from __future__ import annotations
 

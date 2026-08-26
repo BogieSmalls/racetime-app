@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://racetime.z1rracing.com/schemas/backup-manifest-v1.json",
-  "title": "Z1RR RaceTime verified backup manifest",
+  "$id": "https://raceroom.z1rracing.com/schemas/backup-manifest-v1.json",
+  "title": "Z1RR Raceroom verified backup manifest",
   "type": "object",
   "additionalProperties": false,
   "required": [

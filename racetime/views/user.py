@@ -247,7 +247,7 @@ class DeleteAccount(LoginRequiredMixin, UserMixin, generic.TemplateView):
         user = self.user
         logout(request)
         delete_user(request, user)
-        messages.success(request, 'Your Z1RR RaceTime account has been deleted.')
+        messages.success(request, 'Your Z1RR Raceroom account has been deleted.')
         return http.HttpResponseRedirect(reverse('home'))
 
 
@@ -526,7 +526,7 @@ class TwitchAuth(LoginRequiredMixin, UserMixin, generic.View):
                         messages.error(
                             request,
                             'Your Twitch account is already connected to another '
-                            'Z1RR RaceTime account.',
+                            'Z1RR Raceroom account.',
                         )
                     else:
                         user.twitch_id = data.get('id')
@@ -618,7 +618,7 @@ class PatreonAuth(LoginRequiredMixin, UserMixin, generic.View):
                     messages.error(
                         request,
                         'Your Patreon account is already connected to another '
-                        'Z1RR RaceTime account.',
+                        'Z1RR Raceroom account.',
                     )
                 else:
                     user.patreon_id = data.get('id')

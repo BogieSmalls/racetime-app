@@ -1,4 +1,4 @@
-# Z1RR RaceTime Requirements Traceability Matrix
+# Z1RR Raceroom Requirements Traceability Matrix
 
 **Date:** 2026-08-22
 **Requirements:** `docs/racetime-z1rr/requirements-and-decisions.md`
@@ -25,7 +25,7 @@ Coverage is bidirectional: every registered artifact must appear in at least one
 | --- | --- | --- | --- | --- | --- |
 | FR-ID-001 any Discord account | Core Tasks 3–4 | APP-004 | Discord `identify` callback tests without guild check | G0/G2 | Planned |
 | FR-ID-002 immutable returning identity | Core Tasks 2, 4 | APP-003, APP-004 | repeat login after Discord profile rename | G0/G2 | Planned |
-| FR-ID-003 chosen/editable RaceTime name | Core Tasks 4–5 | APP-004, APP-005 | name validation/active-race edit tests | G0/G2 | Planned |
+| FR-ID-003 chosen/editable Raceroom name | Core Tasks 4–5 | APP-004, APP-005 | name validation/active-race edit tests | G0/G2 | Planned |
 | FR-ID-004 disabled password/email/etc.; operator login | Core Task 5; Platform Task 4 | APP-005, PLT-003 | route policy and public/loopback admin smoke | G0/G2 | Planned |
 | FR-ID-005 separate Twitch identity | Core Task 5; Operations Task 6 | APP-005 | link/unlink and streaming-required regression | G0/G2 | Planned |
 | FR-ID-006 deletion and audited transfer | Core Tasks 2, 6; Operations Task 1 | APP-003, APP-006, OPS-003 | cascade plus transfer dry-run/collision/audit and access-review contract tests | G0/G2 | Planned |

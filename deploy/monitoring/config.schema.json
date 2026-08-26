@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://racetime.z1rracing.com/schemas/monitoring-config-v1.json",
-  "title": "Z1RR RaceTime monitoring configuration",
+  "$id": "https://raceroom.z1rracing.com/schemas/monitoring-config-v1.json",
+  "title": "Z1RR Raceroom monitoring configuration",
   "type": "object",
   "additionalProperties": false,
   "required": ["probe", "alert"],
@@ -17,12 +17,12 @@
       ],
       "properties": {
         "schema_version": {"const": 1},
-        "public_origin": {"const": "https://racetime.z1rracing.com"},
+        "public_origin": {"const": "https://raceroom.z1rracing.com"},
         "websocket_url": {"type": "string", "pattern": "^wss://racetime\\.z1rracing\\.com/"},
         "public_admin_path": {"type": "string", "pattern": "^/"},
         "internal_readiness_url": {"type": "string", "pattern": "^https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]+)?/"},
         "internal_token_env": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]+$"},
-        "tls_host": {"const": "racetime.z1rracing.com"},
+        "tls_host": {"const": "raceroom.z1rracing.com"},
         "tls_port": {"const": 443},
         "container_names": {
           "type": "array", "uniqueItems": true, "minItems": 5, "maxItems": 5,
