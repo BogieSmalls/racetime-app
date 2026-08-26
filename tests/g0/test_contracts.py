@@ -71,8 +71,11 @@ def schema_errors(schema, value, root=None, location="$"):
             errors.extend(schema_errors(schema["then"], value, root, location))
         elif not condition_matches and "else" in schema:
             errors.extend(schema_errors(schema["else"], value, root, location))
-    if "const" in schema and value != schema["const"]:
-        errors.append(f"{location}: expected constant {schema['const']!r}")
+    if "const" in schema:
+        expected = schema["const"]
+        boolean_mismatch = isinstance(value, bool) != isinstance(expected, bool)
+        if boolean_mismatch or value != expected:
+            errors.append(f"{location}: expected constant {expected!r}")
     if "enum" in schema and value not in schema["enum"]:
         errors.append(f"{location}: value is outside enum")
 
@@ -181,11 +184,11 @@ def valid_run_manifest():
         "project_prefix": PROJECT_PREFIX,
         "created_at_utc": "2026-08-26T12:00:00Z",
         "remote_root": f"/var/lib/z1rr-racetime/g0/{RUN_ID}",
-        "aggregate_timeout_seconds": 86400,
+        "aggregate_wall_seconds": 86400,
         "final_cleanup_timeout_seconds": 900,
         "heartbeat_interval_seconds": 15,
         "lease_timeout_seconds": 90,
-        "absolute_terminal_timeout_seconds": 86490,
+        "absolute_terminal_seconds": 86490,
         "lock_identities": {
             "docker_bootstrap_sha256": SHA_A,
             "tool_lock_sha256": SHA_B,
@@ -435,11 +438,11 @@ class ContractTests(unittest.TestCase):
                 "project_prefix",
                 "created_at_utc",
                 "remote_root",
-                "aggregate_timeout_seconds",
+                "aggregate_wall_seconds",
                 "final_cleanup_timeout_seconds",
                 "heartbeat_interval_seconds",
                 "lease_timeout_seconds",
-                "absolute_terminal_timeout_seconds",
+                "absolute_terminal_seconds",
                 "lock_identities",
                 "sources",
                 "outputs",
@@ -566,6 +569,29 @@ class ContractTests(unittest.TestCase):
                 with self.assertRaises(ContractError):
                     validator(mutation)
 
+    def test_boolean_schema_versions_are_rejected_as_non_integers(self):
+        contracts = (
+            ("run-manifest", valid_run_manifest(), validate_run_manifest),
+            ("docker-bootstrap-lock", valid_bootstrap_lock(), None),
+            ("tool-lock", valid_tool_lock(), validate_tool_lock),
+            ("worker-evidence", valid_worker_evidence(), validate_worker_evidence),
+            ("worker-disposal", valid_worker_disposal(), validate_worker_disposal),
+            ("restream-history", valid_restream_history(), validate_restream_history),
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            for schema_name, value, validator in contracts:
+                value["schema_version"] = True
+                with self.subTest(contract=schema_name):
+                    self.assertSchemaInvalid(schema_name, value)
+                    if validator is not None:
+                        with self.assertRaises(ContractError):
+                            validator(value)
+                    path = root / f"{schema_name}.json"
+                    path.write_text(json.dumps(value), encoding="utf-8")
+                    with self.assertRaises(ContractError):
+                        load_json(path, schema_name)
+
     def test_run_identity_root_phase_order_and_timeouts_fail_closed(self):
         mutations = []
         bad_prefix = valid_run_manifest()
@@ -596,7 +622,7 @@ class ContractTests(unittest.TestCase):
         excessive_phase_timeout["phases"][2]["timeout_seconds"] = 86401
         mutations.append(excessive_phase_timeout)
         excessive_aggregate = valid_run_manifest()
-        excessive_aggregate["aggregate_timeout_seconds"] = 86401
+        excessive_aggregate["aggregate_wall_seconds"] = 86401
         mutations.append(excessive_aggregate)
         for mutation in mutations:
             with self.subTest(mutation=mutation):
@@ -630,9 +656,21 @@ class ContractTests(unittest.TestCase):
         wrong_lease = valid_run_manifest()
         wrong_lease["lease_timeout_seconds"] = 89
         invalid_for_schema_and_runtime.append(wrong_lease)
+        aggregate_under_boundary = valid_run_manifest()
+        aggregate_under_boundary["aggregate_wall_seconds"] = 86399
+        invalid_for_schema_and_runtime.append(aggregate_under_boundary)
         terminal_over_boundary = valid_run_manifest()
-        terminal_over_boundary["absolute_terminal_timeout_seconds"] = 86491
+        terminal_over_boundary["absolute_terminal_seconds"] = 86491
         invalid_for_schema_and_runtime.append(terminal_over_boundary)
+        terminal_under_boundary = valid_run_manifest()
+        terminal_under_boundary["absolute_terminal_seconds"] = 86489
+        invalid_for_schema_and_runtime.append(terminal_under_boundary)
+
+        stale_clock_names = valid_run_manifest()
+        stale_clock_names["aggregate_timeout_seconds"] = stale_clock_names.pop(
+            "aggregate_wall_seconds"
+        )
+        invalid_for_schema_and_runtime.append(stale_clock_names)
 
         for mutation in invalid_for_schema_and_runtime:
             with self.subTest(mutation=mutation):
@@ -652,9 +690,7 @@ class ContractTests(unittest.TestCase):
         phases_plus_reserve_exceed_aggregate["phases"][-1]["timeout_seconds"] = 2701
 
         terminal_does_not_equal_aggregate_plus_lease = valid_run_manifest()
-        terminal_does_not_equal_aggregate_plus_lease[
-            "absolute_terminal_timeout_seconds"
-        ] = 86489
+        terminal_does_not_equal_aggregate_plus_lease["lease_timeout_seconds"] = 91
 
         for label, mutation in (
             ("command clocks", execution_plus_cleanup_exceeds_phase),
@@ -760,6 +796,11 @@ class ContractTests(unittest.TestCase):
             "completed_at_utc"
         ] = "2026-08-26T12:05:01Z"
 
+        at_disposal_boundary = valid_worker_disposal()
+        at_disposal_boundary["complete_pre_failure_hashes"][0][
+            "completed_at_utc"
+        ] = "2026-08-26T12:05:00Z"
+
         incomplete = valid_worker_disposal()
         incomplete["complete_pre_failure_hashes"][0]["complete"] = False
 
@@ -780,13 +821,27 @@ class ContractTests(unittest.TestCase):
             copy.deepcopy(duplicate["complete_pre_failure_hashes"][0])
         )
 
+        oversized = valid_worker_disposal()
+        oversized["complete_pre_failure_hashes"] = [
+            {
+                "name": f"artifact-{index:03d}.json",
+                "kind": "retained-artifact",
+                "sha256": SHA_A,
+                "completed_at_utc": "2026-08-26T12:00:00Z",
+            }
+            for index in range(257)
+        ]
+        self.assertSchemaInvalid("worker-disposal", oversized)
+
         for label, mutation in (
             ("after failure", after_failure),
+            ("at disposal boundary", at_disposal_boundary),
             ("incomplete", incomplete),
             ("command log", command_log),
             ("secret-like name", unsafe_name),
             ("raw identity name", raw_identity_name),
             ("duplicate", duplicate),
+            ("oversized", oversized),
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):

@@ -4,11 +4,11 @@
   "project_prefix": "z1rr-racetime-g0-20260826t120000z-1234abcd",
   "created_at_utc": "2026-08-26T12:00:00Z",
   "remote_root": "/var/lib/z1rr-racetime/g0/20260826t120000z-1234abcd",
-  "aggregate_timeout_seconds": 86400,
+  "aggregate_wall_seconds": 86400,
   "final_cleanup_timeout_seconds": 900,
   "heartbeat_interval_seconds": 15,
   "lease_timeout_seconds": 90,
-  "absolute_terminal_timeout_seconds": 86490,
+  "absolute_terminal_seconds": 86490,
   "lock_identities": {
     "docker_bootstrap_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "tool_lock_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

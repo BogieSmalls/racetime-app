@@ -299,6 +299,11 @@ def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
     return value
 
 
+def _require_schema_version_one(value: object, label: str) -> None:
+    if not isinstance(value, int) or isinstance(value, bool) or value != 1:
+        raise ContractError(f"{label} schema_version must be the integer 1")
+
+
 def _number(value: object, label: str, minimum: float, maximum: float) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ContractError(f"{label} must be a number from {minimum} through {maximum}")
@@ -429,19 +434,18 @@ def validate_run_manifest(value: object) -> dict:
             "project_prefix",
             "created_at_utc",
             "remote_root",
-            "aggregate_timeout_seconds",
+            "aggregate_wall_seconds",
             "final_cleanup_timeout_seconds",
             "heartbeat_interval_seconds",
             "lease_timeout_seconds",
-            "absolute_terminal_timeout_seconds",
+            "absolute_terminal_seconds",
             "lock_identities",
             "sources",
             "outputs",
             "phases",
         },
     )
-    if result["schema_version"] != 1:
-        raise ContractError("run manifest schema_version must be 1")
+    _require_schema_version_one(result["schema_version"], "run manifest")
     run_id = _string(result["run_id"], "run manifest run_id", pattern=_RUN_ID_PATTERN)
     expected_prefix = f"z1rr-racetime-g0-{run_id}"
     if result["project_prefix"] != expected_prefix:
@@ -450,9 +454,9 @@ def validate_run_manifest(value: object) -> dict:
     if result["remote_root"] != f"/var/lib/z1rr-racetime/g0/{run_id}":
         raise ContractError("run manifest remote_root is outside the allowed G0 root")
     aggregate_timeout = _integer(
-        result["aggregate_timeout_seconds"],
-        "run manifest aggregate_timeout_seconds",
-        1,
+        result["aggregate_wall_seconds"],
+        "run manifest aggregate_wall_seconds",
+        86400,
         86400,
     )
     final_cleanup_timeout = _integer(
@@ -474,9 +478,9 @@ def validate_run_manifest(value: object) -> dict:
         90,
     )
     absolute_terminal_timeout = _integer(
-        result["absolute_terminal_timeout_seconds"],
-        "run manifest absolute_terminal_timeout_seconds",
-        91,
+        result["absolute_terminal_seconds"],
+        "run manifest absolute_terminal_seconds",
+        86490,
         86490,
     )
     if heartbeat_interval >= lease_timeout:
@@ -632,8 +636,7 @@ def _validate_bootstrap_lock(value: object) -> dict:
             "bootstrap_tools",
         },
     )
-    if result["schema_version"] != 1:
-        raise ContractError("docker bootstrap lock schema_version must be 1")
+    _require_schema_version_one(result["schema_version"], "docker bootstrap lock")
     _timestamp(result["generated_at_utc"], "docker bootstrap lock generated_at_utc")
     host = _object(
         result["host"], "docker bootstrap lock host", {"distribution", "release", "architecture"}
@@ -714,8 +717,7 @@ def validate_tool_lock(value: object) -> dict:
         "tool lock",
         {"schema_version", "generated_at_utc", "bootstrap_lock_sha256", "tools"},
     )
-    if result["schema_version"] != 1:
-        raise ContractError("tool lock schema_version must be 1")
+    _require_schema_version_one(result["schema_version"], "tool lock")
     _timestamp(result["generated_at_utc"], "tool lock generated_at_utc")
     safe_sha256(result["bootstrap_lock_sha256"], "tool lock bootstrap_lock_sha256")
     tools = _array(result["tools"], "tool lock tools", minimum=1)
@@ -752,8 +754,7 @@ def validate_worker_evidence(value: object) -> dict:
             "cleanup_state",
         },
     )
-    if result["schema_version"] != 1:
-        raise ContractError("worker evidence schema_version must be 1")
+    _require_schema_version_one(result["schema_version"], "worker evidence")
     run_id = _string(result["run_id"], "worker evidence run_id", pattern=_RUN_ID_PATTERN)
     if result["project_prefix"] != f"z1rr-racetime-g0-{run_id}":
         raise ContractError("worker evidence project_prefix does not match run_id")
@@ -904,8 +905,7 @@ def validate_worker_disposal(value: object) -> dict:
             "complete_pre_failure_hashes",
         },
     )
-    if result["schema_version"] != 1:
-        raise ContractError("worker disposal schema_version must be 1")
+    _require_schema_version_one(result["schema_version"], "worker disposal")
     if result["disposition"] != "WORKER_DISPOSAL_REQUIRED":
         raise ContractError("worker disposal cannot claim PASS or ordinary failure evidence")
 
@@ -982,6 +982,8 @@ def validate_worker_disposal(value: object) -> dict:
         result["complete_pre_failure_hashes"],
         "worker disposal complete_pre_failure_hashes",
     )
+    if len(complete_hash_values) > 256:
+        raise ContractError("worker disposal permits at most 256 complete hashes")
     complete_hash_names = []
     for index, complete_hash_value in enumerate(complete_hash_values):
         complete_hash = _object(
@@ -1008,8 +1010,8 @@ def validate_worker_disposal(value: object) -> dict:
             complete_hash["completed_at_utc"],
             f"worker disposal complete_pre_failure_hashes[{index}].completed_at_utc",
         )
-        if completed_at > disposal_recorded_at:
-            raise ContractError("worker disposal hash completed after the failure boundary")
+        if completed_at >= disposal_recorded_at:
+            raise ContractError("worker disposal hash is not strictly before the failure boundary")
         complete_hash_names.append(name)
     _unique(complete_hash_names, "worker disposal complete hash names")
     return result
@@ -1028,8 +1030,7 @@ def validate_restream_history(value: object) -> dict:
             "findings",
         },
     )
-    if result["schema_version"] != 1:
-        raise ContractError("restream history schema_version must be 1")
+    _require_schema_version_one(result["schema_version"], "restream history")
     if result["repository"] != "restream":
         raise ContractError("restream history repository must be restream")
     _commit(result["base_commit"], "restream history base_commit")
