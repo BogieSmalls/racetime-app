@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import re
+import unicodedata
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Callable, Sequence
@@ -24,6 +26,74 @@ _BRANCH_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}\Z")
 _IMAGE_REFERENCE_PATTERN = re.compile(
     r"[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?"
     r"@sha256:([0-9a-f]{64})\Z"
+)
+_HTTPS_URL_PATTERN = re.compile(
+    r"https://(?:\[[0-9A-Fa-f:.]+\]|"
+    r"[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?)"
+    r"(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|"
+    r"65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?"
+    r"(?:/[^\s\x00-\x1f\x7f\x80-\x9f]*)?\Z"
+)
+_ASSIGNMENT_PATTERN = re.compile(
+    r"""
+    (?P<head>
+        (?<![A-Za-z0-9_.-])
+        (?:export[ \t]+)?
+        (?P<key_quote>["']?)
+        (?P<key>[A-Za-z_][A-Za-z0-9_.-]*)
+        (?P=key_quote)
+        [ \t]*[:=][ \t]*
+    )
+    (?P<value>
+        "(?:\\.|[^"\\])*"
+        | '(?:\\.|[^'\\])*'
+        | [^\s,;{}\[\]]+
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+_ASSIGNMENT_START_PATTERN = re.compile(
+    r"""
+    (?<![A-Za-z0-9_.-])
+    (?:export[ \t]+)?
+    (?P<key_quote>["']?)
+    (?P<key>[A-Za-z_][A-Za-z0-9_.-]*)
+    (?P=key_quote)
+    [ \t]*[:=][ \t]*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+_AUTHORIZATION_PATTERN = re.compile(
+    r"""
+    (?P<head>
+        (?<![A-Za-z0-9_.-])
+        (?P<auth_quote>["']?)authorization(?P=auth_quote)
+        [ \t]*[:=][ \t]*
+    )
+    (?P<value>
+        "(?:bearer|basic)[ \t]+(?:\\.|[^"\\])*"
+        | '(?:bearer|basic)[ \t]+(?:\\.|[^'\\])*'
+        | (?:bearer|basic)[ \t]+[^\s,;{}\[\]]+
+    )
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+_AUTHORIZATION_START_PATTERN = re.compile(
+    r"""
+    (?<![A-Za-z0-9_.-])
+    (?P<auth_quote>["']?)authorization(?P=auth_quote)
+    [ \t]*[:=][ \t]*
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+_REDACTED_VALUE_PATTERN = re.compile(
+    r"""(?:["']<redacted>["']|<redacted>)(?=$|[\s,;}\]])""",
+    re.IGNORECASE,
+)
+_REDACTED_AUTHORIZATION_PATTERN = re.compile(
+    r"""(?:["'](?:(?:bearer|basic)[ \t]+)?<redacted>["']|"""
+    r"(?:(?:bearer|basic)[ \t]+)?<redacted>)(?=$|[\s,;}\]])",
+    re.IGNORECASE,
 )
 _PHASE_NAMES = (
     "preflight",
@@ -75,37 +145,79 @@ def safe_sha256(value: object, label: str) -> str:
     return value
 
 
+def _is_secret_key(value: str) -> bool:
+    lowered = value.lower()
+    normalized = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_")
+    compact = normalized.replace("_", "")
+    return (
+        any(marker in lowered for marker in ("password", "secret", "token", "credential"))
+        or "api_key" in normalized
+        or "private_key" in normalized
+        or "apikey" in compact
+        or "privatekey" in compact
+    )
+
+
+def _is_redacted_value(value: str, *, authorization: bool = False) -> bool:
+    pattern = _REDACTED_AUTHORIZATION_PATTERN if authorization else _REDACTED_VALUE_PATTERN
+    return pattern.match(value) is not None
+
+
+def _redact_assignment(match: re.Match[str]) -> str:
+    if not _is_secret_key(match.group("key")):
+        return match.group(0)
+    original_value = match.group("value")
+    if _is_redacted_value(original_value):
+        return match.group(0)
+    quote = original_value[0] if original_value[0] in {'"', "'"} else ""
+    replacement = f"{quote}<redacted>{quote}" if quote else "<redacted>"
+    return match.group("head") + replacement
+
+
+def _redact_authorization(match: re.Match[str]) -> str:
+    original_value = match.group("value")
+    if _is_redacted_value(original_value, authorization=True):
+        return match.group(0)
+    quote = original_value[0] if original_value[0] in {'"', "'"} else ""
+    replacement = f"{quote}<redacted>{quote}" if quote else "<redacted>"
+    return match.group("head") + replacement
+
+
+def _assert_redaction_complete(value: str) -> None:
+    for match in _ASSIGNMENT_START_PATTERN.finditer(value):
+        if _is_secret_key(match.group("key")) and not _is_redacted_value(value[match.end() :]):
+            raise ContractError("unredacted secret assignment remains after redaction")
+    for match in _AUTHORIZATION_START_PATTERN.finditer(value):
+        if not _is_redacted_value(value[match.end() :], authorization=True):
+            raise ContractError("unredacted authorization value remains after redaction")
+
+
 def redact_text(value: str, canaries: Sequence[str]) -> str:
-    """Remove exact canaries and simple secret assignments from diagnostic text."""
+    """Redact supported secrets and fail when a canary or unsafe form remains."""
 
     if not isinstance(value, str):
         raise ContractError("text to redact must be a string")
-    checked_canaries: list[str] = []
     for canary in canaries:
         if not isinstance(canary, str):
             raise ContractError("redaction canaries must be strings")
-        if canary:
-            checked_canaries.append(canary)
-    redacted = value
-    for canary in sorted(set(checked_canaries), key=len, reverse=True):
-        redacted = redacted.replace(canary, "[REDACTED]")
-    return re.sub(
-        r"(?i)\b(token|secret|password|private[_-]?key)\s*[:=]\s*[^\s,;]+",
-        lambda match: f"{match.group(1)}=[REDACTED]",
-        redacted,
-    )
+        if canary and canary in value:
+            raise ContractError("redaction canary detected")
+    redacted = _AUTHORIZATION_PATTERN.sub(_redact_authorization, value)
+    redacted = _ASSIGNMENT_PATTERN.sub(_redact_assignment, redacted)
+    _assert_redaction_complete(redacted)
+    return redacted
 
 
 def _object(value: object, label: str, keys: set[str]) -> dict:
     if not isinstance(value, dict):
         raise ContractError(f"{label} must be an object")
+    if any(not isinstance(key, str) for key in value):
+        raise ContractError(f"{label} keys must be strings")
     actual = set(value)
     if actual != keys:
         missing = sorted(keys - actual)
         unknown = sorted(actual - keys)
         raise ContractError(f"{label} has missing keys {missing} and unknown keys {unknown}")
-    if any(not isinstance(key, str) for key in value):
-        raise ContractError(f"{label} keys must be strings")
     return value
 
 
@@ -141,14 +253,12 @@ def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
 
 
 def _number(value: object, label: str, minimum: float, maximum: float) -> float:
-    if (
-        not isinstance(value, (int, float))
-        or isinstance(value, bool)
-        or value < minimum
-        or value > maximum
-    ):
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ContractError(f"{label} must be a number from {minimum} through {maximum}")
-    return float(value)
+    numeric = float(value)
+    if not math.isfinite(numeric) or numeric < minimum or numeric > maximum:
+        raise ContractError(f"{label} must be a number from {minimum} through {maximum}")
+    return numeric
 
 
 def _choice(value: object, label: str, choices: frozenset[str]) -> str:
@@ -175,8 +285,22 @@ def _commit(value: object, label: str) -> str:
 
 def _url(value: object, label: str) -> str:
     result = _string(value, label, maximum=2048)
-    parsed = urlsplit(result)
-    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+    if any(character.isspace() or unicodedata.category(character) == "Cc" for character in result):
+        raise ContractError(f"{label} must not contain whitespace or control characters")
+    if _HTTPS_URL_PATTERN.fullmatch(result) is None:
+        raise ContractError(f"{label} must be an allowed HTTPS URL")
+    try:
+        parsed = urlsplit(result)
+        hostname = parsed.hostname
+        _ = parsed.port
+    except ValueError as error:
+        raise ContractError(f"{label} is not a valid HTTPS URL") from error
+    if (
+        parsed.scheme != "https"
+        or hostname is None
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
         raise ContractError(f"{label} must be an HTTPS URL without embedded credentials")
     return result
 
@@ -529,11 +653,15 @@ def validate_worker_evidence(value: object) -> dict:
     completed = _timestamp(result["completed_at_utc"], "worker evidence completed_at_utc")
     if completed < started:
         raise ContractError("worker evidence completes before it starts")
+    if (completed - started).total_seconds() > 86400:
+        raise ContractError("worker evidence wall duration exceeds 86400 seconds")
     final_result = _choice(result["result"], "worker evidence result", frozenset({"PASS", "FAIL"}))
     phases = _array(result["phases"], "worker evidence phases", minimum=9)
     if len(phases) != len(_PHASE_NAMES):
         raise ContractError("worker evidence must contain exactly nine phases")
     observed_results = []
+    exit_statuses = []
+    phase_cleanup_states = []
     for index, (phase_value, expected_name) in enumerate(zip(phases, _PHASE_NAMES)):
         phase = _object(
             phase_value,
@@ -568,11 +696,13 @@ def validate_worker_evidence(value: object) -> dict:
             pattern=_IDENTIFIER_PATTERN,
             maximum=128,
         )
-        _integer(
-            phase["exit_status"],
-            f"worker evidence phases[{index}].exit_status",
-            -255,
-            255,
+        exit_statuses.append(
+            _integer(
+                phase["exit_status"],
+                f"worker evidence phases[{index}].exit_status",
+                -255,
+                255,
+            )
         )
         _number(
             phase["duration_seconds"],
@@ -596,13 +726,22 @@ def validate_worker_evidence(value: object) -> dict:
                 f"worker evidence phases[{index}].retained_artifact_hashes[{hash_index}]",
             )
         _unique(artifact_hashes, f"worker evidence phases[{index}] artifact hashes")
-        _choice(
-            phase["cleanup_state"],
-            f"worker evidence phases[{index}].cleanup_state",
-            _CLEANUP_STATES,
+        phase_cleanup_states.append(
+            _choice(
+                phase["cleanup_state"],
+                f"worker evidence phases[{index}].cleanup_state",
+                _CLEANUP_STATES,
+            )
         )
-    if final_result == "PASS" and any(item != "PASS" for item in observed_results):
-        raise ContractError("worker evidence cannot pass with a failed phase")
+    if final_result == "PASS":
+        if any(item != "PASS" for item in observed_results):
+            raise ContractError("worker evidence cannot pass with a failed phase")
+        if any(status != 0 for status in exit_statuses):
+            raise ContractError("worker evidence cannot pass with a nonzero phase exit")
+        if any(state in {"pending", "failed"} for state in phase_cleanup_states):
+            raise ContractError("worker evidence cannot pass with incomplete phase cleanup")
+        if phase_cleanup_states[-1] != "verified":
+            raise ContractError("worker evidence cleanup phase must verify cleanup")
     artifacts = _array(result["retained_artifacts"], "worker evidence retained_artifacts")
     artifact_names = []
     artifact_paths = []

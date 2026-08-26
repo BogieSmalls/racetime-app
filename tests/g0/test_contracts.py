@@ -62,6 +62,14 @@ def schema_errors(schema, value, root=None, location="$"):
         return [] if matches.count(True) == 1 else [f"{location}: oneOf mismatch"]
 
     errors = []
+    for subschema in schema.get("allOf", []):
+        errors.extend(schema_errors(subschema, value, root, location))
+    if "if" in schema:
+        condition_matches = not schema_errors(schema["if"], value, root, location)
+        if condition_matches and "then" in schema:
+            errors.extend(schema_errors(schema["then"], value, root, location))
+        elif not condition_matches and "else" in schema:
+            errors.extend(schema_errors(schema["else"], value, root, location))
     if "const" in schema and value != schema["const"]:
         errors.append(f"{location}: expected constant {schema['const']!r}")
     if "enum" in schema and value not in schema["enum"]:
@@ -281,6 +289,11 @@ def phase_evidence(name, command_id):
 
 
 def valid_worker_evidence():
+    phases = [
+        phase_evidence(name, f"phase-{index:02d}")
+        for index, name in enumerate(PHASE_NAMES, start=1)
+    ]
+    phases[-1]["cleanup_state"] = "verified"
     return {
         "schema_version": 1,
         "run_id": RUN_ID,
@@ -289,10 +302,7 @@ def valid_worker_evidence():
         "started_at_utc": "2026-08-26T12:00:00Z",
         "completed_at_utc": "2026-08-26T12:30:00Z",
         "result": "PASS",
-        "phases": [
-            phase_evidence(name, f"phase-{index:02d}")
-            for index, name in enumerate(PHASE_NAMES, start=1)
-        ],
+        "phases": phases,
         "retained_artifacts": [
             {
                 "name": "worker-summary.md",
@@ -696,21 +706,179 @@ class ContractTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             validate_restream_history(possible_live)
 
-    def test_safe_sha256_and_redaction_are_fail_closed(self):
+    def test_safe_sha256_is_fail_closed(self):
         self.assertEqual(SHA_A, safe_sha256(SHA_A, "artifact"))
         for invalid in ("a" * 64, "sha256:" + "A" * 64, SHA_A + "0", None):
             with self.subTest(value=invalid):
                 with self.assertRaises(ContractError):
                     safe_sha256(invalid, "artifact")
 
-        redacted = redact_text(
-            "canary-alpha token=runtime-secret private_key=key-material",
-            ["canary-alpha", "runtime-secret", "key-material"],
+    def test_redaction_fails_on_canaries_and_removes_complete_secret_values(self):
+        with self.assertRaises(ContractError):
+            redact_text("prefix canary-alpha suffix", ["canary-alpha"])
+
+        probes = (
+            ("DATABASE_PASSWORD=database-value-suffix", "database-value-suffix"),
+            ('export DISCORD_TOKEN="discord-value-suffix"', "discord-value-suffix"),
+            ("api_key: 'api-value-suffix'", "api-value-suffix"),
+            (
+                'event={"client_secret": "json-value-suffix", "safe": "visible"}',
+                "json-value-suffix",
+            ),
+            ("private_key=private-value-suffix; safe=visible", "private-value-suffix"),
+            ("service_credential = credential-value-suffix", "credential-value-suffix"),
+            ("Authorization: Bearer bearer-value-suffix", "bearer-value-suffix"),
+            ("Authorization=Basic basic-value-suffix", "basic-value-suffix"),
         )
-        self.assertNotIn("canary-alpha", redacted)
-        self.assertNotIn("runtime-secret", redacted)
-        self.assertNotIn("key-material", redacted)
-        self.assertIn("[REDACTED]", redacted)
+        for text, secret_value in probes:
+            with self.subTest(text=text):
+                redacted = redact_text(text, [])
+                self.assertNotIn(secret_value, redacted)
+                self.assertIn("<redacted>", redacted.lower())
+
+    def test_redaction_allows_placeholders_and_fails_on_unhandled_secret_forms(self):
+        placeholders = (
+            "DATABASE_PASSWORD=<redacted>",
+            '"DISCORD_TOKEN": "<redacted>"',
+            "Authorization: Bearer <redacted>",
+            "Authorization: <redacted>",
+        )
+        for text in placeholders:
+            with self.subTest(text=text):
+                self.assertIn("<redacted>", redact_text(text, []).lower())
+
+        for unsafe in (
+            '"DATABASE_PASSWORD": {"nested": "must-not-leak"}',
+            "Authorization: Digest must-not-leak",
+        ):
+            with self.subTest(unsafe=unsafe):
+                with self.assertRaises(ContractError):
+                    redact_text(unsafe, [])
+
+    def test_pass_evidence_requires_consistent_phase_and_cleanup_results(self):
+        nonzero = valid_worker_evidence()
+        nonzero["phases"][2]["exit_status"] = 1
+
+        observed_failure = valid_worker_evidence()
+        observed_failure["phases"][3]["observed_result"] = "FAIL"
+
+        failed_cleanup = valid_worker_evidence()
+        failed_cleanup["phases"][4]["cleanup_state"] = "failed"
+
+        pending_cleanup = valid_worker_evidence()
+        pending_cleanup["phases"][5]["cleanup_state"] = "pending"
+
+        cleanup_phase_not_verified = valid_worker_evidence()
+        cleanup_phase_not_verified["phases"][-1]["cleanup_state"] = "not-required"
+
+        top_cleanup_failed = valid_worker_evidence()
+        top_cleanup_failed["cleanup_state"] = "failed"
+
+        for label, evidence in (
+            ("nonzero", nonzero),
+            ("observed_failure", observed_failure),
+            ("failed_cleanup", failed_cleanup),
+            ("pending_cleanup", pending_cleanup),
+            ("cleanup_phase", cleanup_phase_not_verified),
+            ("top_cleanup", top_cleanup_failed),
+        ):
+            with self.subTest(case=label):
+                self.assertSchemaInvalid("worker-evidence", evidence)
+                with self.assertRaises(ContractError):
+                    validate_worker_evidence(evidence)
+
+    def test_fail_evidence_preserves_failure_and_cleanup_diagnostics(self):
+        evidence = valid_worker_evidence()
+        evidence["result"] = "FAIL"
+        evidence["phases"][4]["observed_result"] = "FAIL"
+        evidence["phases"][4]["exit_status"] = 17
+        evidence["phases"][4]["cleanup_state"] = "failed"
+        evidence["phases"][-1]["cleanup_state"] = "failed"
+        evidence["cleanup_state"] = "failed"
+        self.assertSchemaValid("worker-evidence", evidence)
+        self.assertEqual(evidence, validate_worker_evidence(evidence))
+
+    def test_worker_evidence_wall_duration_has_a_24_hour_ceiling(self):
+        boundary = valid_worker_evidence()
+        boundary["completed_at_utc"] = "2026-08-27T12:00:00Z"
+        self.assertEqual(boundary, validate_worker_evidence(boundary))
+
+        over = valid_worker_evidence()
+        over["completed_at_utc"] = "2026-08-27T12:00:01Z"
+        with self.assertRaises(ContractError):
+            validate_worker_evidence(over)
+
+    def test_non_finite_phase_durations_are_rejected(self):
+        for duration in (float("nan"), float("inf"), float("-inf")):
+            evidence = valid_worker_evidence()
+            evidence["phases"][0]["duration_seconds"] = duration
+            with self.subTest(duration=duration):
+                with self.assertRaises(ContractError):
+                    validate_worker_evidence(evidence)
+
+    def test_tool_urls_have_schema_and_runtime_parity(self):
+        valid_urls = (
+            "https://example.invalid",
+            "https://example.invalid:1/tool",
+            "https://example.invalid:65535/tool",
+            "https://downloads.example.invalid:443/tools/tool.tar.gz?x=1#digest",
+        )
+        invalid_urls = (
+            "http://example.invalid/tool",
+            "https://",
+            "https://:443/tool",
+            "https://example.invalid:0/tool",
+            "https://example.invalid:65536/tool",
+            "https://example.invalid:99999/tool",
+            "https://user:password@example.invalid/tool",
+            "https://example.invalid/path with space",
+            "https://example.invalid/path\tvalue",
+            "https://example.invalid/path\rvalue",
+            "https://example.invalid/path\nvalue",
+            "https://example.invalid/path\x00value",
+            "https://example.invalid/path\x7fvalue",
+            "https://example.invalid/path\x80value",
+            "https://example.invalid/path\x85value",
+            "https://example.invalid/path\x9fvalue",
+            "https://example.invalid/tool\n",
+        )
+        for url in valid_urls:
+            lock = valid_tool_lock()
+            lock["tools"][0]["url"] = url
+            with self.subTest(valid_url=url):
+                self.assertSchemaValid("tool-lock", lock)
+                self.assertEqual(lock, validate_tool_lock(lock))
+        for url in invalid_urls:
+            lock = valid_tool_lock()
+            lock["tools"][0]["url"] = url
+            with self.subTest(invalid_url=url):
+                self.assertSchemaInvalid("tool-lock", lock)
+                with self.assertRaises(ContractError):
+                    validate_tool_lock(lock)
+
+    def test_bootstrap_repository_definition_is_one_line_in_schema_and_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "docker-bootstrap-lock.json"
+            for line_break in ("\n", "\r", "\r\n"):
+                lock = valid_bootstrap_lock()
+                lock["repository"]["definition"] += f"{line_break}deb unsafe"
+                path.write_text(json.dumps(lock), encoding="utf-8")
+                with self.subTest(line_break=repr(line_break)):
+                    self.assertSchemaInvalid("docker-bootstrap-lock", lock)
+                    with self.assertRaises(ContractError):
+                        load_json(path, "docker-bootstrap-lock")
+
+    def test_non_string_object_keys_always_raise_contract_error(self):
+        manifest = valid_run_manifest()
+        del manifest["schema_version"]
+        manifest[7] = "non-string"
+        manifest["unexpected"] = True
+        try:
+            validate_run_manifest(manifest)
+        except Exception as error:
+            self.assertIsInstance(error, ContractError)
+        else:
+            self.fail("non-string object key was accepted")
 
 
 if __name__ == "__main__":

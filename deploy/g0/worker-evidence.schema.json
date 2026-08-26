@@ -50,6 +50,32 @@
     },
     "cleanup_state": {"enum": ["verified", "failed"]}
   },
+  "allOf": [
+    {
+      "if": {
+        "required": ["result"],
+        "properties": {"result": {"const": "PASS"}}
+      },
+      "then": {
+        "properties": {
+          "cleanup_state": {"const": "verified"},
+          "phases": {
+            "prefixItems": [
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_phase"},
+              {"$ref": "#/$defs/pass_cleanup_phase"}
+            ]
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "run_id": {
       "type": "string",
@@ -77,6 +103,20 @@
     "safe_name": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "pass_phase": {
+      "properties": {
+        "observed_result": {"const": "PASS"},
+        "exit_status": {"const": 0},
+        "cleanup_state": {"enum": ["not-required", "verified"]}
+      }
+    },
+    "pass_cleanup_phase": {
+      "properties": {
+        "observed_result": {"const": "PASS"},
+        "exit_status": {"const": 0},
+        "cleanup_state": {"const": "verified"}
+      }
     },
     "phase": {
       "type": "object",
