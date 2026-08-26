@@ -9,6 +9,7 @@ __pycache__
 /static
 /venv
 /.worktrees
+/racetime-readiness-edit/
 /.tmp/
 /artifacts/source/
 /.source-preservation-scratch-*/
