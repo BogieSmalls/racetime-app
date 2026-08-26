@@ -188,6 +188,10 @@ class ComposeContractTests(unittest.TestCase):
         )
         self.assertIn("/healthz", health_script)
         self.assertIn("racebot_health", health_script)
+        self.assertEqual(
+            config["services"]["racebot"]["healthcheck"]["timeout"],
+            "30s",
+        )
         self.assertIn("innodb_initialized", " ".join(config["services"]["db"]["healthcheck"]["test"]))
         self.assertIn("redis-cli", " ".join(config["services"]["redis"]["healthcheck"]["test"]))
 
