@@ -823,14 +823,34 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
             "true-map": {"nested": [False, True]},
             "empty-list": [],
             "empty-map": {},
-            "string": "true",
-            "number": 1,
-            "null": None,
         }
         self.assertEqual(
             self.verifier._truthy_unknown_fields(unknowns),
             {"literal-true", "true-list", "true-map"},
         )
+
+    def test_unknown_field_detection_rejects_non_json_boolean_leaves(self) -> None:
+        invalid_values = (
+            [],
+            "true",
+            1,
+            None,
+            True,
+            {"field": "true"},
+            {"field": [0]},
+            {"field": {"leaf": None}},
+            {"field": [{"leaf": 1}]},
+        )
+        for value in invalid_values:
+            with self.subTest(value=value):
+                with self.assertRaises(self.verifier.VerificationError):
+                    self.verifier._truthy_unknown_fields(value)
+
+    def test_unknown_field_detection_rejects_cycles_defensively(self) -> None:
+        cycle: dict = {}
+        cycle["field"] = cycle
+        with self.assertRaises(self.verifier.VerificationError):
+            self.verifier._truthy_unknown_fields(cycle)
 
     def test_replacement_rejects_nested_unknown_alarm_field(self) -> None:
         fixture = self.fixture(replacement_plan())

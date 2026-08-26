@@ -472,20 +472,35 @@ def _verify_refresh_only(
 
 def _truthy_unknown_fields(value: Any) -> set[str]:
     if not isinstance(value, dict):
-        return set()
+        raise VerificationError("after_unknown must be an object")
+
+    active_containers: set[int] = set()
 
     def contains_literal_true(unknown: Any) -> bool:
         if type(unknown) is bool:
             return unknown is True
-        if isinstance(unknown, dict):
-            return any(contains_literal_true(item) for item in unknown.values())
-        if isinstance(unknown, list):
-            return any(contains_literal_true(item) for item in unknown)
-        return False
+        if not isinstance(unknown, (dict, list)):
+            raise VerificationError("after_unknown contains an invalid leaf")
 
-    return {
-        name for name, unknown in value.items() if contains_literal_true(unknown)
-    }
+        identity = id(unknown)
+        if identity in active_containers:
+            raise VerificationError("after_unknown contains a cycle")
+        active_containers.add(identity)
+        try:
+            if isinstance(unknown, dict):
+                if any(not isinstance(name, str) for name in unknown):
+                    raise VerificationError("after_unknown contains an invalid key")
+                values = unknown.values()
+            else:
+                values = unknown
+            nested_results = [contains_literal_true(item) for item in values]
+            return any(nested_results)
+        finally:
+            active_containers.remove(identity)
+
+    if any(not isinstance(name, str) or not name for name in value):
+        raise VerificationError("after_unknown contains an invalid field")
+    return {name for name, unknown in value.items() if contains_literal_true(unknown)}
 
 
 def _changed_fields(change: dict[str, Any]) -> set[str]:
