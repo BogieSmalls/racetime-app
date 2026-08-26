@@ -113,6 +113,46 @@ _PHASE_NAMES = (
 )
 _CUSTODY_CLASSES = frozenset({"retained", "transient"})
 _CLEANUP_STATES = frozenset({"not-required", "pending", "verified", "failed"})
+_INSTANCE_FINGERPRINT_DOMAIN = "z1rr-racetime-g0-instance-ocid-v1"
+_FAILED_PROOF_CLASSES = frozenset(
+    {
+        "process-ownership",
+        "boundary-emptiness",
+        "supervisor-termination",
+        "stream-eof",
+        "log-finalization",
+        "heartbeat-authentication",
+        "terminal-response-authentication",
+    }
+)
+_LEASE_STATUSES = frozenset(
+    {
+        "authenticated-remote-signal",
+        "heartbeat-lost",
+        "terminal-response-lost",
+    }
+)
+_DISPOSAL_LIFECYCLE = (
+    "disposal-recorded",
+    "external-cleanup-complete",
+    "stop-requested",
+    "stopped",
+    "restart-requested",
+    "running",
+    "verify-clean-requested",
+    "recovery-verified",
+)
+_COMPLETE_HASH_KINDS = frozenset(
+    {
+        "run-manifest",
+        "docker-bootstrap-lock",
+        "tool-lock",
+        "source-bundle",
+        "source-archive",
+        "retained-artifact",
+        "control-record",
+    }
+)
 
 
 def safe_relative_path(value: object, label: str) -> PurePosixPath:
@@ -390,6 +430,10 @@ def validate_run_manifest(value: object) -> dict:
             "created_at_utc",
             "remote_root",
             "aggregate_timeout_seconds",
+            "final_cleanup_timeout_seconds",
+            "heartbeat_interval_seconds",
+            "lease_timeout_seconds",
+            "absolute_terminal_timeout_seconds",
             "lock_identities",
             "sources",
             "outputs",
@@ -411,6 +455,36 @@ def validate_run_manifest(value: object) -> dict:
         1,
         86400,
     )
+    final_cleanup_timeout = _integer(
+        result["final_cleanup_timeout_seconds"],
+        "run manifest final_cleanup_timeout_seconds",
+        60,
+        1800,
+    )
+    heartbeat_interval = _integer(
+        result["heartbeat_interval_seconds"],
+        "run manifest heartbeat_interval_seconds",
+        15,
+        15,
+    )
+    lease_timeout = _integer(
+        result["lease_timeout_seconds"],
+        "run manifest lease_timeout_seconds",
+        90,
+        90,
+    )
+    absolute_terminal_timeout = _integer(
+        result["absolute_terminal_timeout_seconds"],
+        "run manifest absolute_terminal_timeout_seconds",
+        91,
+        86490,
+    )
+    if heartbeat_interval >= lease_timeout:
+        raise ContractError("run manifest heartbeat interval must be shorter than its lease")
+    if absolute_terminal_timeout != aggregate_timeout + lease_timeout:
+        raise ContractError(
+            "run manifest absolute terminal timeout must equal aggregate plus lease"
+        )
 
     identities = _object(
         result["lock_identities"],
@@ -501,11 +575,17 @@ def validate_run_manifest(value: object) -> dict:
     phases = _array(result["phases"], "run manifest phases", minimum=9)
     if len(phases) != len(_PHASE_NAMES):
         raise ContractError("run manifest must contain exactly nine phases")
+    phase_allocations = []
     for index, (phase_value, expected_name) in enumerate(zip(phases, _PHASE_NAMES)):
         phase = _object(
             phase_value,
             f"run manifest phases[{index}]",
-            {"name", "timeout_seconds"},
+            {
+                "name",
+                "timeout_seconds",
+                "execution_timeout_seconds",
+                "cleanup_timeout_seconds",
+            },
         )
         if phase["name"] != expected_name:
             raise ContractError("run manifest phase names or order are incorrect")
@@ -517,6 +597,23 @@ def validate_run_manifest(value: object) -> dict:
         )
         if timeout > aggregate_timeout:
             raise ContractError("a phase timeout exceeds the aggregate timeout")
+        execution_timeout = _integer(
+            phase["execution_timeout_seconds"],
+            f"run manifest phases[{index}].execution_timeout_seconds",
+            1,
+            18000,
+        )
+        cleanup_timeout = _integer(
+            phase["cleanup_timeout_seconds"],
+            f"run manifest phases[{index}].cleanup_timeout_seconds",
+            5,
+            600,
+        )
+        if execution_timeout + cleanup_timeout > timeout:
+            raise ContractError("command execution plus cleanup exceeds its phase allocation")
+        phase_allocations.append(timeout)
+    if sum(phase_allocations) + final_cleanup_timeout > aggregate_timeout:
+        raise ContractError("phase allocations plus final cleanup exceed the aggregate timeout")
     return result
 
 
@@ -788,6 +885,136 @@ def validate_worker_evidence(value: object) -> dict:
     return result
 
 
+def validate_worker_disposal(value: object) -> dict:
+    """Validate the redacted, append-only worker-disposal control record."""
+
+    result = _object(
+        value,
+        "worker disposal",
+        {
+            "schema_version",
+            "disposition",
+            "run_id",
+            "project_prefix",
+            "instance_fingerprint",
+            "last_authenticated_heartbeat_at_utc",
+            "failed_proof_classes",
+            "lease_status",
+            "lifecycle_events",
+            "complete_pre_failure_hashes",
+        },
+    )
+    if result["schema_version"] != 1:
+        raise ContractError("worker disposal schema_version must be 1")
+    if result["disposition"] != "WORKER_DISPOSAL_REQUIRED":
+        raise ContractError("worker disposal cannot claim PASS or ordinary failure evidence")
+
+    run_id = _string(result["run_id"], "worker disposal run_id", pattern=_RUN_ID_PATTERN)
+    if result["project_prefix"] != f"z1rr-racetime-g0-{run_id}":
+        raise ContractError("worker disposal project_prefix does not match run_id")
+
+    fingerprint = _object(
+        result["instance_fingerprint"],
+        "worker disposal instance_fingerprint",
+        {"domain", "sha256"},
+    )
+    if fingerprint["domain"] != _INSTANCE_FINGERPRINT_DOMAIN:
+        raise ContractError("worker disposal instance fingerprint domain is incorrect")
+    safe_sha256(fingerprint["sha256"], "worker disposal instance fingerprint")
+
+    heartbeat_at = _timestamp(
+        result["last_authenticated_heartbeat_at_utc"],
+        "worker disposal last_authenticated_heartbeat_at_utc",
+    )
+    proof_values = _array(
+        result["failed_proof_classes"],
+        "worker disposal failed_proof_classes",
+        minimum=1,
+    )
+    proof_classes = []
+    for index, proof_value in enumerate(proof_values):
+        proof_classes.append(
+            _choice(
+                proof_value,
+                f"worker disposal failed_proof_classes[{index}]",
+                _FAILED_PROOF_CLASSES,
+            )
+        )
+    _unique(proof_classes, "worker disposal failed proof classes")
+
+    lease_status = _choice(
+        result["lease_status"], "worker disposal lease_status", _LEASE_STATUSES
+    )
+    required_external_proof = {
+        "heartbeat-lost": "heartbeat-authentication",
+        "terminal-response-lost": "terminal-response-authentication",
+    }.get(lease_status)
+    if required_external_proof is not None and required_external_proof not in proof_classes:
+        raise ContractError("worker disposal lease status lacks its failed proof class")
+
+    lifecycle_values = _array(
+        result["lifecycle_events"], "worker disposal lifecycle_events", minimum=1
+    )
+    if len(lifecycle_values) > len(_DISPOSAL_LIFECYCLE):
+        raise ContractError("worker disposal lifecycle has too many states")
+    lifecycle_times = []
+    for index, lifecycle_value in enumerate(lifecycle_values):
+        lifecycle = _object(
+            lifecycle_value,
+            f"worker disposal lifecycle_events[{index}]",
+            {"state", "recorded_at_utc"},
+        )
+        if lifecycle["state"] != _DISPOSAL_LIFECYCLE[index]:
+            raise ContractError("worker disposal lifecycle must be an exact monotonic prefix")
+        lifecycle_times.append(
+            _timestamp(
+                lifecycle["recorded_at_utc"],
+                f"worker disposal lifecycle_events[{index}].recorded_at_utc",
+            )
+        )
+    if any(later < earlier for earlier, later in zip(lifecycle_times, lifecycle_times[1:])):
+        raise ContractError("worker disposal lifecycle timestamps move backwards")
+    disposal_recorded_at = lifecycle_times[0]
+    if heartbeat_at > disposal_recorded_at:
+        raise ContractError("worker disposal heartbeat occurs after disposal was recorded")
+
+    complete_hash_values = _array(
+        result["complete_pre_failure_hashes"],
+        "worker disposal complete_pre_failure_hashes",
+    )
+    complete_hash_names = []
+    for index, complete_hash_value in enumerate(complete_hash_values):
+        complete_hash = _object(
+            complete_hash_value,
+            f"worker disposal complete_pre_failure_hashes[{index}]",
+            {"name", "kind", "sha256", "completed_at_utc"},
+        )
+        name = _safe_output_name(
+            complete_hash["name"],
+            f"worker disposal complete_pre_failure_hashes[{index}].name",
+        )
+        if _is_secret_key(name) or "ocid1." in name:
+            raise ContractError("worker disposal complete hash name is unsafe")
+        _choice(
+            complete_hash["kind"],
+            f"worker disposal complete_pre_failure_hashes[{index}].kind",
+            _COMPLETE_HASH_KINDS,
+        )
+        safe_sha256(
+            complete_hash["sha256"],
+            f"worker disposal complete_pre_failure_hashes[{index}].sha256",
+        )
+        completed_at = _timestamp(
+            complete_hash["completed_at_utc"],
+            f"worker disposal complete_pre_failure_hashes[{index}].completed_at_utc",
+        )
+        if completed_at > disposal_recorded_at:
+            raise ContractError("worker disposal hash completed after the failure boundary")
+        complete_hash_names.append(name)
+    _unique(complete_hash_names, "worker disposal complete hash names")
+    return result
+
+
 def validate_restream_history(value: object) -> dict:
     result = _object(
         value,
@@ -908,6 +1135,7 @@ def load_json(path: Path, schema_name: str) -> dict:
         "docker-bootstrap-lock": _validate_bootstrap_lock,
         "tool-lock": validate_tool_lock,
         "worker-evidence": validate_worker_evidence,
+        "worker-disposal": validate_worker_disposal,
         "restream-history": validate_restream_history,
     }
     validator = validators.get(normalized_name)

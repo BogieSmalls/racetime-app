@@ -15,6 +15,7 @@ from scripts.g0.contracts import (
     validate_restream_history,
     validate_run_manifest,
     validate_tool_lock,
+    validate_worker_disposal,
     validate_worker_evidence,
 )
 
@@ -171,7 +172,9 @@ def binary_lock(name="buildx"):
 
 
 def valid_run_manifest():
-    phase_timeouts = (1800, 3600, 50400, 7200, 7200, 7200, 3600, 1800, 3600)
+    phase_timeouts = (1800, 3600, 50400, 7200, 7200, 7200, 3600, 1800, 2700)
+    execution_timeouts = (1200, 3000, 18000, 6600, 6600, 6600, 3000, 1200, 1800)
+    cleanup_timeouts = (300, 300, 600, 600, 600, 600, 600, 300, 600)
     return {
         "schema_version": 1,
         "run_id": RUN_ID,
@@ -179,6 +182,10 @@ def valid_run_manifest():
         "created_at_utc": "2026-08-26T12:00:00Z",
         "remote_root": f"/var/lib/z1rr-racetime/g0/{RUN_ID}",
         "aggregate_timeout_seconds": 86400,
+        "final_cleanup_timeout_seconds": 900,
+        "heartbeat_interval_seconds": 15,
+        "lease_timeout_seconds": 90,
+        "absolute_terminal_timeout_seconds": 86490,
         "lock_identities": {
             "docker_bootstrap_sha256": SHA_A,
             "tool_lock_sha256": SHA_B,
@@ -220,8 +227,52 @@ def valid_run_manifest():
             },
         ],
         "phases": [
-            {"name": name, "timeout_seconds": timeout}
-            for name, timeout in zip(PHASE_NAMES, phase_timeouts)
+            {
+                "name": name,
+                "timeout_seconds": timeout,
+                "execution_timeout_seconds": execution,
+                "cleanup_timeout_seconds": cleanup,
+            }
+            for name, timeout, execution, cleanup in zip(
+                PHASE_NAMES,
+                phase_timeouts,
+                execution_timeouts,
+                cleanup_timeouts,
+            )
+        ],
+    }
+
+
+def valid_worker_disposal():
+    return {
+        "schema_version": 1,
+        "disposition": "WORKER_DISPOSAL_REQUIRED",
+        "run_id": RUN_ID,
+        "project_prefix": PROJECT_PREFIX,
+        "instance_fingerprint": {
+            "domain": "z1rr-racetime-g0-instance-ocid-v1",
+            "sha256": SHA_C,
+        },
+        "last_authenticated_heartbeat_at_utc": "2026-08-26T12:04:45Z",
+        "failed_proof_classes": ["boundary-emptiness"],
+        "lease_status": "authenticated-remote-signal",
+        "lifecycle_events": [
+            {
+                "state": "disposal-recorded",
+                "recorded_at_utc": "2026-08-26T12:05:00Z",
+            },
+            {
+                "state": "external-cleanup-complete",
+                "recorded_at_utc": "2026-08-26T12:05:15Z",
+            },
+        ],
+        "complete_pre_failure_hashes": [
+            {
+                "name": "run-manifest.json",
+                "kind": "run-manifest",
+                "sha256": SHA_A,
+                "completed_at_utc": "2026-08-26T12:00:00Z",
+            }
         ],
     }
 
@@ -347,6 +398,7 @@ class ContractTests(unittest.TestCase):
             "docker-bootstrap-lock",
             "tool-lock",
             "worker-evidence",
+            "worker-disposal",
             "restream-history",
         ):
             schema = json.loads(
@@ -384,6 +436,10 @@ class ContractTests(unittest.TestCase):
                 "created_at_utc",
                 "remote_root",
                 "aggregate_timeout_seconds",
+                "final_cleanup_timeout_seconds",
+                "heartbeat_interval_seconds",
+                "lease_timeout_seconds",
+                "absolute_terminal_timeout_seconds",
                 "lock_identities",
                 "sources",
                 "outputs",
@@ -417,6 +473,18 @@ class ContractTests(unittest.TestCase):
                 "retained_artifacts",
                 "cleanup_state",
             },
+            "worker-disposal": {
+                "schema_version",
+                "disposition",
+                "run_id",
+                "project_prefix",
+                "instance_fingerprint",
+                "last_authenticated_heartbeat_at_utc",
+                "failed_proof_classes",
+                "lease_status",
+                "lifecycle_events",
+                "complete_pre_failure_hashes",
+            },
             "restream-history": {
                 "schema_version",
                 "repository",
@@ -442,12 +510,14 @@ class ContractTests(unittest.TestCase):
             "docker-bootstrap-lock": valid_bootstrap_lock(),
             "tool-lock": valid_tool_lock(),
             "worker-evidence": valid_worker_evidence(),
+            "worker-disposal": valid_worker_disposal(),
             "restream-history": valid_restream_history(),
         }
         direct_validators = {
             "run-manifest": validate_run_manifest,
             "tool-lock": validate_tool_lock,
             "worker-evidence": validate_worker_evidence,
+            "worker-disposal": validate_worker_disposal,
             "restream-history": validate_restream_history,
         }
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -516,6 +586,12 @@ class ContractTests(unittest.TestCase):
         missing_timeout = valid_run_manifest()
         del missing_timeout["phases"][2]["timeout_seconds"]
         mutations.append(missing_timeout)
+        missing_execution_timeout = valid_run_manifest()
+        del missing_execution_timeout["phases"][2]["execution_timeout_seconds"]
+        mutations.append(missing_execution_timeout)
+        missing_cleanup_timeout = valid_run_manifest()
+        del missing_cleanup_timeout["phases"][2]["cleanup_timeout_seconds"]
+        mutations.append(missing_cleanup_timeout)
         excessive_phase_timeout = valid_run_manifest()
         excessive_phase_timeout["phases"][2]["timeout_seconds"] = 86401
         mutations.append(excessive_phase_timeout)
@@ -527,6 +603,194 @@ class ContractTests(unittest.TestCase):
                 self.assertSchemaInvalid("run-manifest", mutation)
                 with self.assertRaises(ContractError):
                     validate_run_manifest(mutation)
+
+    def test_run_manifest_clock_ranges_and_arithmetic_fail_closed(self):
+        invalid_for_schema_and_runtime = []
+        execution_too_small = valid_run_manifest()
+        execution_too_small["phases"][0]["execution_timeout_seconds"] = 0
+        invalid_for_schema_and_runtime.append(execution_too_small)
+        execution_too_large = valid_run_manifest()
+        execution_too_large["phases"][0]["execution_timeout_seconds"] = 18001
+        invalid_for_schema_and_runtime.append(execution_too_large)
+        cleanup_too_small = valid_run_manifest()
+        cleanup_too_small["phases"][0]["cleanup_timeout_seconds"] = 4
+        invalid_for_schema_and_runtime.append(cleanup_too_small)
+        cleanup_too_large = valid_run_manifest()
+        cleanup_too_large["phases"][0]["cleanup_timeout_seconds"] = 601
+        invalid_for_schema_and_runtime.append(cleanup_too_large)
+        final_cleanup_too_small = valid_run_manifest()
+        final_cleanup_too_small["final_cleanup_timeout_seconds"] = 59
+        invalid_for_schema_and_runtime.append(final_cleanup_too_small)
+        final_cleanup_too_large = valid_run_manifest()
+        final_cleanup_too_large["final_cleanup_timeout_seconds"] = 1801
+        invalid_for_schema_and_runtime.append(final_cleanup_too_large)
+        wrong_heartbeat = valid_run_manifest()
+        wrong_heartbeat["heartbeat_interval_seconds"] = 14
+        invalid_for_schema_and_runtime.append(wrong_heartbeat)
+        wrong_lease = valid_run_manifest()
+        wrong_lease["lease_timeout_seconds"] = 89
+        invalid_for_schema_and_runtime.append(wrong_lease)
+        terminal_over_boundary = valid_run_manifest()
+        terminal_over_boundary["absolute_terminal_timeout_seconds"] = 86491
+        invalid_for_schema_and_runtime.append(terminal_over_boundary)
+
+        for mutation in invalid_for_schema_and_runtime:
+            with self.subTest(mutation=mutation):
+                self.assertSchemaInvalid("run-manifest", mutation)
+                with self.assertRaises(ContractError):
+                    validate_run_manifest(mutation)
+
+        execution_plus_cleanup_exceeds_phase = valid_run_manifest()
+        execution_plus_cleanup_exceeds_phase["phases"][0][
+            "execution_timeout_seconds"
+        ] = 1600
+        execution_plus_cleanup_exceeds_phase["phases"][0][
+            "cleanup_timeout_seconds"
+        ] = 300
+
+        phases_plus_reserve_exceed_aggregate = valid_run_manifest()
+        phases_plus_reserve_exceed_aggregate["phases"][-1]["timeout_seconds"] = 2701
+
+        terminal_does_not_equal_aggregate_plus_lease = valid_run_manifest()
+        terminal_does_not_equal_aggregate_plus_lease[
+            "absolute_terminal_timeout_seconds"
+        ] = 86489
+
+        for label, mutation in (
+            ("command clocks", execution_plus_cleanup_exceeds_phase),
+            ("final cleanup reserve", phases_plus_reserve_exceed_aggregate),
+            ("absolute terminal arithmetic", terminal_does_not_equal_aggregate_plus_lease),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    validate_run_manifest(mutation)
+
+    def test_worker_disposal_rejects_pass_evidence_raw_identity_and_unsafe_data(self):
+        mutations = []
+        pass_claim = valid_worker_disposal()
+        pass_claim["disposition"] = "PASS"
+        mutations.append(pass_claim)
+        raw_instance = valid_worker_disposal()
+        raw_instance["instance_ocid"] = "ocid1.instance.oc1.example"
+        mutations.append(raw_instance)
+        ordinary_evidence = valid_worker_disposal()
+        ordinary_evidence["cleanup_state"] = "verified"
+        mutations.append(ordinary_evidence)
+        phase_evidence = valid_worker_disposal()
+        phase_evidence["phases"] = [{"observed_result": "PASS"}]
+        mutations.append(phase_evidence)
+        raw_log = valid_worker_disposal()
+        raw_log["raw_log"] = "unsafe"
+        mutations.append(raw_log)
+        private_path = valid_worker_disposal()
+        private_path["private_path"] = "C:/Users/operator/.ssh/id_ed25519"
+        mutations.append(private_path)
+        secret = valid_worker_disposal()
+        secret["discord_token"] = "must-not-leak"
+        mutations.append(secret)
+        unknown = valid_worker_disposal()
+        unknown["unexpected"] = True
+        mutations.append(unknown)
+        non_finite = valid_worker_disposal()
+        non_finite["schema_version"] = float("nan")
+        mutations.append(non_finite)
+
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                self.assertSchemaInvalid("worker-disposal", mutation)
+                with self.assertRaises(ContractError):
+                    validate_worker_disposal(mutation)
+
+    def test_worker_disposal_binds_domain_separated_fingerprint_and_safe_run_identity(self):
+        mutations = []
+        wrong_prefix = valid_worker_disposal()
+        wrong_prefix["project_prefix"] = "z1rr-racetime-g0-other"
+        mutations.append(wrong_prefix)
+        wrong_domain = valid_worker_disposal()
+        wrong_domain["instance_fingerprint"]["domain"] = "sha256-ocid"
+        mutations.append(wrong_domain)
+        raw_digest = valid_worker_disposal()
+        raw_digest["instance_fingerprint"]["sha256"] = "c" * 64
+        mutations.append(raw_digest)
+        raw_identity = valid_worker_disposal()
+        raw_identity["instance_fingerprint"]["ocid"] = "ocid1.instance.oc1.example"
+        mutations.append(raw_identity)
+
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                self.assertSchemaInvalid("worker-disposal", mutation)
+                with self.assertRaises(ContractError):
+                    validate_worker_disposal(mutation)
+
+    def test_worker_disposal_requires_monotonic_lifecycle_and_heartbeat(self):
+        skipped_state = valid_worker_disposal()
+        skipped_state["lifecycle_events"][1]["state"] = "stopped"
+
+        reversed_time = valid_worker_disposal()
+        reversed_time["lifecycle_events"][1][
+            "recorded_at_utc"
+        ] = "2026-08-26T12:04:59Z"
+
+        heartbeat_after_disposal = valid_worker_disposal()
+        heartbeat_after_disposal[
+            "last_authenticated_heartbeat_at_utc"
+        ] = "2026-08-26T12:05:01Z"
+
+        duplicate_state = valid_worker_disposal()
+        duplicate_state["lifecycle_events"].append(
+            {
+                "state": "external-cleanup-complete",
+                "recorded_at_utc": "2026-08-26T12:05:30Z",
+            }
+        )
+
+        for label, mutation in (
+            ("skipped", skipped_state),
+            ("time reversal", reversed_time),
+            ("heartbeat after disposal", heartbeat_after_disposal),
+            ("duplicate", duplicate_state),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    validate_worker_disposal(mutation)
+
+    def test_worker_disposal_accepts_only_complete_safe_pre_failure_hashes(self):
+        after_failure = valid_worker_disposal()
+        after_failure["complete_pre_failure_hashes"][0][
+            "completed_at_utc"
+        ] = "2026-08-26T12:05:01Z"
+
+        incomplete = valid_worker_disposal()
+        incomplete["complete_pre_failure_hashes"][0]["complete"] = False
+
+        command_log = valid_worker_disposal()
+        command_log["complete_pre_failure_hashes"][0]["kind"] = "stdout-log"
+
+        unsafe_name = valid_worker_disposal()
+        unsafe_name["complete_pre_failure_hashes"][0]["name"] = "discord-token"
+
+        raw_identity_name = valid_worker_disposal()
+        raw_identity_name["complete_pre_failure_hashes"][0][
+            "name"
+        ] = "ocid1.instance.oc1.example"
+        self.assertSchemaInvalid("worker-disposal", raw_identity_name)
+
+        duplicate = valid_worker_disposal()
+        duplicate["complete_pre_failure_hashes"].append(
+            copy.deepcopy(duplicate["complete_pre_failure_hashes"][0])
+        )
+
+        for label, mutation in (
+            ("after failure", after_failure),
+            ("incomplete", incomplete),
+            ("command log", command_log),
+            ("secret-like name", unsafe_name),
+            ("raw identity name", raw_identity_name),
+            ("duplicate", duplicate),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    validate_worker_disposal(mutation)
 
     def test_paths_are_workspace_relative_and_outputs_have_safe_names(self):
         for valid in (

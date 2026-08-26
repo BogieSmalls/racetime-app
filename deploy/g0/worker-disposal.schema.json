@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racetime.z1rracing.com/schemas/g0-worker-disposal-v1.json",
+  "title": "Z1RR RaceTime OCI G0 worker disposal record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "disposition",
+    "run_id",
+    "project_prefix",
+    "instance_fingerprint",
+    "last_authenticated_heartbeat_at_utc",
+    "failed_proof_classes",
+    "lease_status",
+    "lifecycle_events",
+    "complete_pre_failure_hashes"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "disposition": {"const": "WORKER_DISPOSAL_REQUIRED"},
+    "run_id": {"$ref": "#/$defs/run_id"},
+    "project_prefix": {
+      "type": "string",
+      "pattern": "^z1rr-racetime-g0-[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
+    },
+    "instance_fingerprint": {"$ref": "#/$defs/instance_fingerprint"},
+    "last_authenticated_heartbeat_at_utc": {"$ref": "#/$defs/utc_timestamp"},
+    "failed_proof_classes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "process-ownership",
+          "boundary-emptiness",
+          "supervisor-termination",
+          "stream-eof",
+          "log-finalization",
+          "heartbeat-authentication",
+          "terminal-response-authentication"
+        ]
+      }
+    },
+    "lease_status": {
+      "enum": [
+        "authenticated-remote-signal",
+        "heartbeat-lost",
+        "terminal-response-lost"
+      ]
+    },
+    "lifecycle_events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/lifecycle_event"}
+    },
+    "complete_pre_failure_hashes": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/complete_hash"}
+    }
+  },
+  "$defs": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "instance_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["domain", "sha256"],
+      "properties": {
+        "domain": {"const": "z1rr-racetime-g0-instance-ocid-v1"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "lifecycle_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "recorded_at_utc"],
+      "properties": {
+        "state": {
+          "enum": [
+            "disposal-recorded",
+            "external-cleanup-complete",
+            "stop-requested",
+            "stopped",
+            "restart-requested",
+            "running",
+            "verify-clean-requested",
+            "recovery-verified"
+          ]
+        },
+        "recorded_at_utc": {"$ref": "#/$defs/utc_timestamp"}
+      }
+    },
+    "complete_hash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "sha256", "completed_at_utc"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^(?!.*ocid1\\.)(?!.*(?:password|secret|token|credential|api[._-]?key|private[._-]?key))[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "kind": {
+          "enum": [
+            "run-manifest",
+            "docker-bootstrap-lock",
+            "tool-lock",
+            "source-bundle",
+            "source-archive",
+            "retained-artifact",
+            "control-record"
+          ]
+        },
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "completed_at_utc": {"$ref": "#/$defs/utc_timestamp"}
+      }
+    }
+  }
+}

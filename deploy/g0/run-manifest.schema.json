@@ -11,6 +11,10 @@
     "created_at_utc",
     "remote_root",
     "aggregate_timeout_seconds",
+    "final_cleanup_timeout_seconds",
+    "heartbeat_interval_seconds",
+    "lease_timeout_seconds",
+    "absolute_terminal_timeout_seconds",
     "lock_identities",
     "sources",
     "outputs",
@@ -32,6 +36,18 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 86400
+    },
+    "final_cleanup_timeout_seconds": {
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 1800
+    },
+    "heartbeat_interval_seconds": {"const": 15},
+    "lease_timeout_seconds": {"const": 90},
+    "absolute_terminal_timeout_seconds": {
+      "type": "integer",
+      "minimum": 91,
+      "maximum": 86490
     },
     "lock_identities": {
       "type": "object",
@@ -146,82 +162,100 @@
     "phase_preflight_value": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "preflight"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_setup": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "setup"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_images": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "images"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_security": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "security"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_services": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "services"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_recovery": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "recovery"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_cross_repo": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "cross_repo"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_identities": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "identities"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     },
     "phase_cleanup": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "timeout_seconds"],
+      "required": ["name", "timeout_seconds", "execution_timeout_seconds", "cleanup_timeout_seconds"],
       "properties": {
         "name": {"const": "cleanup"},
-        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "execution_timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 18000},
+        "cleanup_timeout_seconds": {"type": "integer", "minimum": 5, "maximum": 600}
       }
     }
   }

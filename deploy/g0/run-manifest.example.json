@@ -5,6 +5,10 @@
   "created_at_utc": "2026-08-26T12:00:00Z",
   "remote_root": "/var/lib/z1rr-racetime/g0/20260826t120000z-1234abcd",
   "aggregate_timeout_seconds": 86400,
+  "final_cleanup_timeout_seconds": 900,
+  "heartbeat_interval_seconds": 15,
+  "lease_timeout_seconds": 90,
+  "absolute_terminal_timeout_seconds": 86490,
   "lock_identities": {
     "docker_bootstrap_sha256": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "tool_lock_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -46,14 +50,14 @@
     }
   ],
   "phases": [
-    {"name": "preflight", "timeout_seconds": 1800},
-    {"name": "setup", "timeout_seconds": 3600},
-    {"name": "images", "timeout_seconds": 50400},
-    {"name": "security", "timeout_seconds": 7200},
-    {"name": "services", "timeout_seconds": 7200},
-    {"name": "recovery", "timeout_seconds": 7200},
-    {"name": "cross_repo", "timeout_seconds": 3600},
-    {"name": "identities", "timeout_seconds": 1800},
-    {"name": "cleanup", "timeout_seconds": 3600}
+    {"name": "preflight", "timeout_seconds": 1800, "execution_timeout_seconds": 1200, "cleanup_timeout_seconds": 300},
+    {"name": "setup", "timeout_seconds": 3600, "execution_timeout_seconds": 3000, "cleanup_timeout_seconds": 300},
+    {"name": "images", "timeout_seconds": 50400, "execution_timeout_seconds": 18000, "cleanup_timeout_seconds": 600},
+    {"name": "security", "timeout_seconds": 7200, "execution_timeout_seconds": 6600, "cleanup_timeout_seconds": 600},
+    {"name": "services", "timeout_seconds": 7200, "execution_timeout_seconds": 6600, "cleanup_timeout_seconds": 600},
+    {"name": "recovery", "timeout_seconds": 7200, "execution_timeout_seconds": 6600, "cleanup_timeout_seconds": 600},
+    {"name": "cross_repo", "timeout_seconds": 3600, "execution_timeout_seconds": 3000, "cleanup_timeout_seconds": 600},
+    {"name": "identities", "timeout_seconds": 1800, "execution_timeout_seconds": 1200, "cleanup_timeout_seconds": 300},
+    {"name": "cleanup", "timeout_seconds": 2700, "execution_timeout_seconds": 1800, "cleanup_timeout_seconds": 600}
   ]
 }
