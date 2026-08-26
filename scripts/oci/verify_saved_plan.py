@@ -504,10 +504,29 @@ def _verify_replacement(
     )
     if drift:
         raise VerificationError("replacement contains unexpected drift")
-    if not set(outputs).issubset(OUTPUT_NAMES):
-        raise VerificationError("replacement has an unexpected output")
-    if any(change.get("actions") != ["create"] for change in outputs.values()):
-        raise VerificationError("replacement has an unexpected output action")
+    _require_actions(
+        outputs,
+        {name: ["update"] for name in OUTPUT_NAMES},
+        "replacement output_changes",
+    )
+    output_shape = {
+        "actions",
+        "before",
+        "after",
+        "after_unknown",
+        "before_sensitive",
+        "after_sensitive",
+    }
+    for change in outputs.values():
+        if (
+            set(change) != output_shape
+            or change.get("before") is not None
+            or change.get("after") is not None
+            or change.get("after_unknown") is not True
+            or change.get("before_sensitive") is not True
+            or change.get("after_sensitive") is not True
+        ):
+            raise VerificationError("replacement output is not safely deferred")
     if _changed_fields(resources["oci_identity_dynamic_group.racetime"]) != {
         "matching_rule"
     }:

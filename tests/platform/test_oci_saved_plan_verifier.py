@@ -229,7 +229,17 @@ def replacement_plan() -> dict:
         alarm,
         private_ips,
     ]
-    plan["output_changes"] = output_changes(["create"])
+    plan["output_changes"] = {
+        name: {
+            "actions": ["update"],
+            "before": None,
+            "after": None,
+            "after_unknown": True,
+            "before_sensitive": True,
+            "after_sensitive": True,
+        }
+        for name in OUTPUT_NAMES
+    }
     plan["configuration"]["root_module"]["resources"] = [
         {
             "address": "oci_core_public_ip.racetime",
@@ -1059,8 +1069,48 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
                 self.assert_rejected(fixture, phase)
 
     def test_replacement_rejects_unexpected_output_action(self) -> None:
+        for actions in (["create"], ["delete"], ["no-op"], ["delete", "create"]):
+            with self.subTest(actions=actions):
+                fixture = self.fixture(replacement_plan())
+                fixture.plan["output_changes"]["instance_id"]["actions"] = actions
+                self.assert_rejected(fixture, "replacement")
+
+    def test_replacement_requires_exact_deferred_output_shape(self) -> None:
+        mutations = {
+            "known-before": lambda change: change.__setitem__(
+                "before", "injected"
+            ),
+            "known-after": lambda change: change.__setitem__("after", "injected"),
+            "not-unknown": lambda change: change.__setitem__(
+                "after_unknown", False
+            ),
+            "before-not-sensitive": lambda change: change.__setitem__(
+                "before_sensitive", False
+            ),
+            "after-not-sensitive": lambda change: change.__setitem__(
+                "after_sensitive", False
+            ),
+            "extra-field": lambda change: change.__setitem__("unexpected", True),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                fixture = self.fixture(replacement_plan())
+                mutate(fixture.plan["output_changes"]["instance_id"])
+                self.assert_rejected(fixture, "replacement")
+
         fixture = self.fixture(replacement_plan())
-        fixture.plan["output_changes"]["instance_id"]["actions"] = ["delete"]
+        fixture.plan["output_changes"].pop("instance_id")
+        self.assert_rejected(fixture, "replacement")
+
+        fixture = self.fixture(replacement_plan())
+        fixture.plan["output_changes"]["unexpected"] = {
+            "actions": ["update"],
+            "before": None,
+            "after": None,
+            "after_unknown": True,
+            "before_sensitive": True,
+            "after_sensitive": True,
+        }
         self.assert_rejected(fixture, "replacement")
 
     def test_replacement_rejects_extra_updated_field(self) -> None:
