@@ -117,7 +117,7 @@ class CaddySourceContractTests(unittest.TestCase):
     def test_proxy_media_and_admin_controls_are_explicit(self):
         self.assertIn("request_body", self.source)
         self.assertIn("max_size 5MB", self.source)
-        self.assertIn("header_up -X-Forwarded-For", self.source)
+        self.assertNotIn("header_up -X-Forwarded-", self.source)
         self.assertIn("header_up X-Forwarded-For {remote_host}", self.source)
         self.assertIn("header_up X-Forwarded-Host {host}", self.source)
         self.assertIn("header_up X-Forwarded-Proto https", self.source)
