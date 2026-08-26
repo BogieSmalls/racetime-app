@@ -11,7 +11,7 @@
     "tools"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"type": "string", "const": "1"},
     "generated_at_utc": {"$ref": "#/$defs/utc_timestamp"},
     "bootstrap_lock_sha256": {"$ref": "#/$defs/sha256"},
     "tools": {

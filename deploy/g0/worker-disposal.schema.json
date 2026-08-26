@@ -17,7 +17,7 @@
     "complete_pre_failure_hashes"
   ],
   "properties": {
-    "schema_version": {"type": "integer", "const": 1},
+    "schema_version": {"type": "string", "const": "1"},
     "disposition": {"const": "WORKER_DISPOSAL_REQUIRED"},
     "run_id": {"$ref": "#/$defs/run_id"},
     "project_prefix": {

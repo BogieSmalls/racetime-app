@@ -13,7 +13,7 @@
     "findings"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"type": "string", "const": "1"},
     "repository": {"const": "restream"},
     "base_commit": {"$ref": "#/$defs/commit"},
     "candidate_commit": {"$ref": "#/$defs/commit"},

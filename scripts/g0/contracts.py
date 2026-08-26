@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
+import stat
 import unicodedata
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -333,8 +335,8 @@ def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
 
 
 def _require_schema_version_one(value: object, label: str) -> None:
-    if type(value) is not int or value != 1:
-        raise ContractError(f"{label} schema_version must be the integer 1")
+    if type(value) is not str or value != "1":
+        raise ContractError(f"{label} schema_version must be the string 1")
 
 
 def _number(value: object, label: str, minimum: float, maximum: float) -> float:
@@ -1099,6 +1101,7 @@ def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
             "lease_status",
             "run_started_monotonic_ns",
             "last_authenticated_heartbeat_monotonic_ns",
+            "authenticated_remote_disposal_monotonic_ns",
             "disposal_observed_monotonic_ns",
             "absolute_terminal_deadline_monotonic_ns",
         },
@@ -1120,7 +1123,11 @@ def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
     )
     if manifest_sha256 != _canonical_sha256(run_manifest):
         raise ContractError("trusted disposal control run manifest hash is incorrect")
-    _choice(control["lease_status"], "trusted disposal control lease_status", _LEASE_STATUSES)
+    lease_status = _choice(
+        control["lease_status"],
+        "trusted disposal control lease_status",
+        _LEASE_STATUSES,
+    )
 
     run_started = _integer(
         control["run_started_monotonic_ns"],
@@ -1134,6 +1141,17 @@ def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
         0,
         _MAX_MONOTONIC_NS,
     )
+    remote_disposal_value = control[
+        "authenticated_remote_disposal_monotonic_ns"
+    ]
+    remote_disposal = None
+    if remote_disposal_value is not None:
+        remote_disposal = _integer(
+            remote_disposal_value,
+            "trusted disposal control authenticated remote disposal",
+            0,
+            _MAX_MONOTONIC_NS,
+        )
     disposal_observed = _integer(
         control["disposal_observed_monotonic_ns"],
         "trusted disposal control disposal observation",
@@ -1154,13 +1172,23 @@ def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
         raise ContractError("trusted disposal control absolute deadline is incorrect")
     if last_heartbeat < run_started or disposal_observed < last_heartbeat:
         raise ContractError("trusted disposal control monotonic clocks move backwards")
-    if control["lease_status"] == "heartbeat-lost":
-        lease_ns = run_manifest["lease_timeout_seconds"] * _NANOSECONDS_PER_SECOND
-        if disposal_observed - last_heartbeat < lease_ns:
-            raise ContractError("trusted disposal control heartbeat lease has not expired")
-    elif control["lease_status"] == "terminal-response-lost":
-        if disposal_observed < absolute_deadline:
-            raise ContractError("trusted disposal control terminal deadline has not expired")
+    if remote_disposal is not None and (
+        remote_disposal < run_started or remote_disposal > disposal_observed
+    ):
+        raise ContractError("trusted disposal control remote signal clock is invalid")
+
+    lease_ns = run_manifest["lease_timeout_seconds"] * _NANOSECONDS_PER_SECOND
+    triggers = [
+        (last_heartbeat + lease_ns, 1, "heartbeat-lost"),
+        (absolute_deadline, 2, "terminal-response-lost"),
+    ]
+    if remote_disposal is not None:
+        triggers.append((remote_disposal, 0, "authenticated-remote-signal"))
+    trigger_at, _, trigger_status = min(triggers)
+    if disposal_observed < trigger_at:
+        raise ContractError("trusted disposal control has no mature disposal trigger")
+    if lease_status != trigger_status:
+        raise ContractError("trusted disposal control did not retain the earliest trigger")
     return control
 
 
@@ -1221,6 +1249,8 @@ def validate_worker_disposal_transition(
     current = validate_worker_disposal(candidate)
     prior = None if previous is None else validate_worker_disposal(previous)
     control = _validate_disposal_control(trusted_control, manifest)
+    if not control["armed"]:
+        raise ContractError("worker disposal requires an armed trusted control")
 
     if current["run_id"] != manifest["run_id"] or current["project_prefix"] != manifest[
         "project_prefix"
@@ -1248,10 +1278,14 @@ def validate_worker_disposal_transition(
             raise ContractError("worker disposal hash does not match its protocol identity")
         if complete_hash["name"] == "run-manifest.json":
             manifest_hash = complete_hash["sha256"]
-    if control["armed"] and manifest_hash != control["run_manifest_sha256"]:
-        raise ContractError("armed worker disposal lacks the exact run manifest hash")
+    if manifest_hash != control["run_manifest_sha256"]:
+        raise ContractError("worker disposal lacks the exact run manifest hash")
 
     if prior is None:
+        if len(current["lifecycle_events"]) != 1:
+            raise ContractError(
+                "initial worker disposal lifecycle must be disposal-recorded only"
+            )
         return current
 
     immutable_keys = (
@@ -1378,15 +1412,191 @@ def _pairs_to_object(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
+def _read_contract_bytes_posix(contract_path: Path) -> bytes:
+    if any(
+        not hasattr(os, option)
+        for option in ("O_NOFOLLOW", "O_DIRECTORY", "O_NONBLOCK")
+    ) or os.open not in os.supports_dir_fd:
+        raise ContractError("atomic no-follow contract loading is unavailable")
+    absolute_path = Path(os.path.abspath(contract_path))
+    components = absolute_path.parts[1:]
+    if not components:
+        raise ContractError("contract path is not a regular file")
+
+    close_on_exec = getattr(os, "O_CLOEXEC", 0)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | close_on_exec
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | close_on_exec
+    directory_descriptor = None
+    descriptor = None
+    try:
+        directory_descriptor = os.open(absolute_path.anchor, directory_flags)
+        for component in components[:-1]:
+            next_descriptor = os.open(
+                component,
+                directory_flags,
+                dir_fd=directory_descriptor,
+            )
+            os.close(directory_descriptor)
+            directory_descriptor = next_descriptor
+        descriptor = os.open(
+            components[-1],
+            file_flags,
+            dir_fd=directory_descriptor,
+        )
+        os.close(directory_descriptor)
+        directory_descriptor = None
+        file_status = os.fstat(descriptor)
+        if not stat.S_ISREG(file_status.st_mode):
+            raise ContractError("contract path is not a regular file")
+        stream = os.fdopen(descriptor, "rb", closefd=True)
+        descriptor = None
+        with stream:
+            return stream.read(_MAX_CONTRACT_BYTES + 1)
+    except ContractError:
+        raise
+    except OSError as error:
+        raise ContractError("cannot load contract file") from error
+    finally:
+        if directory_descriptor is not None:
+            os.close(directory_descriptor)
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _normalize_windows_handle_path(value: str) -> str:
+    if value.startswith("\\\\?\\UNC\\"):
+        value = "\\\\" + value[8:]
+    elif value.startswith("\\\\?\\"):
+        value = value[4:]
+    return os.path.normcase(os.path.normpath(value))
+
+
+def _read_contract_bytes_windows(contract_path: Path) -> bytes:
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    generic_read = 0x80000000
+    share_all = 0x00000001 | 0x00000002 | 0x00000004
+    open_existing = 3
+    file_flag_open_reparse_point = 0x00200000
+    file_flag_sequential_scan = 0x08000000
+    file_attribute_directory = 0x00000010
+    file_attribute_reparse_point = 0x00000400
+    file_attribute_tag_info_class = 9
+
+    class FileAttributeTagInfo(ctypes.Structure):
+        _fields_ = [
+            ("file_attributes", wintypes.DWORD),
+            ("reparse_tag", wintypes.DWORD),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    get_information = kernel32.GetFileInformationByHandleEx
+    get_information.argtypes = (
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+    )
+    get_information.restype = wintypes.BOOL
+    get_final_path = kernel32.GetFinalPathNameByHandleW
+    get_final_path.argtypes = (
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    )
+    get_final_path.restype = wintypes.DWORD
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+
+    requested_path = str(contract_path.absolute())
+    handle = create_file(
+        requested_path,
+        generic_read,
+        share_all,
+        None,
+        open_existing,
+        file_flag_open_reparse_point | file_flag_sequential_scan,
+        None,
+    )
+    invalid_handle = ctypes.c_void_p(-1).value
+    if handle == invalid_handle:
+        raise ContractError("cannot load contract file")
+
+    descriptor = None
+    try:
+        attributes = FileAttributeTagInfo()
+        if not get_information(
+            handle,
+            file_attribute_tag_info_class,
+            ctypes.byref(attributes),
+            ctypes.sizeof(attributes),
+        ):
+            raise ContractError("cannot inspect contract file handle")
+        if attributes.file_attributes & (
+            file_attribute_directory | file_attribute_reparse_point
+        ):
+            raise ContractError("contract path is not a retained regular file")
+
+        required = get_final_path(handle, None, 0, 0)
+        if required == 0:
+            raise ContractError("cannot inspect contract file handle")
+        final_path_buffer = ctypes.create_unicode_buffer(required)
+        written = get_final_path(handle, final_path_buffer, required, 0)
+        if written == 0 or written >= required:
+            raise ContractError("cannot inspect contract file handle")
+        if _normalize_windows_handle_path(final_path_buffer.value) != (
+            _normalize_windows_handle_path(requested_path)
+        ):
+            raise ContractError("contract handle does not match its retained path")
+
+        descriptor = msvcrt.open_osfhandle(
+            int(handle), os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        )
+        handle = None
+        stream = os.fdopen(descriptor, "rb", closefd=True)
+        descriptor = None
+        with stream:
+            return stream.read(_MAX_CONTRACT_BYTES + 1)
+    except ContractError:
+        raise
+    except (OSError, ValueError) as error:
+        raise ContractError("cannot load contract file") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if handle is not None:
+            close_handle(handle)
+
+
+def _read_contract_bytes(contract_path: Path) -> bytes:
+    _reject_symlink(contract_path)
+    if os.name == "nt":
+        return _read_contract_bytes_windows(contract_path)
+    return _read_contract_bytes_posix(contract_path)
+
+
 def load_json(path: Path, schema_name: str) -> dict:
     """Load one named G0 contract without following symlinks and validate it."""
 
     contract_path = Path(path)
-    _reject_symlink(contract_path)
     try:
-        with contract_path.open("rb") as stream:
-            raw = stream.read(_MAX_CONTRACT_BYTES + 1)
-    except OSError as error:
+        raw = _read_contract_bytes(contract_path)
+    except RecursionError as error:
         raise ContractError("cannot load contract file") from error
     if len(raw) > _MAX_CONTRACT_BYTES:
         raise ContractError("contract JSON exceeds the byte limit")
