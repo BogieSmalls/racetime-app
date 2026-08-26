@@ -71,7 +71,7 @@ https://{$CADDY_SITE_HOST} {
 			header_up -X-Forwarded-Host
 			header_up X-Forwarded-Host {host}
 			header_up -X-Forwarded-Proto
-			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Proto https
 			header_up Host {host}
 		}
 	}
@@ -106,7 +106,7 @@ https://{$CADDY_SITE_HOST}:8081 {
 			header_up -X-Forwarded-Host
 			header_up X-Forwarded-Host {host}
 			header_up -X-Forwarded-Proto
-			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Proto https
 			header_up Host {host}
 		}
 		respond 404

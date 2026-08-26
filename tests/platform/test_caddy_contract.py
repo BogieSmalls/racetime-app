@@ -120,7 +120,7 @@ class CaddySourceContractTests(unittest.TestCase):
         self.assertIn("header_up -X-Forwarded-For", self.source)
         self.assertIn("header_up X-Forwarded-For {remote_host}", self.source)
         self.assertIn("header_up X-Forwarded-Host {host}", self.source)
-        self.assertIn("header_up X-Forwarded-Proto {scheme}", self.source)
+        self.assertIn("header_up X-Forwarded-Proto https", self.source)
         self.assertIn("Content-Disposition", self.source)
         self.assertIn("X-Content-Type-Options nosniff", self.source)
         self.assertIn(":8081", self.source)
