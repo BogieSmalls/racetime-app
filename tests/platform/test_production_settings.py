@@ -146,3 +146,9 @@ class ProductionSettingsTests(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0, output)
         self.assertIn("RACETIME_ACCESS_PHSAE", output)
         self.assertNotIn("public", output)
+
+    def test_image_build_commit_is_accepted(self):
+        completed = run_production_probe(
+            overrides={"RACETIME_BUILD_COMMIT": "0123456789abcdef"},
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
