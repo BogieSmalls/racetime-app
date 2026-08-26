@@ -473,7 +473,19 @@ def _verify_refresh_only(
 def _truthy_unknown_fields(value: Any) -> set[str]:
     if not isinstance(value, dict):
         return set()
-    return {name for name, unknown in value.items() if unknown}
+
+    def contains_literal_true(unknown: Any) -> bool:
+        if type(unknown) is bool:
+            return unknown is True
+        if isinstance(unknown, dict):
+            return any(contains_literal_true(item) for item in unknown.values())
+        if isinstance(unknown, list):
+            return any(contains_literal_true(item) for item in unknown)
+        return False
+
+    return {
+        name for name, unknown in value.items() if contains_literal_true(unknown)
+    }
 
 
 def _changed_fields(change: dict[str, Any]) -> set[str]:

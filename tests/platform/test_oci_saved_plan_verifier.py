@@ -215,6 +215,14 @@ def replacement_plan() -> dict:
         {"stable": "same", "query": "redacted-new-query"},
     )
     alarm["change"]["before"]["query"] = "redacted-old-query"
+    alarm["change"]["after_unknown"] = {
+        "defined_tags": {},
+        "destinations": [False],
+        "freeform_tags": {},
+        "overrides": [],
+        "query": True,
+        "suppression": [],
+    }
     private_ips = change(
         "data.oci_core_private_ips.racetime",
         ["read"],
@@ -804,6 +812,31 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         self.assertEqual(summary.resource_changes, 5)
         self.assertEqual(summary.resource_drift, 0)
         self.assertEqual(summary.output_changes, 4)
+
+    def test_unknown_field_detection_requires_literal_nested_true(self) -> None:
+        unknowns = {
+            "literal-true": True,
+            "literal-false": False,
+            "false-list": [False],
+            "false-map": {"nested": [False, {"deeper": False}]},
+            "true-list": [False, {"nested": True}],
+            "true-map": {"nested": [False, True]},
+            "empty-list": [],
+            "empty-map": {},
+            "string": "true",
+            "number": 1,
+            "null": None,
+        }
+        self.assertEqual(
+            self.verifier._truthy_unknown_fields(unknowns),
+            {"literal-true", "true-list", "true-map"},
+        )
+
+    def test_replacement_rejects_nested_unknown_alarm_field(self) -> None:
+        fixture = self.fixture(replacement_plan())
+        alarm = fixture.plan["resource_changes"][3]["change"]
+        alarm["after_unknown"]["destinations"] = [False, {"nested": True}]
+        self.assert_rejected(fixture, "replacement")
 
     def test_replacement_requires_provider_native_public_ip_false(self) -> None:
         invalid_values = (
