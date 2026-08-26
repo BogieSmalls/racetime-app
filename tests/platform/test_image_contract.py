@@ -83,6 +83,8 @@ class ImageContractTests(unittest.TestCase):
         health = HEALTHCHECK.read_text(encoding="utf-8")
         self.assertIn("http://127.0.0.1:8000/healthz", health)
         self.assertIn("kill -0 1", health)
+        self.assertIn("python manage.py racebot_health", health)
+        self.assertNotIn("/proc/1/cmdline", health)
 
     def test_web_healthcheck_uses_configured_host_and_fails_closed(self):
         health = HEALTHCHECK.read_text(encoding="utf-8")

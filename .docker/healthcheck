@@ -26,11 +26,6 @@ sys.exit(0 if response.status == 200 and body == b"{\"status\":\"ok\"}" else 1)
         ;;
     racebot)
         kill -0 1
-        command_line="$(tr "\000" " " < /proc/1/cmdline)"
-        case "$command_line" in
-            *python*manage.py*racebot*--noreload*) : ;;
-            *) exit 1 ;;
-        esac
         exec python manage.py racebot_health --max-age-seconds 30
         ;;
     process)
