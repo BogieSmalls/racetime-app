@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.http import Http404
 from django.urls import path, include
-from django.views.generic import TemplateView
+from django.views.generic import RedirectView, TemplateView
 from oauth2_provider import views as oauth2_views
 
 from . import views
@@ -218,7 +218,11 @@ urlpatterns = [
         ),
     ])),
 
-    path('', views.Home.as_view(), name='home'),
+    path(
+        '',
+        RedirectView.as_view(url='/z1rr', permanent=True),
+        name='home',
+    ),
     path(
         'search',
         protected(views.Search.as_view(), 'lookup', 'search', ('GET',)),

@@ -6,6 +6,8 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils.html import strip_tags
 
+from racetime.models import Category
+
 
 SOURCE_URL = "https://github.com/BogieSmalls/racetime-app"
 LICENSE_URL = SOURCE_URL + "/blob/z1rr-production/LICENSE"
@@ -32,7 +34,14 @@ class BrandingTests(TestCase):
         )
 
     def test_public_page_shows_identity_policies_and_source_attribution(self):
-        response = self.client.get(reverse("home"))
+        Category.objects.create(
+            name="Zelda 1 Randomizer Racing",
+            short_name="Z1RR",
+            slug="z1rr",
+        )
+        response = self.client.get(
+            reverse("category", kwargs={"category": "z1rr"})
+        )
         body = response.content.decode()
 
         self.assertEqual(response.status_code, 200)

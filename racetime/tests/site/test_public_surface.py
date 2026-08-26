@@ -45,6 +45,12 @@ class PublicSurfaceTests(TestCase):
                         html=False,
                     )
 
+    def test_root_redirects_permanently_to_only_category(self):
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 301)
+        self.assertEqual(response["Location"], "/z1rr")
+
     def test_disabled_posts_cannot_mutate_email_password_or_patreon(self):
         self.client.force_login(self.user)
         original_password = self.user.password
@@ -108,7 +114,6 @@ class PublicSurfaceTests(TestCase):
     def test_navigation_hides_disabled_surfaces_and_synthetic_email(self):
         self.client.force_login(self.user)
         for route in (
-            "home",
             "edit_account",
             "edit_account_connections",
             "edit_account_teams",
