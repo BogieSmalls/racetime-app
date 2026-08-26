@@ -578,7 +578,7 @@ Any executable/config change after this point invalidates the pending run and re
 
 - [ ] **Step 1: Reconfirm the exact authorization and live boundary**
 
-Require the dedicated `racetime` instance, 1 OCPU/6GB/50GB, reserved address identity, dedicated subnet/security list/NSG, Bastion-only SSH, no DNS/application/TLS/OAuth state, no existing G0 project resources, accepted Docker/IMDS baseline, resource floor, and clean exact final commit.
+Require the dedicated `racetime` instance, 1 OCPU/6GB/50GB, reserved address identity, dedicated subnet/security list/NSG, Bastion-only SSH, canonical `racetime.z1rracing.com` A resolution matching that reserved identity with TTL 300 and no AAAA/CNAME, no application listener/TLS/OAuth state, no existing G0 project resources, accepted Docker/IMDS baseline, resource floor, and clean exact final commit. DNS presence is prepositioned addressing only and cannot satisfy a service or launch gate.
 
 - [ ] **Step 2: Transfer exact inputs and run the nine phases**
 
@@ -617,4 +617,4 @@ Expected: release identities, evidence, traceability, and secret scan pass; G0 c
 
 - [ ] **Step 7: Commit the docs-only closeout and stop the instance when idle**
 
-Do not configure public DNS/TLS or start the RaceTime application as part of G0. Record that the instance may be stopped between development sessions.
+Do not alter the prepositioned public DNS record, configure TLS, or start the RaceTime application as part of G0. Record that the instance may be stopped between development sessions.

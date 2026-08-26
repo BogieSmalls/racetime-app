@@ -21,8 +21,12 @@ Use the dedicated `racetime` OCI instance as the G0 qualification worker before
 it hosts public RaceTime traffic. The instance is a native ARM64
 `VM.Standard.A1.Flex` with 1 OCPU, 6 GB RAM, a 50-GB Balanced boot volume, a
 reserved IPv4 address, and the independently verified dedicated subnet and NSG
-boundary. Public DNS, TLS, OAuth, RaceTime application state, and production
-credentials remain absent during G0.
+boundary. The operator has prepositioned the canonical
+`racetime.z1rracing.com` A record to the reserved-address identity with a
+300-second TTL; independent public resolution finds no AAAA or CNAME. TLS,
+OAuth, RaceTime application state, production credentials, and any public
+application listener remain absent during G0. The DNS record is inert
+addressing, not service activation or qualification evidence.
 
 This choice follows the operator's explicit rejection of Docker on the Windows
 workstation and the Synology spike's proof that DSM's older kernel cannot
@@ -356,12 +360,15 @@ invalidates the affected remote evidence.
 - Preserve enough redacted evidence to diagnose a gate, but never raw secrets,
   repository credentials, Discord/OAuth tokens, private keys, or unredacted
   scanner matches.
-- Do not continue to public DNS/TLS/application qualification on a G0 failure.
+- Do not continue to TLS/application qualification on a G0 failure. Leave the
+  prepositioned canonical DNS record unchanged; its presence is not a waiver or
+  launch signal.
 
 ## Non-goals
 
 This phase does not publish images, push a manifest, start the public or
-restricted RaceTime stack, create application data, issue TLS, configure DNS,
+restricted RaceTime stack, create application data, issue TLS, alter the
+prepositioned canonical DNS record,
 create OAuth applications, use production credentials, move schedulers, alter
 Restream infrastructure, resize the VM, add swap, open OCI ports, or authorize
 G2/G3. The only additional OCI lifecycle authority is stop/restart of the exact
