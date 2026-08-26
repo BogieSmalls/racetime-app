@@ -1,7 +1,9 @@
 # OCI subnet correction evidence
 
-**Status:** IN PROGRESS — additive network boundary verified; exposed empty instance and
-its boot volume disposed; Terraform state reconciled; replacement planning pending.
+**Status:** VERIFIED — the exposed empty instance and its boot volume were disposed,
+Terraform state was reconciled, the dedicated replacement is live on the corrected
+boundary, the in-place encryption correction is verified, and the final full plan has
+zero drift. DNS is unchanged and host bootstrap has not started.
 
 ## Reason for correction
 
@@ -311,20 +313,142 @@ no-drift checks. The lifecycle sequence is classified as independent duty-cycle
 activity; it does not change the conclusion that this correction made no Restream
 infrastructure mutation.
 
+## Dedicated replacement plan and apply
+
+The fresh replacement saved plan was generated and applied from exact clean source
+commit `d1c582a8b89c6f13b729698c45dd49a03457ae6a` with Terraform 1.12.2.
+
+- Saved-plan SHA-256:
+  `74a9e831fca287d43377720e8217cb6c10d133242275a24955bdc6645b08e839`
+- Custody JSON SHA-256:
+  `9dd7a5592ac6d527b91d31b0b2ee9ae41b9fcbe7c146f407fc7f6e2bde3f8004`
+- Saved-plan verifier: PASS during review and immediately before apply, with five
+  resource changes, zero resource drift, and four output changes
+- Accepted action set: create only the A1 instance and reserved regional IPv4; read the
+  primary private-IP data source after instance creation; update only the RaceTime
+  dynamic-group matching rule and instance CPU-alarm query for the new identity
+- Apply log SHA-256:
+  `28e73cc8a89fed69e8cf9df575ba96d1f8aabe28f9da9edfb8e6229345e5f88a`
+- Apply result: exit 0; no delete, replacement, or Restream action
+
+Live verification proved a `RUNNING` Ubuntu 24.04 ARM64
+`VM.Standard.A1.Flex` instance at 1 OCPU/6 GB with one 50-GB/10-VPU boot
+volume, one primary VNIC, no block-volume attachment, no IPv6, and the reserved
+regional IPv4 assigned to that exact primary private IP. The VNIC is in only the
+dedicated `racetime-public` subnet and RaceTime NSG. That subnet references only the
+custom zero-ingress security list. The effective network union contains public TCP/80
+and 443, exactly one TCP/22 rule from the current Bastion private endpoint `/32`, one
+all-IPv4 egress rule, and no public 22, 3306, or 6379. The reserved address value remains
+in ignored evidence for the final reviewed DNS handoff and is not committed here.
+
+- Replacement live-summary SHA-256:
+  `767cb76c0346610659e5517292c29a7d32b827607abe381a317368726e4489b6`
+- Private-DNS proof SHA-256:
+  `63716cb308cdb36f9dc802e9ca856c198cabca996e53edb51abf7110d1860052`
+
+The private FQDN is exactly `racetime.racetime.restream.oraclevcn.com`. An authenticated
+Ubuntu SSH session through OCI Bastion proved ARM64 system identity and independently
+proved the FQDN through both `resolvectl` and `getent`: DNS protocol, OCI resolver
+`169.254.169.254`, and a singleton A result equal to the exact primary VNIC address.
+No non-comment `/etc/hosts` token supplies the full FQDN. The time-limited Bastion
+session was deleted and the local listener was removed.
+
+## In-place launch-encryption correction
+
+Provider 8.27.0 reported paravirtualized in-transit encryption disabled after the
+replacement create even though the deprecated nested launch option requested it. The
+reviewed durable configuration keeps the nested update authority and the top-level
+create authority set to `true`, while ignoring only the top-level create-only field on
+the existing VM. The nested field remains drift-visible.
+
+The fresh `launch-encryption` plan was generated and applied from exact clean source
+commit `e59798b77a730234bd13f2ba8c34c1d612012984` with Terraform 1.12.2.
+
+- Saved-plan SHA-256:
+  `ab20c42152c58eca5d1d7de5f687dacef70f28af46604823b9a76db88c966084`
+- Custody JSON SHA-256:
+  `2bfc1ebd9165e85ea2d314c88121bdf0dc43d0f05834f34fb111f9972ea758be`
+- Saved-plan verifier: PASS during review and immediately before apply, with three
+  resource changes, one exact computed drift item, and zero output changes
+- Accepted action set: one in-place instance update changing only nested launch
+  encryption `false` to `true`, the dependency-pending primary-private-IP read, and the
+  deferred reserved-public-IP binding update; no create, delete, replacement, output
+  change, or Restream action
+- Apply log SHA-256:
+  `deaefa0c32cb85b1dbebcccaa7c949743bdd226c2ead9256bac43b17760bd8df`
+- Apply result: exit 0 followed by the expected reboot
+
+After the reboot, the complete live boundary recheck passed and OCI reports
+paravirtualized in-transit encryption `true` with network type `PARAVIRTUALIZED`.
+Shape, image, boot volume, VNIC/private-IP identity, dedicated subnet/list, reserved-IP
+binding, NSG rules, Bastion identity, and IPv4-only boundary all remained exact.
+The live-verification summary has SHA-256
+`8a5cd85fe7b84b3494d5f3ec222050e09e4cd86d94befd0d7c144401d2195de9`.
+
+A fresh post-reboot Bastion session then reproved authenticated Ubuntu/ARM64 access and
+the private-DNS singleton gates. One initial tunnel attempt encountered normal Bastion
+authorization propagation; the bounded second attempt authenticated with the same
+reviewed key. Cleanup proved the exact session `DELETED`, zero active Bastion sessions,
+and zero local SSH client/listener processes. The redacted proof summary has SHA-256
+`50609ed58f4cb46ba619eff56765f2d1d06227198d52be39109e99c2c7b4dce2`.
+
+## Final no-drift and Restream isolation proof
+
+The fresh full Terraform plan after reboot returned detailed exit code 0. Its ignored
+log has SHA-256
+`b43b997ced7652a104ebd6b6c116ed647b10bff40e87559d8b847ed00573abf9`.
+
+The final explicit-ID Restream recapture again covered four instances, four VNIC
+attachments, four VNICs/subnets, five retained boot volumes, and all five boot-volume
+attachments. Against the continuing baseline
+`e6e1f102e4a890e1663b25985f39892a00aed301efa836989175c49c07cbf578`,
+every field matched except `control_staging.state`, which changed from `RUNNING` to
+`STOPPED`. The new normalized inventory has SHA-256
+`7919ef4d48dae0e02e5fced75251ef39543347845a6cf3ece9b18622fe7cc6c8`.
+
+OCI Logging Search returned the canonical compartment `_Audit` stream for the exact
+baseline-to-recapture window, `2026-08-25T22:52:10.5878941Z` through
+`2026-08-26T04:34:28.538810Z`. The query returned 29 unpaginated `InstanceAction`
+records; 13 begin actions belonged to the four exact Restream instance identities. Each
+was status 200, had an exact lifecycle transition and a unique nearby completion, and
+came from the established Oracle Python SDK/CLI caller families rather than Terraform.
+
+For `control_staging`, Audit records this complete sequence:
+
+1. `SOFTSTOP` at `2026-08-25T22:59:35.125Z`, `RUNNING` to `STOPPING`.
+2. `START` at `2026-08-25T23:03:39.928Z`, `STOPPED` to `STARTING`.
+3. `SOFTSTOP` at `2026-08-26T00:09:33.332Z`, `RUNNING` to `STOPPING`.
+4. `START` at `2026-08-26T00:20:39.733Z`, `STOPPED` to `STARTING`.
+5. `STOP` at `2026-08-26T00:27:42.462Z`, `RUNNING` to `STOPPING`.
+
+That ordered sequence explains the net `RUNNING` to `STOPPED` delta exactly. A final
+exact-ID read proved `control_staging` remained `STOPPED` after the inventory.
+
+- Canonical `_Audit` search SHA-256:
+  `22d7a04be063427b3a7e643b692a1c48c60fb675c8b904b50dc94f939e464060`
+- Stable exact-ID read SHA-256:
+  `9008d65c28c9f5d8023b473a65fe4df2023bdad2df1856272efea80a008828d1`
+
+The post-encryption inventory is the new continuing Restream baseline. The classified
+duty-cycle activity is independent of this correction; no Restream configuration,
+network, volume, or Terraform-managed resource changed.
+
 ## Current gate
 
-- Dedicated subnet/security list: created and live-verified
+- Dedicated subnet/security list: created and live-verified with the replacement
+- Reserved regional IPv4: assigned to the exact primary private IP; value retained for
+  the reviewed DNS handoff
 - Exposed RaceTime instance: exact identity terminated; operator record says
   `--if-match` was used, but retained OCI artifacts do not independently prove the header
 - Exposed RaceTime boot volume: terminated; not preserved or orphaned
-- Terraform state: reconciled through the verified saved refresh-only plan; the
-  terminated instance is absent and all 29 required remaining entries are retained
-- Restream continuing baseline: promoted after exact-ID recapture and complete
-  out-of-band duty-cycle classification
+- Replacement RaceTime instance: `RUNNING`, dedicated, IPv4-only, encrypted in transit,
+  Bastion-accessible, and private-DNS verified
+- Terraform state: reconciled and final full plan reports no changes
+- Restream continuing baseline: promoted after a second complete exact-ID recapture and
+  canonical `_Audit` lifecycle classification
 - Restream infrastructure mutation by this correction: none
 - DNS: unchanged
 - Host bootstrap: not started
 
-The next permitted action is replacement planning through the dedicated-subnet and
-reserved-address path. Replacement apply remains blocked until that saved plan passes
-its own reviewed verifier and all pre-apply gates.
+Task 7 is complete. Task 8 completion review and the final reserved-IPv4 DNS handoff are
+next; no DNS or application action is implied by this evidence.
