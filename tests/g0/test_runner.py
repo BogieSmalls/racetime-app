@@ -1,520 +1,444 @@
 import hashlib
 import json
 import os
-import stat
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-import scripts.g0.runner as runner_module
+from scripts.g0.runner import CommandSpec, Runner, RunnerError, WorkerDisposalRequired
 
-from scripts.g0.runner import CommandSpec, Runner, RunnerError
+
+class _FakeProcess:
+    def __init__(self, response, *, returncode=0, error=None, polls_before_response=0):
+        self.response = response
+        self.returncode = returncode
+        self.error = error
+        self.killed = False
+        self.poll_calls = 0
+        self.request = None
+        self._request_endpoint = None
+        self._response_endpoint = None
+        self._polls_before_response = polls_before_response
+
+    def configure(self, command):
+        request = int(command[command.index("--request-endpoint") + 1])
+        response = int(command[command.index("--response-endpoint") + 1])
+        self._request_endpoint = self._duplicate_endpoint(request)
+        self._response_endpoint = self._duplicate_endpoint(response)
+
+    @staticmethod
+    def _duplicate_endpoint(endpoint):
+        if os.name != "nt":
+            return os.dup(endpoint)
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.DuplicateHandle.argtypes = (
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p), ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong,
+        )
+        kernel32.DuplicateHandle.restype = ctypes.c_int
+        current = kernel32.GetCurrentProcess()
+        duplicate = ctypes.c_void_p()
+        if not kernel32.DuplicateHandle(current, ctypes.c_void_p(endpoint), current, ctypes.byref(duplicate), 0, False, 2):
+            raise OSError("fake endpoint duplicate failed")
+        return duplicate.value
+
+    @staticmethod
+    def _close_endpoint(endpoint):
+        if endpoint is None:
+            return
+        if os.name != "nt":
+            os.close(endpoint)
+        else:
+            import ctypes
+            ctypes.windll.kernel32.CloseHandle(endpoint)
+
+    @staticmethod
+    def _read_endpoint(endpoint):
+        if os.name != "nt":
+            return os.read(endpoint, 1_048_576)
+        import ctypes
+        buffer = ctypes.create_string_buffer(1_048_576); read = ctypes.c_ulong()
+        if not ctypes.windll.kernel32.ReadFile(endpoint, buffer, len(buffer), ctypes.byref(read), None):
+            raise OSError("fake endpoint read failed")
+        return buffer.raw[: read.value]
+
+    @staticmethod
+    def _write_endpoint(endpoint, content):
+        if os.name != "nt":
+            os.write(endpoint, content); return
+        import ctypes
+        written = ctypes.c_ulong(); buffer = ctypes.create_string_buffer(content)
+        if not ctypes.windll.kernel32.WriteFile(endpoint, buffer, len(content), ctypes.byref(written), None) or written.value != len(content):
+            raise OSError("fake endpoint write failed")
+
+    def poll(self):
+        self.poll_calls += 1
+        if self.killed:
+            return self.returncode
+        if self.error is not None and not self.killed:
+            return None
+        if self._polls_before_response:
+            self._polls_before_response -= 1
+            return None
+        if self.request is None:
+            self.request = self._read_endpoint(self._request_endpoint)
+            self._close_endpoint(self._request_endpoint); self._request_endpoint = None
+            self._write_endpoint(self._response_endpoint, self.response)
+            self._close_endpoint(self._response_endpoint); self._response_endpoint = None
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+        self._close_endpoint(self._request_endpoint); self._request_endpoint = None
+        self._close_endpoint(self._response_endpoint); self._response_endpoint = None
+        self.returncode = -9
+
+
+
+def _response(status="PASS", **changes):
+    value = {
+        "protocol_version": 1,
+        "status": status,
+        "exit_code": 0,
+        "duration_ms": 1,
+        "cleanup_deadline_monotonic_ns": 9_000_000_000_000_000_000,
+        "stdout_sha256": "sha256:" + "0" * 64,
+        "stderr_sha256": "sha256:" + "1" * 64,
+        "proof": {"boundary_empty": True, "streams_eof": True, "logs_finalized": True},
+    }
+    value.update(changes)
+    return (json.dumps(value) + "\n").encode()
 
 
 class RunnerTests(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary_directory.name)
-        self.log_directory = self.root / "logs"
-        self.runner = Runner()
+        self.root = Path(self.temporary_directory.name).resolve()
+        self.logs = self.root / "logs"
 
     def tearDown(self):
         self.temporary_directory.cleanup()
 
-    def spec(
-        self,
-        command_id,
-        argv,
-        *,
-        timeout_seconds=5,
-        environment=(),
-        secret_canaries=(),
-        stdout_limit=4096,
-        stderr_limit=4096,
-    ):
-        return CommandSpec(
-            command_id=command_id,
-            argv=tuple(argv),
-            cwd=self.root,
-            timeout_seconds=timeout_seconds,
-            environment=tuple(environment),
-            secret_canaries=tuple(secret_canaries),
-            stdout_limit=stdout_limit,
-            stderr_limit=stderr_limit,
-            log_directory=self.log_directory,
-        )
-
-    def log(self, command_id, stream):
-        return self.log_directory / f"{command_id}.{stream}.log"
-
-    def test_argv_is_not_interpreted_by_a_shell(self):
-        shell_text = "; echo shell-injection"
-        spec = self.spec(
-            "literal-argv",
-            (sys.executable, "-I", "-c", "import sys; print(sys.argv[1])", shell_text),
-        )
-
-        result = self.runner.run(spec)
-
-        self.assertEqual(0, result.exit_code)
-        self.assertEqual(
-            (shell_text + os.linesep).encode(),
-            self.log("literal-argv", "stdout").read_bytes(),
-        )
-
-    def test_string_argv_is_rejected_instead_of_being_reinterpreted(self):
-        spec = CommandSpec(
-            command_id="invalid-argv",
-            argv=sys.executable,
-            cwd=self.root,
-            timeout_seconds=5,
-            environment=(),
-            secret_canaries=(),
-            stdout_limit=100,
-            stderr_limit=100,
-            log_directory=self.log_directory,
-        )
-
-        with self.assertRaisesRegex(RunnerError, r"^command invalid-argv is invalid$"):
-            self.runner.run(spec)
-
-    def test_cwd_and_environment_are_explicitly_controlled(self):
-        code = (
-            "import json, os; "
-            "print(json.dumps({'cwd': os.getcwd(), "
-            "'visible': os.environ.get('RUNNER_VISIBLE'), "
-            "'inherited': os.environ.get('RUNNER_INHERITED')}))"
-        )
-        spec = self.spec(
-            "controlled-context",
-            (sys.executable, "-I", "-c", code),
-            environment=(("RUNNER_VISIBLE", "yes"),),
-        )
-
-        with mock.patch.dict(os.environ, {"RUNNER_INHERITED": "must-not-leak"}):
-            self.runner.run(spec)
-
-        observed = json.loads(
-            self.log("controlled-context", "stdout").read_text(encoding="utf-8")
-        )
-        self.assertEqual(str(self.root.resolve()), observed["cwd"])
-        self.assertEqual("yes", observed["visible"])
-        self.assertIsNone(observed["inherited"])
-
-    def test_timeout_kills_descendant_processes(self):
-        marker = self.root / "descendant-survived"
-        child_code = (
-            "import pathlib, sys, time; "
-            "time.sleep(2); pathlib.Path(sys.argv[1]).write_text('alive')"
-        )
-        parent_code = (
-            "import subprocess, sys, time; "
-            "subprocess.Popen([sys.executable, '-I', '-c', sys.argv[1], sys.argv[2]]); "
-            "time.sleep(30)"
-        )
-        spec = self.spec(
-            "tree-timeout",
-            (sys.executable, "-I", "-c", parent_code, child_code, str(marker)),
-            timeout_seconds=1,
-        )
-
-        with self.assertRaisesRegex(RunnerError, r"^command tree-timeout timed out$"):
-            self.runner.run(spec)
-
-        time.sleep(1.5)
-        self.assertFalse(marker.exists(), "a descendant survived the timeout")
-
-    def test_timeout_still_applies_after_direct_child_exits(self):
-        marker = self.root / "orphaned-descendant-survived"
-        child_code = (
-            "import pathlib, sys, time; "
-            "time.sleep(2); pathlib.Path(sys.argv[1]).write_text('alive')"
-        )
-        parent_code = (
-            "import subprocess, sys; "
-            "subprocess.Popen([sys.executable, '-I', '-c', sys.argv[1], sys.argv[2]])"
-        )
-        spec = self.spec(
-            "orphan-timeout",
-            (sys.executable, "-I", "-c", parent_code, child_code, str(marker)),
-            timeout_seconds=1,
-        )
-
-        started = time.monotonic()
-        with self.assertRaisesRegex(RunnerError, r"^command orphan-timeout timed out$"):
-            self.runner.run(spec)
-
-        self.assertLess(time.monotonic() - started, 2)
-        time.sleep(1.5)
-        self.assertFalse(marker.exists(), "an orphaned descendant survived the timeout")
-
-    @unittest.skipUnless(os.name == "nt", "Windows Job Objects are Windows-only")
-    def test_timeout_force_kills_orphan_that_ignores_break_signal(self):
-        marker = self.root / "break-resistant-descendant-survived"
-        child_code = (
-            "import pathlib, signal, sys, time; "
-            "signal.signal(signal.SIGBREAK, signal.SIG_IGN); "
-            "time.sleep(2); pathlib.Path(sys.argv[1]).write_text('alive')"
-        )
-        parent_code = (
-            "import subprocess, sys; "
-            "subprocess.Popen([sys.executable, '-I', '-c', sys.argv[1], sys.argv[2]])"
-        )
-        spec = self.spec(
-            "resistant-orphan-timeout",
-            (sys.executable, "-I", "-c", parent_code, child_code, str(marker)),
-            timeout_seconds=1,
-        )
-
-        with self.assertRaisesRegex(
-            RunnerError,
-            r"^command resistant-orphan-timeout timed out$",
-        ):
-            self.runner.run(spec)
-
-        time.sleep(1.5)
-        self.assertFalse(marker.exists(), "a break-resistant descendant survived")
-
-    def test_thread_start_failure_is_sanitized_and_kills_launched_process(self):
-        marker = self.root / "process-survived-thread-start-failure"
-        unsafe_detail = "thread-secret-that-must-not-escape"
-        code = (
-            "import pathlib, sys, time; "
-            "time.sleep(1); pathlib.Path(sys.argv[1]).write_text('alive')"
-        )
-        spec = self.spec(
-            "thread-start",
-            (sys.executable, "-I", "-c", code, str(marker)),
-        )
-
-        observed = None
-        with mock.patch(
-            "scripts.g0.runner._StreamCollector.start",
-            side_effect=RuntimeError(unsafe_detail),
-        ):
-            try:
-                self.runner.run(spec)
-            except Exception as error:
-                observed = error
-
-        time.sleep(1.5)
-        self.assertIsInstance(observed, RunnerError)
-        self.assertEqual("command thread-start failed to initialize", str(observed))
-        self.assertNotIn(unsafe_detail, str(observed))
-        self.assertFalse(marker.exists(), "the launched process survived setup failure")
-
-    def test_lineage_tracker_binds_only_root_descendants_and_new_adoptions(self):
-        identity = runner_module._ProcessIdentity
-        record = runner_module._ProcessRecord
-        baseline_child = identity(pid=20, start_time=200)
-        root = identity(pid=10, start_time=100)
-        child = identity(pid=11, start_time=110)
-        unrelated_child = identity(pid=21, start_time=210)
-        tracker = runner_module._LineageTracker(
-            runner_pid=1000,
-            baseline_children=frozenset({baseline_child}),
-        )
-        tracker.bind_root(root)
-
-        owned = tracker.update(
-            {
-                root: record(identity=root, parent_pid=1000, state="S"),
-                child: record(identity=child, parent_pid=root.pid, state="S"),
-                baseline_child: record(
-                    identity=baseline_child,
-                    parent_pid=1000,
-                    state="S",
-                ),
-                unrelated_child: record(
-                    identity=unrelated_child,
-                    parent_pid=baseline_child.pid,
-                    state="S",
-                ),
-            }
-        )
-
-        self.assertEqual({root, child}, owned)
-
-        daemon = identity(pid=12, start_time=120)
-        owned = tracker.update(
-            {
-                child: record(identity=child, parent_pid=1000, state="S"),
-                daemon: record(identity=daemon, parent_pid=1000, state="S"),
-                unrelated_child: record(
-                    identity=unrelated_child,
-                    parent_pid=1000,
-                    state="S",
-                ),
-                baseline_child: record(
-                    identity=baseline_child,
-                    parent_pid=1000,
-                    state="S",
-                ),
-            }
-        )
-
-        self.assertEqual({child, daemon}, owned)
-        self.assertNotIn(baseline_child, tracker.owned)
-        self.assertNotIn(unrelated_child, tracker.owned)
-
-    def test_linux_stat_parser_accepts_non_ascii_process_names(self):
-        fields = [b"S", b"42", *([b"0"] * 17), b"999"]
-        content = b"123 (daemon-\xff) " + b" ".join(fields)
-
-        record = runner_module._parse_linux_stat(content, pid=123)
-
-        self.assertEqual(
-            runner_module._ProcessIdentity(pid=123, start_time=999),
-            record.identity,
-        )
-        self.assertEqual(42, record.parent_pid)
-        self.assertEqual("S", record.state)
-
-    def test_linux_identity_signal_uses_pidfd_across_pid_reuse(self):
-        identity = runner_module._ProcessIdentity
-        record = runner_module._ProcessRecord
-        original = identity(pid=55, start_time=100)
-        reused = identity(pid=55, start_time=101)
-        current = {55: original}
-        opened = []
-        signalled = []
-        closed = []
-
-        def open_pidfd(pid, flags):
-            opened.append((pid, flags))
-            return 73
-
-        def read_record(pid):
-            observed = current[pid]
-            current[pid] = reused
-            return record(identity=observed, parent_pid=1, state="S")
-
-        def send_signal(pidfd, signal_number, siginfo, flags):
-            signalled.append((pidfd, signal_number, siginfo, flags))
-
-        runner_module._signal_linux_identity(
-            original,
-            open_pidfd=open_pidfd,
-            read_record=read_record,
-            send_signal=send_signal,
-            close_pidfd=closed.append,
-        )
-
-        self.assertEqual([(55, 0)], opened)
-        self.assertEqual([(73, 9, None, 0)], signalled)
-        self.assertEqual([73], closed)
-        self.assertEqual(reused, current[55], "the numeric PID was reused before signal")
-
-        signalled.clear()
-        runner_module._signal_linux_identity(
-            original,
-            open_pidfd=lambda pid, flags: 74,
-            read_record=lambda pid: record(
-                identity=reused,
-                parent_pid=1,
-                state="S",
-            ),
-            send_signal=lambda *args: signalled.append(args),
-            close_pidfd=closed.append,
-        )
-        self.assertEqual([], signalled, "a reused PID identity must not be signalled")
-        self.assertEqual([73, 74], closed)
-
-    def test_linux_baseline_rejects_preexisting_direct_children(self):
-        identity = runner_module._ProcessIdentity
-        record = runner_module._ProcessRecord
-        runner = identity(pid=1000, start_time=10)
-        preexisting = identity(pid=20, start_time=200)
-        records = {
-            runner: record(identity=runner, parent_pid=1, state="S"),
-            preexisting: record(
-                identity=preexisting,
-                parent_pid=runner.pid,
-                state="S",
-            ),
+    def spec(self, command_id="probe", argv=None, **changes):
+        values = {
+            "command_id": command_id,
+            "argv": tuple(argv or (sys.executable, "-I", "-c", "print('ok')")),
+            "cwd": self.root,
+            "execution_timeout_seconds": 5,
+            "cleanup_timeout_seconds": 5,
+            "environment": (),
+            "secret_canaries": (),
+            "stdout_limit": 4096,
+            "stderr_limit": 4096,
+            "log_directory": self.logs,
         }
+        values.update(changes)
+        return CommandSpec(**values)
 
-        with self.assertRaises(runner_module._LinuxOwnershipError):
-            runner_module._safe_linux_baseline(records, runner.pid)
+    def fake_runner(self, process):
+        def create(command, **kwargs):
+            process.configure(command)
+            return process
+        factory = mock.Mock(side_effect=create)
+        return Runner(run_root=self.root, popen_factory=factory), factory
 
-        self.assertEqual(
-            frozenset({preexisting}),
-            runner_module._safe_linux_baseline(
-                {
-                    preexisting: record(
-                        identity=preexisting,
-                        parent_pid=1,
-                        state="S",
-                    )
-                },
-                runner.pid,
-            ),
+    def test_every_command_is_sent_to_a_dedicated_supervisor_without_shell(self):
+        process = _FakeProcess(_response())
+        runner, factory = self.fake_runner(process)
+        literal = "; echo shell-injection"
+        result = runner.run(self.spec(argv=(sys.executable, "-c", "print(1)", literal)))
+        self.assertEqual(0, result.exit_code)
+        args, kwargs = factory.call_args
+        self.assertEqual(sys.executable, args[0][0])
+        self.assertTrue(args[0][1].endswith("supervisor.py"))
+        self.assertFalse(kwargs["shell"])
+        request = json.loads(process.request)
+        self.assertEqual(literal, request["argv"][-1])
+        self.assertEqual([], request["environment"])
+        self.assertGreaterEqual(process.poll_calls, 1)
+
+    def test_execution_and_cleanup_timeout_ranges_are_independent(self):
+        runner, factory = self.fake_runner(_FakeProcess(_response()))
+        invalid = (
+            self.spec(execution_timeout_seconds=0), self.spec(execution_timeout_seconds=18001),
+            self.spec(cleanup_timeout_seconds=4), self.spec(cleanup_timeout_seconds=601),
         )
+        for spec in invalid:
+            with self.subTest(spec=spec):
+                with self.assertRaisesRegex(RunnerError, r"^command probe is invalid$"):
+                    runner.run(spec)
+        factory.assert_not_called()
 
-    def test_linux_ownership_failure_stops_before_process_launch(self):
-        spec = self.spec(
-            "linux-owner-unavailable",
-            (sys.executable, "-I", "-c", "raise SystemExit('not-run')"),
+    def test_paths_must_be_absolute_local_and_inside_the_retained_run_root(self):
+        runner, factory = self.fake_runner(_FakeProcess(_response()))
+        invalid = (
+            self.spec(cwd=Path("relative")), self.spec(log_directory=self.root.parent / "outside"),
+            self.spec(log_directory=Path("//server/share/logs")), self.spec(cwd=self.root / "missing"),
+            self.spec(log_directory=self.root / "logs" / ".." / ".." / "outside"),
         )
+        for spec in invalid:
+            with self.subTest(spec=spec):
+                with self.assertRaises(RunnerError):
+                    runner.run(spec)
+        factory.assert_not_called()
 
-        with (
-            mock.patch.object(runner_module.sys, "platform", "linux"),
-            mock.patch.object(
-                runner_module,
-                "_LinuxProcessOwner",
-                side_effect=runner_module._LinuxOwnershipError("unsafe detail"),
-                create=True,
-            ),
-            mock.patch("scripts.g0.runner.subprocess.Popen") as popen,
-        ):
-            with self.assertRaisesRegex(
-                RunnerError,
-                r"^command linux-owner-unavailable could not start$",
-            ):
-                self.runner.run(spec)
-
-        popen.assert_not_called()
-
-    def test_non_linux_posix_stops_before_process_launch(self):
-        spec = self.spec(
-            "unsupported-posix",
-            (sys.executable, "-I", "-c", "raise SystemExit('not-run')"),
+    def test_invalid_argv_environment_limits_and_canaries_fail_before_launch(self):
+        runner, factory = self.fake_runner(_FakeProcess(_response()))
+        invalid = (
+            replace(self.spec(), argv="not-a-tuple"), self.spec(environment=(("A=B", "x"),)),
+            self.spec(environment=(("A", "1"), ("A", "2"))), self.spec(stdout_limit=-1),
+            self.spec(secret_canaries=("\ud800",)),
         )
+        for spec in invalid:
+            with self.subTest(spec=spec):
+                with self.assertRaises(RunnerError):
+                    runner.run(spec)
+        factory.assert_not_called()
 
-        with (
-            mock.patch.object(runner_module.sys, "platform", "darwin"),
-            mock.patch.object(runner_module.os, "name", "posix"),
-            mock.patch("scripts.g0.runner.subprocess.Popen") as popen,
-        ):
-            with self.assertRaisesRegex(
-                RunnerError,
-                r"^command unsupported-posix could not start$",
-            ):
-                self.runner.run(spec)
+    def test_supervisor_wall_timeout_is_disposal_required_and_is_reaped(self):
+        process = _FakeProcess(b"", error=subprocess.TimeoutExpired("supervisor", 10))
+        runner, _ = self.fake_runner(process)
+        with mock.patch("scripts.g0.runner.time.monotonic", side_effect=(0.0, 0.0, 0.0, 11.0)):
+            with self.assertRaises(WorkerDisposalRequired):
+                runner.run(self.spec())
+        self.assertTrue(process.killed)
+        self.assertGreaterEqual(process.poll_calls, 2)
 
-        popen.assert_not_called()
+    def test_response_and_exit_after_the_single_absolute_ceiling_are_rejected(self):
+        process = _FakeProcess(_response(), polls_before_response=1)
+        runner, _ = self.fake_runner(process)
+        with mock.patch("scripts.g0.runner.time.monotonic", side_effect=(0.0, 0.0, 0.0, 10.001)):
+            with self.assertRaises(WorkerDisposalRequired):
+                runner.run(self.spec())
+        self.assertTrue(process.killed)
+        self.assertIsNone(process.request)
 
-    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux subreaper regression")
-    def test_linux_timeout_kills_daemonized_new_session_with_closed_stdio(self):
-        marker = self.root / "linux-daemon-survived"
-        daemon_code = (
-            "import ctypes, pathlib, sys, time; "
-            "libc=ctypes.CDLL(None); "
-            "libc.prctl.argtypes=(ctypes.c_int, ctypes.c_ulong, "
-            "ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong); "
-            "name=ctypes.create_string_buffer(b'\\xffdaemon'); "
-            "result=libc.prctl(15, ctypes.addressof(name), 0, 0, 0); "
-            "assert result == 0; "
-            "time.sleep(2); pathlib.Path(sys.argv[1]).write_text('alive')"
-        )
-        parent_code = (
-            "import subprocess, sys; "
-            "subprocess.Popen([sys.executable, '-I', '-c', sys.argv[1], sys.argv[2]], "
-            "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
-            "stderr=subprocess.DEVNULL, start_new_session=True)"
-        )
-        spec = self.spec(
-            "linux-daemon-timeout",
-            (sys.executable, "-I", "-c", parent_code, daemon_code, str(marker)),
-            timeout_seconds=1,
-        )
+    def test_supervisor_exit_observed_after_its_cleanup_deadline_is_disposal(self):
+        runner, _ = self.fake_runner(_FakeProcess(_response(cleanup_deadline_monotonic_ns=1)))
+        with self.assertRaises(WorkerDisposalRequired):
+            runner.run(self.spec())
 
+    def test_disposal_sentinel_cannot_be_downgraded_by_exception_handlers(self):
+        self.assertTrue(issubclass(WorkerDisposalRequired, BaseException))
+        self.assertFalse(issubclass(WorkerDisposalRequired, Exception))
+        observed = False
         try:
-            observed = self.runner.run(spec)
-        except Exception as error:
+            raise WorkerDisposalRequired("safe")
+        except Exception:
+            observed = True
+        except WorkerDisposalRequired:
+            pass
+        self.assertFalse(observed)
+
+    def test_lost_or_malformed_fixed_protocol_is_disposal_required(self):
+        boolean_version = json.loads(_response())
+        boolean_version["protocol_version"] = True
+        deeply_nested = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+        duplicate_key = _response().replace(b'"protocol_version": 1,', b'"protocol_version": 1, "protocol_version": 1,')
+        for payload in (
+            b"", b"not-json", b"{}\nextra", b"{\"protocol_version\":2}\n",
+            (json.dumps(boolean_version) + "\n").encode(), deeply_nested, duplicate_key,
+        ):
+            with self.subTest(payload=payload):
+                runner, _ = self.fake_runner(_FakeProcess(payload))
+                with self.assertRaises(WorkerDisposalRequired):
+                    runner.run(self.spec())
+
+    def test_nonempty_or_unfinalized_proof_is_disposal_required(self):
+        for key in ("boundary_empty", "streams_eof", "logs_finalized"):
+            decoded = json.loads(_response())
+            decoded["proof"][key] = False
+            runner, _ = self.fake_runner(_FakeProcess((json.dumps(decoded) + "\n").encode()))
+            with self.subTest(key=key):
+                with self.assertRaises(WorkerDisposalRequired):
+                    runner.run(self.spec())
+
+        decoded = json.loads(_response())
+        decoded["proof"]["boundary_empty"] = 1
+        runner, _ = self.fake_runner(_FakeProcess((json.dumps(decoded) + "\n").encode()))
+        with self.assertRaises(WorkerDisposalRequired):
+            runner.run(self.spec())
+
+    def test_status_and_exit_code_invariants_are_fail_closed(self):
+        invalid = (
+            _response("TIMED_OUT", exit_code=0),
+            _response("FAILED", exit_code=0),
+            _response("WORKER_DISPOSAL_REQUIRED", exit_code=0),
+        )
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                runner, _ = self.fake_runner(_FakeProcess(payload))
+                with self.assertRaises(WorkerDisposalRequired):
+                    runner.run(self.spec())
+
+    @unittest.skipUnless(os.name == "nt", "Windows environment keys are case-insensitive")
+    def test_windows_environment_keys_are_case_insensitively_unique(self):
+        runner, factory = self.fake_runner(_FakeProcess(_response()))
+        with self.assertRaises(RunnerError):
+            runner.run(self.spec(environment=(("PATH", "one"), ("Path", "two"))))
+        factory.assert_not_called()
+
+    def test_timed_out_is_ordinary_only_after_all_proofs(self):
+        runner, _ = self.fake_runner(_FakeProcess(_response("TIMED_OUT", exit_code=None)))
+        with self.assertRaisesRegex(RunnerError, r"^command probe timed out$"):
+            runner.run(self.spec())
+
+    def test_nonzero_and_canary_failures_are_safe_ordinary_failures(self):
+        cases = (
+            (_response("FAILED", exit_code=7), "failed"),
+            (_response("FAILED", exit_code=None), "failed"),
+            (_response("CANARY_DETECTED"), "exposed a canary"),
+        )
+        for response, phrase in cases:
+            with self.subTest(phrase=phrase):
+                runner, _ = self.fake_runner(_FakeProcess(response))
+                with self.assertRaisesRegex(RunnerError, rf"^command probe {phrase}$"):
+                    runner.run(self.spec(secret_canaries=("secret",)))
+
+    def test_supervisor_exit_and_protocol_eof_are_both_required(self):
+        runner, _ = self.fake_runner(_FakeProcess(_response(), returncode=9))
+        with self.assertRaises(WorkerDisposalRequired):
+            runner.run(self.spec())
+
+    def test_errors_never_reproduce_argv_environment_or_canaries(self):
+        unsafe = "sensitive-value"
+        runner, _ = self.fake_runner(_FakeProcess(b"unsafe protocol " + unsafe.encode()))
+        observed = None
+        try:
+            runner.run(self.spec(argv=(sys.executable, "-c", unsafe), environment=(("TOKEN", unsafe),), secret_canaries=(unsafe,)))
+        except BaseException as error:
             observed = error
+        self.assertIsInstance(observed, WorkerDisposalRequired)
+        self.assertEqual("command probe worker disposal required", str(observed))
+        self.assertNotIn(unsafe, str(observed))
 
-        time.sleep(1.5)
-        self.assertIsInstance(observed, RunnerError)
-        self.assertEqual("command linux-daemon-timeout timed out", str(observed))
-        self.assertFalse(marker.exists(), "a daemonized Linux descendant survived")
+    def test_no_thread_or_callback_can_outlive_runner_return(self):
+        source = Path(__file__).parents[2] / "scripts" / "g0" / "runner.py"
+        text = source.read_text(encoding="utf-8")
+        self.assertNotIn("threading", text)
+        self.assertNotIn("ThreadPool", text)
+        self.assertNotIn(".communicate(", text)
+        self.assertNotIn("TemporaryFile", text)
 
-    def test_full_streams_are_hashed_while_logs_are_size_bounded(self):
-        stdout = b"A" * 10000
-        stderr = b"B" * 8000
-        code = (
-            "import os; "
-            f"os.write(1, b'A' * {len(stdout)}); "
-            f"os.write(2, b'B' * {len(stderr)})"
-        )
+    def test_live_supervisor_controls_cwd_environment_and_literal_argv(self):
+        code = "import json,os,sys;print(json.dumps({'cwd':os.getcwd(),'visible':os.environ.get('VISIBLE'),'inherited':os.environ.get('INHERITED'),'arg':sys.argv[1]}))"
+        literal = "; echo shell-injection"
+        with mock.patch.dict(os.environ, {"INHERITED": "must-not-leak"}):
+            Runner(run_root=self.root).run(self.spec("controlled", (sys.executable, "-c", code, literal), environment=(("VISIBLE", "yes"),)))
+        value = json.loads((self.logs / "controlled.stdout.log").read_text(encoding="utf-8"))
+        self.assertEqual(str(self.root), value["cwd"]); self.assertEqual("yes", value["visible"])
+        self.assertIsNone(value["inherited"]); self.assertEqual(literal, value["arg"])
+
+    def test_live_canary_is_not_retained_in_any_command_log(self):
+        secret = "canary-value-not-for-logs"
+        spec = self.spec("canary", (sys.executable, "-c", "import sys;print(sys.argv[1])", secret), secret_canaries=(secret,))
+        with self.assertRaisesRegex(RunnerError, "exposed a canary"):
+            Runner(run_root=self.root).run(spec)
+        if self.logs.exists():
+            self.assertEqual([], list(self.logs.glob("canary*")))
+            self.assertNotIn(secret.encode(), b"".join(path.read_bytes() for path in self.logs.iterdir() if path.is_file()))
+
+    @unittest.skipUnless(os.name == "nt", "Windows canary stdin pipe case runs only on Windows")
+    def test_live_windows_canary_input_never_uses_a_named_spool_file(self):
+        secret = b"stdin-canary-not-for-disk"
+        code = "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())"
+        spec = self.spec("stdin-canary", (sys.executable, "-c", code), secret_canaries=(secret.decode(),))
+        with self.assertRaisesRegex(RunnerError, "exposed a canary"):
+            Runner(run_root=self.root).run(spec, input_bytes=secret)
+        self.assertNotIn("create_capture", (Path(__file__).parents[2] / "scripts" / "g0" / "supervisor.py").read_text(encoding="utf-8"))
+        if self.logs.exists():
+            self.assertEqual([], list(self.logs.iterdir()))
+
+    def test_live_nonzero_exit_is_checked_after_logs_finalize(self):
+        spec = self.spec("nonzero", (sys.executable, "-c", "import sys;print('bounded');sys.exit(7)"))
+        with self.assertRaisesRegex(RunnerError, r"^command nonzero failed$"):
+            Runner(run_root=self.root).run(spec)
+        self.assertEqual(b"bounded" + os.linesep.encode(), (self.logs / "nonzero.stdout.log").read_bytes())
+
+    def test_live_timeout_never_terminates_an_unrelated_concurrent_child(self):
+        unrelated = subprocess.Popen((sys.executable, "-c", "import time;time.sleep(30)"))
+        try:
+            spec = self.spec("sibling-safe", (sys.executable, "-c", "import time;time.sleep(30)"), execution_timeout_seconds=1)
+            with self.assertRaisesRegex(RunnerError, "timed out"):
+                Runner(run_root=self.root).run(spec)
+            self.assertIsNone(unrelated.poll())
+        finally:
+            unrelated.terminate()
+            unrelated.wait(timeout=5)
+
+    @unittest.skipUnless(os.name == "nt", "live Windows Job Object case runs only on Windows")
+    def test_live_windows_timeout_kills_orphan_before_return(self):
+        marker = self.root / "orphan-survived"
+        child = "import pathlib,sys,time;time.sleep(2);pathlib.Path(sys.argv[1]).write_text('bad')"
+        parent = "import subprocess,sys,time;subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]]);time.sleep(30)"
+        spec = self.spec("windows-tree", (sys.executable, "-c", parent, child, str(marker)), execution_timeout_seconds=1)
+        with self.assertRaisesRegex(RunnerError, "timed out"):
+            Runner(run_root=self.root).run(spec)
+        time.sleep(2.2)
+        self.assertFalse(marker.exists())
+
+    @unittest.skipIf(os.name == "nt", "live Linux cgroup case is unavailable on Windows")
+    def test_live_linux_timeout_kills_orphan_and_removes_cgroup(self):
+        marker = self.root / "orphan-survived"
+        child = "import pathlib,sys,time;time.sleep(2);pathlib.Path(sys.argv[1]).write_text('bad')"
+        parent = "import subprocess,sys,time;subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]]);time.sleep(30)"
+        spec = self.spec("linux-tree", (sys.executable, "-c", parent, child, str(marker)), execution_timeout_seconds=1)
+        with self.assertRaisesRegex(RunnerError, "timed out"):
+            Runner(run_root=self.root).run(spec)
+        time.sleep(2.2)
+        self.assertFalse(marker.exists())
+
+    @unittest.skipUnless(os.name == "nt", "live Windows log permissions run only on Windows")
+    def test_live_windows_success_hashes_and_bounds_logs(self):
+        spec = self.spec("windows-success", (sys.executable, "-c", "import sys;sys.stdout.write('abcdef')"), stdout_limit=3)
+        result = Runner(run_root=self.root).run(spec)
+        self.assertEqual(b"abc", (self.logs / "windows-success.stdout.log").read_bytes())
+        self.assertEqual("sha256:" + hashlib.sha256(b"abcdef").hexdigest(), result.stdout_sha256)
+
+    @unittest.skipUnless(os.name == "nt", "live Windows pipe capture runs only on Windows")
+    def test_live_windows_pipe_capture_does_not_spool_unbounded_output(self):
+        size = 5 * 1024 * 1024
         spec = self.spec(
-            "bounded-output",
-            (sys.executable, "-I", "-c", code),
-            stdout_limit=17,
-            stderr_limit=19,
+            "windows-large-output",
+            (sys.executable, "-c", f"import sys;sys.stdout.buffer.write(b'x'*{size})"),
+            stdout_limit=7,
         )
+        result = Runner(run_root=self.root).run(spec)
+        self.assertEqual(b"x" * 7, (self.logs / "windows-large-output.stdout.log").read_bytes())
+        self.assertEqual("sha256:" + hashlib.sha256(b"x" * size).hexdigest(), result.stdout_sha256)
+        self.assertFalse(any(path.suffix == ".capture" for path in self.logs.iterdir()))
 
-        result = self.runner.run(spec)
+    @unittest.skipUnless(os.name == "nt", "live Windows continuous pipe case runs only on Windows")
+    def test_live_windows_continuous_output_still_reaches_execution_timeout(self):
+        code = "import os;chunk=b'x'*65536\nwhile True: os.write(1,chunk)"
+        spec = self.spec("windows-continuous-output", (sys.executable, "-c", code), execution_timeout_seconds=1, stdout_limit=7)
+        with self.assertRaisesRegex(RunnerError, "timed out"):
+            Runner(run_root=self.root).run(spec)
 
-        self.assertEqual("sha256:" + hashlib.sha256(stdout).hexdigest(), result.stdout_sha256)
-        self.assertEqual("sha256:" + hashlib.sha256(stderr).hexdigest(), result.stderr_sha256)
-        self.assertEqual(stdout[:17], self.log("bounded-output", "stdout").read_bytes())
-        self.assertEqual(stderr[:19], self.log("bounded-output", "stderr").read_bytes())
+    def test_live_controlled_input_is_written_completely(self):
+        content = b"x" * 131_071
+        code = "import sys;data=sys.stdin.buffer.read();print(len(data))"
+        Runner(run_root=self.root).run(self.spec("input-complete", (sys.executable, "-c", code)), input_bytes=content)
+        self.assertEqual(b"131071" + os.linesep.encode(), (self.logs / "input-complete.stdout.log").read_bytes())
 
-    def test_unencodable_canary_is_rejected_by_the_safe_error_boundary(self):
-        canary = "\ud800do-not-display"
-        spec = self.spec(
-            "invalid-canary",
-            (sys.executable, "-I", "-c", "print('not-run')"),
-            secret_canaries=(canary,),
-        )
-
-        with self.assertRaisesRegex(RunnerError, r"^command invalid-canary is invalid$") as raised:
-            self.runner.run(spec)
-
-        self.assertNotIn(canary, str(raised.exception))
-
-    def test_secret_canary_anywhere_in_output_fails_without_reproduction(self):
-        canary = "canary-value-that-must-not-escape"
-        code = (
-            "import os; "
-            "os.write(1, b'x' * 128 + " + repr(canary.encode()) + "); "
-            "os.write(2, b'diagnostic')"
-        )
-        spec = self.spec(
-            "canary-check",
-            (sys.executable, "-I", "-c", code),
-            secret_canaries=(canary,),
-            stdout_limit=8,
-        )
-
-        with self.assertRaisesRegex(RunnerError, r"^command canary-check exposed a canary$") as raised:
-            self.runner.run(spec)
-
-        self.assertNotIn(canary, str(raised.exception))
-        self.assertFalse(self.log("canary-check", "stdout").exists())
-        self.assertFalse(self.log("canary-check", "stderr").exists())
-
-    def test_nonzero_exit_is_checked_and_exception_contains_only_safe_id(self):
-        secret_argument = "top-secret-argument"
-        code = "import os, sys; os.write(2, sys.argv[1].encode()); raise SystemExit(7)"
-        spec = self.spec(
-            "checked-exit",
-            (sys.executable, "-I", "-c", code, secret_argument),
-        )
-
-        with self.assertRaises(RunnerError) as raised:
-            self.runner.run(spec)
-
-        self.assertEqual("command checked-exit failed", str(raised.exception))
-        self.assertNotIn(secret_argument, str(raised.exception))
-        self.assertNotIn(str(self.root), str(raised.exception))
-
-    @unittest.skipIf(os.name == "nt", "POSIX permission bits are not meaningful on Windows")
-    def test_logs_are_owner_read_write_only_on_posix(self):
-        spec = self.spec(
-            "private-logs",
-            (sys.executable, "-I", "-c", "print('private')"),
-        )
-
-        self.runner.run(spec)
-
-        for stream in ("stdout", "stderr"):
-            mode = stat.S_IMODE(self.log("private-logs", stream).stat().st_mode)
-            self.assertEqual(0o600, mode)
+    @unittest.skipUnless(os.name == "nt", "live Windows retained-log collision runs only on Windows")
+    def test_existing_final_log_fails_before_target_release(self):
+        self.logs.mkdir()
+        existing = self.logs / "collision.stdout.log"
+        existing.write_bytes(b"retained")
+        marker = self.root / "target-ran"
+        spec = self.spec("collision", (sys.executable, "-c", "import pathlib,sys;pathlib.Path(sys.argv[1]).write_text('bad')", str(marker)))
+        with self.assertRaises(RunnerError):
+            Runner(run_root=self.root).run(spec)
+        self.assertEqual(b"retained", existing.read_bytes())
+        self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":

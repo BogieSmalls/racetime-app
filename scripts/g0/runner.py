@@ -1,532 +1,39 @@
-"""Bounded, fail-closed command execution for the G0 worker."""
+"""Secret-safe controller for one-shot G0 operation supervisors."""
 
 from __future__ import annotations
 
-import hashlib
+import base64
+import json
 import os
 import re
-import signal
+import stat
 import subprocess
 import sys
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-_TERMINATION_GRACE_SECONDS = 1.0
-_LINUX_SIGKILL = 9
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_MAX_PROTOCOL_BYTES = 1_048_576
 
 
-@dataclass(frozen=True)
-class _ProcessIdentity:
-    pid: int
-    start_time: int
-
-
-@dataclass(frozen=True)
-class _ProcessRecord:
-    identity: _ProcessIdentity
-    parent_pid: int
-    state: str
-
-
-class _LineageTracker:
-    """Bind a root and its descendants without trusting reusable PIDs."""
-
-    def __init__(
-        self,
-        *,
-        runner_pid: int,
-        baseline_children: frozenset[_ProcessIdentity],
-    ) -> None:
-        self._runner_pid = runner_pid
-        self._excluded = set(baseline_children)
-        self._owned: set[_ProcessIdentity] = set()
-
-    @property
-    def owned(self) -> frozenset[_ProcessIdentity]:
-        return frozenset(self._owned)
-
-    def bind_root(self, identity: _ProcessIdentity) -> None:
-        self._owned.add(identity)
-
-    def update(
-        self,
-        records: dict[_ProcessIdentity, _ProcessRecord],
-    ) -> set[_ProcessIdentity]:
-        current_by_pid = {identity.pid: identity for identity in records}
-        changed = True
-        while changed:
-            changed = False
-            for identity, record in records.items():
-                if identity in self._owned or identity in self._excluded:
-                    continue
-                parent_identity = current_by_pid.get(record.parent_pid)
-                if parent_identity in self._excluded:
-                    self._excluded.add(identity)
-                    changed = True
-                    continue
-                is_descendant = parent_identity in self._owned
-                is_new_adoption = (
-                    record.parent_pid == self._runner_pid
-                    and identity not in self._excluded
-                )
-                if is_descendant or is_new_adoption:
-                    self._owned.add(identity)
-                    changed = True
-        return {identity for identity in self._owned if identity in records}
-
-
-class _LinuxOwnershipError(RuntimeError):
-    """Raised when Linux process ownership cannot be proved."""
-
-
-def _parse_linux_stat(content: bytes, *, pid: int) -> _ProcessRecord:
-    closing_parenthesis = content.rfind(b")")
-    if closing_parenthesis < 2:
-        raise _LinuxOwnershipError("Linux process stat is malformed")
-    fields = content[closing_parenthesis + 2 :].split()
-    if len(fields) < 20:
-        raise _LinuxOwnershipError("Linux process stat is incomplete")
-    try:
-        state = fields[0].decode("ascii")
-        parent_pid = int(fields[1])
-        start_time = int(fields[19])
-    except (UnicodeError, ValueError) as error:
-        raise _LinuxOwnershipError(
-            "Linux process stat contains invalid fields"
-        ) from error
-    identity = _ProcessIdentity(pid=pid, start_time=start_time)
-    return _ProcessRecord(
-        identity=identity,
-        parent_pid=parent_pid,
-        state=state,
-    )
-
-
-def _signal_linux_identity(
-    identity: _ProcessIdentity,
-    *,
-    open_pidfd,
-    read_record,
-    send_signal,
-    close_pidfd,
-) -> None:
-    try:
-        pidfd = open_pidfd(identity.pid, 0)
-    except (FileNotFoundError, ProcessLookupError):
-        return
-    except OSError as error:
-        raise _LinuxOwnershipError("Linux pidfd cannot be opened") from error
-    try:
-        try:
-            current = read_record(identity.pid)
-        except (FileNotFoundError, ProcessLookupError):
-            return
-        except OSError as error:
-            raise _LinuxOwnershipError(
-                "Linux process identity cannot be rechecked"
-            ) from error
-        if current.identity != identity:
-            return
-        try:
-            send_signal(pidfd, _LINUX_SIGKILL, None, 0)
-        except ProcessLookupError:
-            return
-        except OSError as error:
-            raise _LinuxOwnershipError(
-                "Linux pidfd termination failed"
-            ) from error
-    finally:
-        try:
-            close_pidfd(pidfd)
-        except OSError as error:
-            raise _LinuxOwnershipError(
-                "Linux pidfd cannot be closed"
-            ) from error
-
-
-def _safe_linux_baseline(
-    records: dict[_ProcessIdentity, _ProcessRecord],
-    runner_pid: int,
-) -> frozenset[_ProcessIdentity]:
-    if any(record.parent_pid == runner_pid for record in records.values()):
-        raise _LinuxOwnershipError(
-            "Linux runner already has a child process"
-        )
-    return frozenset(
-        identity for identity in records if identity.pid != runner_pid
-    )
-
-
-if sys.platform == "linux":
-    import ctypes as _linux_ctypes
-    import errno as _linux_errno
-
-    _PR_SET_CHILD_SUBREAPER = 36
-    _PR_GET_CHILD_SUBREAPER = 37
-    try:
-        _linux_libc = _linux_ctypes.CDLL(None, use_errno=True)
-        _linux_prctl = _linux_libc.prctl
-    except (AttributeError, OSError):
-        _linux_prctl = None
-    else:
-        _linux_prctl.argtypes = (
-            _linux_ctypes.c_int,
-            _linux_ctypes.c_ulong,
-            _linux_ctypes.c_ulong,
-            _linux_ctypes.c_ulong,
-            _linux_ctypes.c_ulong,
-        )
-        _linux_prctl.restype = _linux_ctypes.c_int
-
-    class _LinuxProcessOwner:
-        """Own one Linux command tree with subreaper adoption and /proc identity."""
-
-        _POLL_SECONDS = 0.01
-
-        def __init__(self) -> None:
-            self.runner_pid = os.getpid()
-            self._ensure_pidfd_primitives()
-            self._ensure_subreaper()
-            records = self._read_table()
-            baseline_children = _safe_linux_baseline(records, self.runner_pid)
-            self.tracker = _LineageTracker(
-                runner_pid=self.runner_pid,
-                baseline_children=baseline_children,
-            )
-            self.root_identity: _ProcessIdentity | None = None
-
-        @staticmethod
-        def _prctl(option: int, argument: int) -> None:
-            if _linux_prctl is None:
-                raise _LinuxOwnershipError("Linux prctl is unavailable")
-            result = _linux_prctl(option, argument, 0, 0, 0)
-            if result != 0:
-                raise _LinuxOwnershipError("Linux subreaper control failed")
-
-        @classmethod
-        def _ensure_subreaper(cls) -> None:
-            current = _linux_ctypes.c_int()
-            address = _linux_ctypes.addressof(current)
-            cls._prctl(_PR_GET_CHILD_SUBREAPER, address)
-            if current.value != 1:
-                cls._prctl(_PR_SET_CHILD_SUBREAPER, 1)
-                current = _linux_ctypes.c_int()
-                cls._prctl(
-                    _PR_GET_CHILD_SUBREAPER,
-                    _linux_ctypes.addressof(current),
-                )
-            if current.value != 1:
-                raise _LinuxOwnershipError("Linux subreaper verification failed")
-
-        @staticmethod
-        def _ensure_pidfd_primitives() -> None:
-            open_pidfd = getattr(os, "pidfd_open", None)
-            send_signal = getattr(signal, "pidfd_send_signal", None)
-            if not callable(open_pidfd) or not callable(send_signal):
-                raise _LinuxOwnershipError("Linux pidfd is unavailable")
-            pidfd = None
-            try:
-                pidfd = open_pidfd(os.getpid(), 0)
-                send_signal(pidfd, 0, None, 0)
-            except OSError as error:
-                raise _LinuxOwnershipError(
-                    "Linux pidfd verification failed"
-                ) from error
-            finally:
-                if pidfd is not None:
-                    try:
-                        os.close(pidfd)
-                    except OSError as error:
-                        raise _LinuxOwnershipError(
-                            "Linux pidfd verification cleanup failed"
-                        ) from error
-
-        @staticmethod
-        def _read_record(path: Path) -> _ProcessRecord:
-            try:
-                pid = int(path.parent.name)
-            except ValueError as error:
-                raise _LinuxOwnershipError(
-                    "Linux process path contains an invalid pid"
-                ) from error
-            return _parse_linux_stat(path.read_bytes(), pid=pid)
-
-        @classmethod
-        def _read_table(cls) -> dict[_ProcessIdentity, _ProcessRecord]:
-            proc_root = Path("/proc")
-            try:
-                cls._read_record(proc_root / str(os.getpid()) / "stat")
-                entries = tuple(proc_root.iterdir())
-            except (OSError, UnicodeError) as error:
-                raise _LinuxOwnershipError("Linux procfs is unavailable") from error
-            records = {}
-            for entry in entries:
-                if not entry.name.isdigit():
-                    continue
-                try:
-                    record = cls._read_record(entry / "stat")
-                except FileNotFoundError:
-                    continue
-                except UnicodeError as error:
-                    raise _LinuxOwnershipError(
-                        "Linux procfs process visibility is incomplete"
-                    ) from error
-                except OSError as error:
-                    if error.errno in {
-                        _linux_errno.ENOENT,
-                        _linux_errno.ESRCH,
-                    }:
-                        continue
-                    raise _LinuxOwnershipError(
-                        "Linux procfs process visibility is incomplete"
-                    ) from error
-                records[record.identity] = record
-            return records
-
-        def bind_root(self, pid: int) -> None:
-            try:
-                record = self._read_record(Path("/proc") / str(pid) / "stat")
-            except (OSError, UnicodeError) as error:
-                raise _LinuxOwnershipError(
-                    "Linux command root identity is unavailable"
-                ) from error
-            self.root_identity = record.identity
-            self.tracker.bind_root(record.identity)
-
-        def scan_active(self) -> dict[_ProcessIdentity, _ProcessRecord]:
-            records = self._read_table()
-            owned = self.tracker.update(records)
-            reaped = False
-            for identity in owned:
-                record = records[identity]
-                if (
-                    identity != self.root_identity
-                    and record.parent_pid == self.runner_pid
-                ):
-                    try:
-                        reaped_pid, _ = os.waitpid(identity.pid, os.WNOHANG)
-                    except ChildProcessError:
-                        reaped_pid = 0
-                    except OSError as error:
-                        raise _LinuxOwnershipError(
-                            "Linux adopted child cannot be reaped"
-                        ) from error
-                    if reaped_pid:
-                        reaped = True
-            if reaped:
-                records = self._read_table()
-                owned = self.tracker.update(records)
-            return {identity: records[identity] for identity in owned}
-
-        def active_descendants(self) -> dict[_ProcessIdentity, _ProcessRecord]:
-            return {
-                identity: record
-                for identity, record in self.scan_active().items()
-                if identity != self.root_identity
-            }
-
-        @staticmethod
-        def _kill_identity(identity: _ProcessIdentity) -> None:
-            _signal_linux_identity(
-                identity,
-                open_pidfd=os.pidfd_open,
-                read_record=lambda pid: _LinuxProcessOwner._read_record(
-                    Path("/proc") / str(pid) / "stat"
-                ),
-                send_signal=signal.pidfd_send_signal,
-                close_pidfd=os.close,
-            )
-
-        def terminate_until_clear(
-            self,
-            process: subprocess.Popen,
-            deadline: float,
-        ) -> bool:
-            while True:
-                active = self.scan_active()
-                for identity in active:
-                    self._kill_identity(identity)
-                remaining_active = self.scan_active()
-                active_descendants = {
-                    identity: record
-                    for identity, record in remaining_active.items()
-                    if identity != self.root_identity
-                }
-                if process.poll() is not None and not active_descendants:
-                    return True
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    for identity in remaining_active:
-                        self._kill_identity(identity)
-                    return False
-                time.sleep(min(self._POLL_SECONDS, remaining))
-
-if os.name == "nt":
-    import ctypes
-    from ctypes import wintypes
-
-    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
-    _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
-
-    class _JobObjectBasicLimitInformation(ctypes.Structure):
-        _fields_ = (
-            ("PerProcessUserTimeLimit", ctypes.c_int64),
-            ("PerJobUserTimeLimit", ctypes.c_int64),
-            ("LimitFlags", wintypes.DWORD),
-            ("MinimumWorkingSetSize", ctypes.c_size_t),
-            ("MaximumWorkingSetSize", ctypes.c_size_t),
-            ("ActiveProcessLimit", wintypes.DWORD),
-            ("Affinity", ctypes.c_size_t),
-            ("PriorityClass", wintypes.DWORD),
-            ("SchedulingClass", wintypes.DWORD),
-        )
-
-    class _IoCounters(ctypes.Structure):
-        _fields_ = (
-            ("ReadOperationCount", ctypes.c_uint64),
-            ("WriteOperationCount", ctypes.c_uint64),
-            ("OtherOperationCount", ctypes.c_uint64),
-            ("ReadTransferCount", ctypes.c_uint64),
-            ("WriteTransferCount", ctypes.c_uint64),
-            ("OtherTransferCount", ctypes.c_uint64),
-        )
-
-    class _JobObjectExtendedLimitInformation(ctypes.Structure):
-        _fields_ = (
-            ("BasicLimitInformation", _JobObjectBasicLimitInformation),
-            ("IoInfo", _IoCounters),
-            ("ProcessMemoryLimit", ctypes.c_size_t),
-            ("JobMemoryLimit", ctypes.c_size_t),
-            ("PeakProcessMemoryUsed", ctypes.c_size_t),
-            ("PeakJobMemoryUsed", ctypes.c_size_t),
-        )
-
-    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    _create_job_object = _kernel32.CreateJobObjectW
-    _create_job_object.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
-    _create_job_object.restype = wintypes.HANDLE
-    _set_job_information = _kernel32.SetInformationJobObject
-    _set_job_information.argtypes = (
-        wintypes.HANDLE,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        wintypes.DWORD,
-    )
-    _set_job_information.restype = wintypes.BOOL
-    _assign_process_to_job = _kernel32.AssignProcessToJobObject
-    _assign_process_to_job.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
-    _assign_process_to_job.restype = wintypes.BOOL
-    _terminate_job = _kernel32.TerminateJobObject
-    _terminate_job.argtypes = (wintypes.HANDLE, wintypes.UINT)
-    _terminate_job.restype = wintypes.BOOL
-    _create_event = _kernel32.CreateEventW
-    _create_event.argtypes = (
-        ctypes.c_void_p,
-        wintypes.BOOL,
-        wintypes.BOOL,
-        wintypes.LPCWSTR,
-    )
-    _create_event.restype = wintypes.HANDLE
-    _set_event = _kernel32.SetEvent
-    _set_event.argtypes = (wintypes.HANDLE,)
-    _set_event.restype = wintypes.BOOL
-    _close_handle = _kernel32.CloseHandle
-    _close_handle.argtypes = (wintypes.HANDLE,)
-    _close_handle.restype = wintypes.BOOL
-
-    _WINDOWS_JOB_WRAPPER = """\
-import ctypes
-import subprocess
-import sys
-
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-wait_for_single_object = kernel32.WaitForSingleObject
-wait_for_single_object.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
-wait_for_single_object.restype = ctypes.c_uint32
-close_handle = kernel32.CloseHandle
-close_handle.argtypes = (ctypes.c_void_p,)
-event = ctypes.c_void_p(int(sys.argv[1]))
-wait_result = wait_for_single_object(event, 0xFFFFFFFF)
-close_handle(event)
-if wait_result != 0:
-    raise SystemExit(126)
-try:
-    completed = subprocess.run(sys.argv[2:], shell=False, check=False)
-except BaseException:
-    raise SystemExit(127) from None
-raise SystemExit(completed.returncode)
-"""
-
-    class _WindowsJob:
-        def __init__(self) -> None:
-            self._handle = _create_job_object(None, None)
-            if not self._handle:
-                raise OSError(ctypes.get_last_error())
-            information = _JobObjectExtendedLimitInformation()
-            information.BasicLimitInformation.LimitFlags = (
-                _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            )
-            if not _set_job_information(
-                self._handle,
-                _JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
-                ctypes.byref(information),
-                ctypes.sizeof(information),
-            ):
-                error_code = ctypes.get_last_error()
-                self.close()
-                raise OSError(error_code)
-
-        def assign(self, process: subprocess.Popen) -> None:
-            if not _assign_process_to_job(
-                self._handle,
-                wintypes.HANDLE(int(process._handle)),
-            ):
-                raise OSError(ctypes.get_last_error())
-
-        def terminate(self) -> None:
-            if self._handle:
-                _terminate_job(self._handle, 1)
-
-        def close(self) -> None:
-            if self._handle:
-                _close_handle(self._handle)
-                self._handle = None
-
-    class _WindowsEvent:
-        def __init__(self) -> None:
-            self._handle = _create_event(None, True, False, None)
-            if not self._handle:
-                raise OSError(ctypes.get_last_error())
-            try:
-                os.set_handle_inheritable(int(self._handle), True)
-            except OSError:
-                self.close()
-                raise
-
-        @property
-        def argument(self) -> str:
-            return str(int(self._handle))
-
-        @property
-        def handle(self) -> int:
-            return int(self._handle)
-
-        def set(self) -> None:
-            if not _set_event(self._handle):
-                raise OSError(ctypes.get_last_error())
-
-        def close(self) -> None:
-            if self._handle:
-                _close_handle(self._handle)
-                self._handle = None
+def _unique_protocol_object(pairs: list[tuple[str, object]]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate protocol key")
+        result[key] = value
+    return result
 
 
 class RunnerError(RuntimeError):
-    """Raised when a bounded command does not complete safely."""
+    """An ordinary, safely bounded command failure."""
+
+
+class WorkerDisposalRequired(BaseException):
+    """The worker must be externally stopped/restarted before reuse."""
 
 
 @dataclass(frozen=True)
@@ -534,7 +41,8 @@ class CommandSpec:
     command_id: str
     argv: tuple[str, ...]
     cwd: Path
-    timeout_seconds: int
+    execution_timeout_seconds: int
+    cleanup_timeout_seconds: int
     environment: tuple[tuple[str, str], ...]
     secret_canaries: tuple[str, ...]
     stdout_limit: int
@@ -551,410 +59,322 @@ class CommandResult:
     stderr_sha256: str
 
 
-class _StreamCollector(threading.Thread):
-    def __init__(self, stream, limit: int, canaries: tuple[bytes, ...]):
-        super().__init__(daemon=True)
-        self._stream = stream
-        self._limit = limit
-        self._canaries = canaries
-        self._maximum_canary_length = max((len(value) for value in canaries), default=0)
-        self.digest = hashlib.sha256()
-        self.output = bytearray()
-        self.canary_seen = False
-        self.failed = False
+def _is_plain_int(value: object, minimum: int, maximum: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= maximum
 
-    def run(self) -> None:
-        tail = b""
+
+def _contains_reparse_or_symlink(path: Path) -> bool:
+    candidate = path
+    while True:
         try:
-            while True:
-                chunk = self._stream.read(65536)
-                if not chunk:
-                    break
-                self.digest.update(chunk)
-                remaining = self._limit - len(self.output)
-                if remaining > 0:
-                    self.output.extend(chunk[:remaining])
-                if self._canaries:
-                    window = tail + chunk
-                    if any(canary in window for canary in self._canaries):
-                        self.canary_seen = True
-                    overlap = self._maximum_canary_length - 1
-                    tail = window[-overlap:] if overlap > 0 else b""
-        except (OSError, ValueError):
-            self.failed = True
-        finally:
-            try:
-                self._stream.close()
-            except (OSError, ValueError):
-                self.failed = True
-
-
-def _write_input(stream, value: bytes) -> None:
-    try:
-        stream.write(value)
-        stream.flush()
-    except (BrokenPipeError, OSError):
-        pass
-    finally:
-        try:
-            stream.close()
-        except (OSError, ValueError):
+            status = os.lstat(candidate)
+        except FileNotFoundError:
             pass
+        except OSError:
+            return True
+        else:
+            if stat.S_ISLNK(status.st_mode):
+                return True
+            if getattr(status, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400):
+                return True
+        if candidate.parent == candidate:
+            return False
+        candidate = candidate.parent
+
+
+def _is_within(path: Path, root: Path) -> bool:
+    if ".." in path.parts or ".." in root.parts:
+        return False
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 class Runner:
-    def run(
-        self,
-        spec: CommandSpec,
-        *,
-        input_bytes: bytes | None = None,
-    ) -> CommandResult:
-        command_id = self._validate(spec, input_bytes)
-        started = time.monotonic()
-        deadline = started + spec.timeout_seconds
-        termination_deadline = deadline + _TERMINATION_GRACE_SECONDS
+    """Run commands only through a disposable, fixed-protocol supervisor."""
+
+    def __init__(self, *, run_root: Path | None = None, popen_factory=subprocess.Popen) -> None:
+        self._run_root = None if run_root is None else Path(run_root)
+        self._popen_factory = popen_factory
+        self._supervisor = Path(__file__).with_name("supervisor.py").resolve()
+
+    def run(self, spec: CommandSpec, *, input_bytes: bytes | None = None) -> CommandResult:
+        command_id, run_root = self._validate(spec, input_bytes)
+        request = {
+            "protocol_version": 1,
+            "command_id": command_id,
+            "argv": list(spec.argv),
+            "cwd": str(spec.cwd),
+            "run_root": str(run_root),
+            "execution_timeout_seconds": spec.execution_timeout_seconds,
+            "cleanup_timeout_seconds": spec.cleanup_timeout_seconds,
+            "environment": [list(item) for item in spec.environment],
+            "secret_canaries_b64": [base64.b64encode(value.encode("utf-8")).decode("ascii") for value in spec.secret_canaries],
+            "input_b64": None if input_bytes is None else base64.b64encode(input_bytes).decode("ascii"),
+            "stdout_limit": spec.stdout_limit,
+            "stderr_limit": spec.stderr_limit,
+            "log_directory": str(spec.log_directory),
+        }
+        payload = (json.dumps(request, ensure_ascii=True, separators=(",", ":")) + "\n").encode("ascii")
+        if len(payload) > _MAX_PROTOCOL_BYTES:
+            raise RunnerError(f"command {command_id} is invalid")
+
+        supervisor_environment = {}
+        for name in ("SystemRoot", "WINDIR"):
+            if name in os.environ:
+                supervisor_environment[name] = os.environ[name]
+        process = None
+        response_bytes = b""
+        supervisor_completion_observed_ns = None
+        supervisor_deadline = time.monotonic() + spec.execution_timeout_seconds + spec.cleanup_timeout_seconds
+        request_read = request_write = response_read = response_write = None
         try:
-            canaries = tuple(value.encode("utf-8") for value in spec.secret_canaries)
-        except UnicodeError:
-            raise RunnerError(f"command {command_id} is invalid") from None
-        environment = dict(spec.environment)
-
-        job = None
-        event = None
-        launch_argv = list(spec.argv)
-        startupinfo = None
-        linux_owner = None
-        if sys.platform == "linux":
-            try:
-                linux_owner = _LinuxProcessOwner()
-            except _LinuxOwnershipError:
-                raise RunnerError(
-                    f"command {command_id} could not start"
-                ) from None
-        elif os.name == "posix":
-            raise RunnerError(f"command {command_id} could not start")
-
-        if os.name == "nt":
-            try:
-                job = _WindowsJob()
-                event = _WindowsEvent()
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.lpAttributeList = {
-                    "handle_list": [event.handle],
-                }
-                launch_argv = [
-                    sys.executable,
-                    "-I",
-                    "-c",
-                    _WINDOWS_JOB_WRAPPER,
-                    event.argument,
-                    *spec.argv,
-                ]
-            except OSError:
-                if event is not None:
-                    event.close()
-                if job is not None:
-                    job.close()
-                raise RunnerError(f"command {command_id} could not start") from None
-
-        try:
-            spec.log_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            if os.name != "nt":
-                spec.log_directory.chmod(0o700)
-            process = subprocess.Popen(
-                launch_argv,
-                cwd=str(spec.cwd),
-                env=environment,
-                stdin=subprocess.PIPE if input_bytes is not None else subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=False,
-                close_fds=True,
-                start_new_session=os.name != "nt",
-                creationflags=(
-                    subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-                ),
-                startupinfo=startupinfo,
+            request_read, request_write = os.pipe()
+            response_read, response_write = os.pipe()
+            os.set_blocking(request_write, False)
+            os.set_blocking(response_read, False)
+            request_endpoint = self._endpoint(request_read)
+            response_endpoint = self._endpoint(response_write)
+            self._set_endpoint_inheritable(request_read, request_endpoint, True)
+            self._set_endpoint_inheritable(response_write, response_endpoint, True)
+            command = (
+                sys.executable,
+                str(self._supervisor),
+                "--request-endpoint",
+                str(request_endpoint),
+                "--response-endpoint",
+                str(response_endpoint),
             )
-        except (OSError, UnicodeError, ValueError):
-            if event is not None:
-                event.close()
-            if job is not None:
-                job.close()
-            raise RunnerError(f"command {command_id} could not start") from None
-
-        if linux_owner is not None:
+            kwargs = {
+                "stdin": subprocess.DEVNULL,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+                "cwd": str(run_root),
+                "env": supervisor_environment,
+                "shell": False,
+                "close_fds": True,
+                "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            }
+            if os.name == "nt":
+                startup = subprocess.STARTUPINFO()
+                startup.lpAttributeList = {"handle_list": [request_endpoint, response_endpoint]}
+                kwargs["startupinfo"] = startup
+            else:
+                kwargs["pass_fds"] = (request_read, response_write)
             try:
-                linux_owner.bind_root(process.pid)
-            except _LinuxOwnershipError:
+                process = self._popen_factory(command, **kwargs)
+            finally:
+                self._set_endpoint_inheritable(request_read, request_endpoint, False)
+                self._set_endpoint_inheritable(response_write, response_endpoint, False)
+            os.close(request_read); request_read = None
+            os.close(response_write); response_write = None
+            response_bytes, supervisor_completion_observed_ns = self._exchange(
+                process,
+                request_write,
+                response_read,
+                payload,
+                supervisor_deadline,
+            )
+            request_write = None; response_read = None
+        except WorkerDisposalRequired:
+            raise WorkerDisposalRequired(f"command {command_id} worker disposal required") from None
+        except BaseException:
+            if process is not None:
                 try:
-                    linux_owner.terminate_until_clear(
-                        process,
-                        termination_deadline,
-                    )
-                except _LinuxOwnershipError:
-                    self._kill_direct_process(process)
-                raise RunnerError(
-                    f"command {command_id} could not start"
-                ) from None
-
-        if job is not None:
-            try:
-                job.assign(process)
-                event.set()
-            except OSError:
-                job.terminate()
-                if process.poll() is None:
                     process.kill()
-                event.close()
-                job.close()
-                raise RunnerError(f"command {command_id} could not start") from None
-            event.close()
-
-        try:
-            stdout = _StreamCollector(process.stdout, spec.stdout_limit, canaries)
-            stderr = _StreamCollector(process.stderr, spec.stderr_limit, canaries)
-            started_threads = []
-            try:
-                stdout.start()
-                started_threads.append(stdout)
-                stderr.start()
-                started_threads.append(stderr)
-
-                input_thread = None
-                if input_bytes is not None:
-                    input_thread = threading.Thread(
-                        target=_write_input,
-                        args=(process.stdin, input_bytes),
-                        daemon=True,
-                    )
-                    input_thread.start()
-                    started_threads.append(input_thread)
-            except RuntimeError:
-                self._kill_process_tree(
-                    process,
-                    job,
-                    linux_owner,
-                    termination_deadline,
-                )
-                if linux_owner is None:
-                    self._wait_process_until(process, termination_deadline)
-                self._join_threads_until(tuple(started_threads), termination_deadline)
-                raise RunnerError(
-                    f"command {command_id} failed to initialize"
-                ) from None
-
-            threads = tuple(started_threads)
-            try:
-                if linux_owner is not None:
-                    timed_out, drained = self._wait_linux_command(
-                        process,
-                        threads,
-                        linux_owner,
-                        deadline,
-                    )
-                else:
-                    timed_out = False
+                    process.poll()
+                except BaseException:
+                    pass
+            raise WorkerDisposalRequired(f"command {command_id} worker disposal required") from None
+        finally:
+            for descriptor in (request_read, request_write, response_read, response_write):
+                if descriptor is not None:
                     try:
-                        process.wait(timeout=max(0, deadline - time.monotonic()))
-                    except subprocess.TimeoutExpired:
-                        timed_out = True
-                    if not timed_out and not self._join_threads_until(
-                        threads,
-                        deadline,
-                    ):
-                        timed_out = True
-                    drained = not any(thread.is_alive() for thread in threads)
-            except _LinuxOwnershipError:
-                self._kill_process_tree(
-                    process,
-                    job,
-                    linux_owner,
-                    termination_deadline,
-                )
-                self._join_threads_until(threads, termination_deadline)
-                raise RunnerError(
-                    f"command {command_id} ownership failed"
-                ) from None
+                        os.close(descriptor)
+                    except OSError:
+                        pass
 
-            if timed_out:
-                self._kill_process_tree(
-                    process,
-                    job,
-                    linux_owner,
-                    termination_deadline,
-                )
-                if linux_owner is None:
-                    self._wait_process_until(process, termination_deadline)
-                drained = self._join_threads_until(threads, termination_deadline)
+        response = self._decode_response(command_id, response_bytes, process.returncode)
+        cleanup_deadline_ns = response["cleanup_deadline_monotonic_ns"]
+        if cleanup_deadline_ns is not None and supervisor_completion_observed_ns >= cleanup_deadline_ns:
+            raise WorkerDisposalRequired(f"command {command_id} worker disposal required")
+        status = response["status"]
+        if status == "WORKER_DISPOSAL_REQUIRED":
+            raise WorkerDisposalRequired(f"command {command_id} worker disposal required")
+        if status == "TIMED_OUT":
+            raise RunnerError(f"command {command_id} timed out")
+        if status == "CANARY_DETECTED":
+            raise RunnerError(f"command {command_id} exposed a canary")
+        if status == "FAILED":
+            raise RunnerError(f"command {command_id} failed")
+        return CommandResult(
+            command_id=command_id,
+            exit_code=response["exit_code"],
+            duration_ms=response["duration_ms"],
+            stdout_sha256=response["stdout_sha256"],
+            stderr_sha256=response["stderr_sha256"],
+        )
 
-            duration_ms = int((time.monotonic() - started) * 1000)
-            if timed_out and not drained:
-                raise RunnerError(f"command {command_id} timed out")
-            if stdout.failed or stderr.failed:
-                raise RunnerError(f"command {command_id} capture failed")
-            if stdout.canary_seen or stderr.canary_seen:
-                raise RunnerError(f"command {command_id} exposed a canary")
-
-            try:
-                self._write_log(
-                    spec.log_directory / f"{command_id}.stdout.log",
-                    stdout.output,
-                )
-                self._write_log(
-                    spec.log_directory / f"{command_id}.stderr.log",
-                    stderr.output,
-                )
-            except (OSError, UnicodeError, ValueError):
-                raise RunnerError(f"command {command_id} log write failed") from None
-
-            if timed_out:
-                raise RunnerError(f"command {command_id} timed out")
-            if process.returncode != 0:
-                raise RunnerError(f"command {command_id} failed")
-            return CommandResult(
-                command_id=command_id,
-                exit_code=process.returncode,
-                duration_ms=duration_ms,
-                stdout_sha256="sha256:" + stdout.digest.hexdigest(),
-                stderr_sha256="sha256:" + stderr.digest.hexdigest(),
-            )
-        finally:
-            if job is not None:
-                job.close()
-
-    @staticmethod
-    def _validate(spec: CommandSpec, input_bytes: bytes | None) -> str:
-        command_id = spec.command_id
-        if not isinstance(command_id, str) or _SAFE_IDENTIFIER.fullmatch(command_id) is None:
-            raise RunnerError("command identifier is invalid")
-
-        invalid = f"command {command_id} is invalid"
-        if (
-            not isinstance(spec.argv, tuple)
-            or not spec.argv
-            or any(not isinstance(value, str) or not value for value in spec.argv)
-            or not isinstance(spec.cwd, Path)
-            or not isinstance(spec.log_directory, Path)
-            or not isinstance(spec.timeout_seconds, int)
-            or isinstance(spec.timeout_seconds, bool)
-            or spec.timeout_seconds <= 0
-            or not isinstance(spec.stdout_limit, int)
-            or isinstance(spec.stdout_limit, bool)
-            or spec.stdout_limit < 0
-            or not isinstance(spec.stderr_limit, int)
-            or isinstance(spec.stderr_limit, bool)
-            or spec.stderr_limit < 0
-            or not isinstance(spec.environment, tuple)
-            or not isinstance(spec.secret_canaries, tuple)
-            or input_bytes is not None
-            and not isinstance(input_bytes, bytes)
-        ):
-            raise RunnerError(invalid)
-
-        environment_keys = []
-        for item in spec.environment:
-            if (
-                not isinstance(item, tuple)
-                or len(item) != 2
-                or not isinstance(item[0], str)
-                or not isinstance(item[1], str)
-                or not item[0]
-                or "=" in item[0]
-                or "\x00" in item[0]
-                or "\x00" in item[1]
-            ):
-                raise RunnerError(invalid)
-            environment_keys.append(item[0])
-        if len(set(environment_keys)) != len(environment_keys):
-            raise RunnerError(invalid)
-        if any(
-            not isinstance(canary, str) or not canary or "\x00" in canary
-            for canary in spec.secret_canaries
-        ):
-            raise RunnerError(invalid)
-        return command_id
-
-    @staticmethod
-    def _write_log(path: Path, content: bytearray) -> None:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-        if hasattr(os, "O_BINARY"):
-            flags |= os.O_BINARY
-        descriptor = os.open(path, flags, 0o600)
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                descriptor = -1
-                stream.write(content)
-            if os.name != "nt":
-                path.chmod(0o600)
-        finally:
-            if descriptor != -1:
-                os.close(descriptor)
-
-    @staticmethod
-    def _wait_linux_command(
-        process: subprocess.Popen,
-        threads: tuple[threading.Thread, ...],
-        owner: _LinuxProcessOwner,
-        deadline: float,
-    ) -> tuple[bool, bool]:
+    def _exchange(self, process, request_write: int, response_read: int, payload: bytes, deadline: float) -> tuple[bytes, int]:
+        offset = 0
+        response = bytearray()
+        request_open = True
+        response_eof = False
         while True:
-            process.poll()
-            descendants = owner.active_descendants()
-            drained = not any(thread.is_alive() for thread in threads)
-            if process.returncode is not None and not descendants and drained:
-                return False, True
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return True, drained
-            time.sleep(min(owner._POLL_SECONDS, remaining))
+            if time.monotonic() >= deadline:
+                try:
+                    process.kill()
+                    process.poll()
+                except BaseException:
+                    pass
+                raise WorkerDisposalRequired("supervisor deadline expired")
+            if request_open:
+                try:
+                    count = os.write(request_write, payload[offset : offset + 65_536])
+                except BlockingIOError:
+                    pass
+                except BrokenPipeError:
+                    raise WorkerDisposalRequired("supervisor request channel failed") from None
+                else:
+                    if count <= 0:
+                        raise WorkerDisposalRequired("supervisor request channel failed")
+                    offset += count
+                    if offset == len(payload):
+                        os.close(request_write)
+                        request_open = False
+            if not response_eof:
+                try:
+                    content = os.read(response_read, 65_537 - len(response))
+                except BlockingIOError:
+                    content = None
+                if content == b"":
+                    response_eof = True
+                elif content is not None:
+                    response.extend(content)
+                    if len(response) > 65_536:
+                        raise WorkerDisposalRequired("supervisor response channel failed")
+            returncode = process.poll()
+            if returncode is not None and response_eof:
+                observed_ns = time.monotonic_ns()
+                os.close(response_read)
+                return bytes(response), observed_ns
+            time.sleep(min(0.005, max(0.0, deadline - time.monotonic())))
+
+    def _validate(self, spec: CommandSpec, input_bytes: bytes | None) -> tuple[str, Path]:
+        command_id = getattr(spec, "command_id", "invalid")
+        safe_id = isinstance(command_id, str) and _SAFE_IDENTIFIER.fullmatch(command_id) is not None
+        display_id = command_id if safe_id else "invalid"
+        invalid = f"command {display_id} is invalid"
+        if not isinstance(spec, CommandSpec) or not safe_id:
+            raise RunnerError(invalid)
+        run_root = self._run_root if self._run_root is not None else spec.cwd
+        if not isinstance(run_root, Path) or not run_root.is_absolute():
+            raise RunnerError(invalid)
+        if (
+            not isinstance(spec.argv, tuple) or not spec.argv
+            or any(not isinstance(value, str) or not value or "\x00" in value for value in spec.argv)
+            or not isinstance(spec.cwd, Path) or not spec.cwd.is_absolute() or not spec.cwd.is_dir()
+            or not isinstance(spec.log_directory, Path) or not spec.log_directory.is_absolute()
+            or str(spec.log_directory).startswith(("//", "\\\\"))
+            or not run_root.is_dir() or not _is_within(spec.cwd, run_root) or not _is_within(spec.log_directory, run_root)
+            or _contains_reparse_or_symlink(run_root) or _contains_reparse_or_symlink(spec.cwd)
+            or _contains_reparse_or_symlink(spec.log_directory)
+            or not _is_plain_int(spec.execution_timeout_seconds, 1, 18_000)
+            or not _is_plain_int(spec.cleanup_timeout_seconds, 5, 600)
+            or not _is_plain_int(spec.stdout_limit, 0, 2**31 - 1)
+            or not _is_plain_int(spec.stderr_limit, 0, 2**31 - 1)
+            or not isinstance(spec.environment, tuple) or not isinstance(spec.secret_canaries, tuple)
+            or input_bytes is not None and not isinstance(input_bytes, bytes)
+        ):
+            raise RunnerError(invalid)
+        keys = []
+        for item in spec.environment:
+            if not isinstance(item, tuple) or len(item) != 2 or any(not isinstance(value, str) for value in item):
+                raise RunnerError(invalid)
+            key, value = item
+            if not key or "=" in key or "\x00" in key or "\x00" in value:
+                raise RunnerError(invalid)
+            keys.append(key)
+        normalized_keys = [key.casefold() for key in keys] if os.name == "nt" else keys
+        if len(normalized_keys) != len(set(normalized_keys)):
+            raise RunnerError(invalid)
+        for canary in spec.secret_canaries:
+            if not isinstance(canary, str) or not canary or "\x00" in canary:
+                raise RunnerError(invalid)
+            try:
+                canary.encode("utf-8")
+            except UnicodeError:
+                raise RunnerError(invalid) from None
+        return command_id, run_root
 
     @staticmethod
-    def _wait_process_until(
-        process: subprocess.Popen,
-        deadline: float,
-    ) -> None:
+    def _endpoint(descriptor: int) -> int:
+        if os.name != "nt":
+            return descriptor
+        import msvcrt
+        return int(msvcrt.get_osfhandle(descriptor))
+
+    @staticmethod
+    def _set_endpoint_inheritable(descriptor: int, endpoint: int, inheritable: bool) -> None:
+        if os.name == "nt":
+            os.set_handle_inheritable(endpoint, inheritable)
+        else:
+            os.set_inheritable(descriptor, inheritable)
+
+    @staticmethod
+    def _decode_response(command_id: str, raw: bytes, returncode: int | None) -> dict:
+        disposal = WorkerDisposalRequired(f"command {command_id} worker disposal required")
+        if returncode != 0 or not isinstance(raw, bytes) or len(raw) > 65_536 or raw.count(b"\n") != 1 or not raw.endswith(b"\n"):
+            raise disposal
         try:
-            process.wait(timeout=max(0, deadline - time.monotonic()))
-        except subprocess.TimeoutExpired:
-            pass
-
-    @staticmethod
-    def _join_threads_until(
-        threads: tuple[threading.Thread, ...],
-        deadline: float,
-    ) -> bool:
-        for thread in threads:
-            thread.join(max(0, deadline - time.monotonic()))
-        return not any(thread.is_alive() for thread in threads)
-
-    @staticmethod
-    def _kill_process_tree(
-        process: subprocess.Popen,
-        job,
-        linux_owner,
-        deadline: float,
-    ) -> bool:
-        if linux_owner is not None:
-            try:
-                return linux_owner.terminate_until_clear(process, deadline)
-            except _LinuxOwnershipError:
-                Runner._kill_direct_process(process)
-                return False
-        if job is not None:
-            job.terminate()
-        elif os.name == "posix":
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except (OSError, ProcessLookupError):
-                pass
-        Runner._kill_direct_process(process)
-        return True
-
-    @staticmethod
-    def _kill_direct_process(process: subprocess.Popen) -> None:
-        if process.poll() is None:
-            try:
-                process.kill()
-            except OSError:
-                pass
+            value = json.loads(raw.decode("ascii"), object_pairs_hook=_unique_protocol_object)
+        except (UnicodeError, ValueError, RecursionError):
+            raise disposal from None
+        required = {
+            "protocol_version", "status", "exit_code", "duration_ms",
+            "cleanup_deadline_monotonic_ns", "stdout_sha256", "stderr_sha256", "proof",
+        }
+        if (
+            not isinstance(value, dict)
+            or set(value) != required
+            or type(value.get("protocol_version")) is not int
+            or value["protocol_version"] != 1
+        ):
+            raise disposal
+        proof = value.get("proof")
+        if (
+            not isinstance(proof, dict)
+            or set(proof) != {"boundary_empty", "streams_eof", "logs_finalized"}
+            or any(type(value) is not bool for value in proof.values())
+            or not all(proof.values())
+        ):
+            raise disposal
+        if value.get("status") not in {"PASS", "FAILED", "TIMED_OUT", "CANARY_DETECTED", "WORKER_DISPOSAL_REQUIRED"}:
+            raise disposal
+        if not _is_plain_int(value.get("duration_ms"), 0, 2**63 - 1):
+            raise disposal
+        cleanup_deadline = value.get("cleanup_deadline_monotonic_ns")
+        if cleanup_deadline is not None and not _is_plain_int(cleanup_deadline, 1, 2**63 - 1):
+            raise disposal
+        if not isinstance(value.get("stdout_sha256"), str) or not _SHA256.fullmatch(value["stdout_sha256"]):
+            raise disposal
+        if not isinstance(value.get("stderr_sha256"), str) or not _SHA256.fullmatch(value["stderr_sha256"]):
+            raise disposal
+        exit_code = value.get("exit_code")
+        if exit_code is not None and not _is_plain_int(exit_code, -2**31, 2**31 - 1):
+            raise disposal
+        status = value["status"]
+        valid_exit = (
+            status == "PASS" and exit_code == 0
+            or status == "FAILED" and (exit_code is None or isinstance(exit_code, int) and exit_code != 0)
+            or status == "CANARY_DETECTED" and (exit_code is None or isinstance(exit_code, int))
+            or status in {"TIMED_OUT", "WORKER_DISPOSAL_REQUIRED"} and exit_code is None
+        )
+        if not valid_exit or (
+            cleanup_deadline is None
+            and not (status == "FAILED" and exit_code is None)
+        ):
+            raise disposal
+        return value
