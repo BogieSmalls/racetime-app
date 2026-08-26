@@ -38,12 +38,18 @@ resource floor, transport, and `binfmt_misc` sections.
 ## Host boundary
 
 Docker Engine is a persistent prerequisite for the eventual RaceTime service,
-not a disposable G0 tool. Install the pinned Docker CE engine, CLI, containerd,
-and Compose plugin from Docker's signed Ubuntu Noble ARM64 repository. Record
-the repository key digest, source definition, exact package versions, daemon
-version, and Compose version. Do not use the convenience script, expose a TCP
-Docker API, add the operator account to the root-equivalent `docker` group, or
-change OCI security rules. Docker commands run through `sudo`.
+not a disposable G0 tool. Before installation, a reviewed bootstrap lock must
+name the Docker signing-key URL, key SHA-256 and fingerprint, exact repository
+definition and `InRelease` digest, and the version, origin, download URL, and
+SHA-256 of every Docker package and transitive `.deb` dependency. The host
+downloads those bytes without executing them, verifies the entire lock, and
+installs only that local locked set with network fetching disabled. The allowed
+persistent package delta is exactly Docker CE engine and CLI, containerd,
+Compose plugin, and their locked dependencies. A different dependency solution
+or package upgrade fails closed and requires a lock-review commit. Do not use
+the convenience script, expose a TCP Docker API, add the operator account to
+the root-equivalent `docker` group, or change OCI security rules. Docker
+commands run through `sudo`.
 
 The bootstrap validates that Docker uses a Unix socket, the daemon has no
 insecure registry or remote listener, forwarding uses a supported iptables
@@ -61,12 +67,52 @@ SCP, but the bootstrap verifies its manifest before an exact move into the run
 root. Docker builders, containers, networks, volumes, cache, and images use the
 `z1rr-racetime-g0-<run-id>` prefix and qualification labels.
 
+Every Docker workload is denied OCI Instance Metadata Service (IMDS) access.
+The bootstrap snapshots the complete active Docker forwarding rules in raw and
+normalized form, then installs an idempotent, persistently managed jump at the
+start of `DOCKER-USER` to a dedicated Z1RR chain that rejects every protocol
+from Docker forwarding to `169.254.169.254/32`. This is an intentional
+persistent production-host delta: it protects later RaceTime containers while
+leaving the host's root-owned backup tooling able to use instance-principal
+credentials. No qualification container may use host networking to bypass the
+forwarding guard. Before the first container and after Docker daemon restart,
+the harness proves from both an ordinary container and the BuildKit network
+that IMDSv1 and IMDSv2 requests fail, while ordinary DNS and a locked public
+artifact fetch work. It records status only, never metadata or credentials.
+
+Bootstrap failure before this firewall baseline is accepted restores the exact
+pre-bootstrap rules and removes only the Z1RR-owned unit, chain, and jump. Once
+accepted, each qualification run snapshots that post-bootstrap baseline,
+verifies it at every phase boundary, and cleanup must restore and byte/metadata
+verify that exact accepted baseline. An absent, reordered, duplicated, or
+bypassed guard is a failed security gate. This follows Oracle's warning that
+IMDS can deliver short-lived dynamic-group credentials; internal Docker
+networks and the OCI NSG are not substitutes for this host boundary.
+
 ## Native and emulated architectures
 
 The host builds and runs `linux/arm64` natively. Only `linux/amd64` requires
-emulation. A workspace-local checksum-pinned Buildx CLI controls a dedicated
-digest-pinned Docker-container BuildKit builder. The builder exports one
+emulation. A workspace-local checksum-pinned Buildx CLI uses the remote driver
+over Docker's unexposed `docker-container://` transport to control a manually
+created, digest-pinned rootless BuildKit container. The builder exports one
 multi-platform OCI layout for each of `web` and `racebot`; nothing is pushed.
+
+The BuildKit container is not privileged, drops all capabilities, has no host
+network/PID/IPC/user namespace, no device or Docker-socket mount, no host-path
+mount, and no published port. Its only writable mount is its run-scoped named
+state volume; its config is read-only. The three upstream-documented rootless
+exceptions are pinned explicitly: `seccomp=unconfined`,
+`apparmor=unconfined`, and `systempaths=unconfined`. No insecure BuildKit
+entitlement (`network.host`, `security.insecure`, or device access) is enabled.
+Build contexts travel through the BuildKit session, and its bridge network is
+subject to the IMDS guard. The controller inspects the live container contract
+before and after every build and fails on any additional privilege, mount,
+namespace, capability, entitlement, or network. The separately privileged
+`binfmt` installer remains the only privileged container. Preflight must prove
+the rootless daemon and one networked build step under this exact contract. If
+Ubuntu's unprivileged-user-namespace/AppArmor policy prevents that, the run
+stops before image work; it does not change a sysctl, weaken the contract, or
+fall back to privileged BuildKit.
 
 Before any privileged emulator registration, the harness snapshots the host's
 complete `binfmt_misc` state in raw and normalized form and installs cleanup
@@ -96,8 +142,10 @@ decision.
 Native ARM64 build/smoke phases receive 90 minutes per image. Emulated amd64
 build/smoke phases receive 300 minutes per image. Scanner, service-backed test,
 backup/restore, systemd, and cross-repository phases each have explicit budgets
-in the run manifest, with an overall worker maximum of 12 hours. A timeout is a
-failure followed by cleanup, never a skip.
+in the run manifest, with an overall worker maximum of 24 hours. The aggregate
+limit takes precedence and is deliberately longer than the 13-hour sum of the
+four platform/image ceilings so later gates and cleanup retain a real budget.
+A timeout is a failure followed by cleanup, never a skip.
 
 ## Inputs and transport
 
@@ -116,14 +164,29 @@ cleanup traps are active and must be absent at the end.
 
 The remote controller refuses dirty or shallow source, commit/branch mismatch,
 unverified bundles or archives, paths outside the run root, symlinks at custody
-boundaries, mutable tool references, production-like secrets, existing
-same-name Docker resources, and unapproved host publications.
+boundaries, mutable tool references, forbidden runtime/environment credentials,
+existing same-name Docker resources, and unapproved host publications.
+
+Complete Git bundles are a narrow source-custody exception to the runtime-secret
+rejection because inherited-history scanning requires the historical bytes.
+Before transfer, the workstation performs the pinned scanner's metadata-only
+classification over the exact bundle. Every possible live credential must be
+revoked or rotated and recorded as non-live before transfer; a merely inherited
+or out-of-candidate-range finding is not evidence that a credential is safe.
+An approved bundle may therefore contain reviewed inactive historical findings
+or test fixtures, but no current credential. It is transported only over the
+encrypted Bastion path, stored root-only under the run root, never sourced as
+configuration, never printed or copied into evidence, and deleted during
+cleanup. Working-tree archives, retained artifacts, manifests, environment
+files, and runtime inputs receive no such exception.
 
 ## Tool lock and supply chain
 
 A checked-in JSON lock records exact versions, download URLs, SHA-256 values,
 and image index/platform digests for:
 
+- the Docker repository signing key, repository metadata, exact Docker package
+  set, and every transitive `.deb` dependency used by persistent bootstrap;
 - the workspace-local Buildx binary and pinned BuildKit image;
 - the amd64 `binfmt` installer and runtime probe;
 - the OCI-layout inspector/importer;
@@ -145,8 +208,9 @@ The ordered nine-phase model from the Synology design remains in force, with
 these OCI-native refinements:
 
 1. **Preflight:** also prove the exact reviewed OCI instance/network identity,
-   persistent Docker bootstrap contract, native ARM64 host, resource floor,
-   transfer custody, and RaceTime Gitleaks gate.
+   pre-reviewed Docker bootstrap lock, native ARM64 host, resource floor,
+   transfer custody, source-history credential disposition, and RaceTime
+   Gitleaks gate. No container starts until the persistent IMDS boundary passes.
 2. **Worker setup:** use native ARM64 BuildKit plus the transactional amd64
    handler; do not install an ARM64 handler.
 3. **Images:** build each service once into a dual-platform OCI layout with
@@ -171,15 +235,19 @@ these OCI-native refinements:
 9. **Cleanup:** remove exact G0 Docker resources, transient OCI layouts/blobs,
    tools, test keys, source staging, Bastion session/listener, and any added
    amd64 handler. Preserve only declared retained evidence/source custody.
-   Docker Engine remains installed for the later RaceTime deployment.
+   Docker Engine, its exact locked package set, and the persistent Docker IMDS
+   guard remain installed for the later RaceTime deployment; restore and verify
+   the accepted post-bootstrap firewall baseline exactly.
 
 ## Evidence and closeout
 
 The worker writes a machine-readable run record and redacted Markdown summary
 under the run root. In addition to the inherited evidence fields, record Docker
-package identities, native host facts, selected amd64/arm64 identities,
-per-platform elapsed time, complete pre/post `binfmt_misc` snapshots, exact
-cleanup inventory, and post-run OCI network recheck.
+package and repository-lock identities, accepted Docker firewall-baseline
+identity, IMDS denial probes, rootless BuildKit contract, native host facts,
+selected amd64/arm64 identities, per-platform elapsed time, complete pre/post
+`binfmt_misc` snapshots, exact cleanup inventory, and post-run OCI network
+recheck.
 
 The remote run ends with `WORKER_QUALIFICATION=PASS` or a failed phase plus
 cleanup status; it does not mark G0 complete. The operator imports only the
