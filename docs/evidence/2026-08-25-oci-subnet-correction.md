@@ -322,8 +322,10 @@ commit `d1c582a8b89c6f13b729698c45dd49a03457ae6a` with Terraform 1.12.2.
   `74a9e831fca287d43377720e8217cb6c10d133242275a24955bdc6645b08e839`
 - Custody JSON SHA-256:
   `9dd7a5592ac6d527b91d31b0b2ee9ae41b9fcbe7c146f407fc7f6e2bde3f8004`
-- Saved-plan verifier: PASS during review and immediately before apply, with five
-  resource changes, zero resource drift, and four output changes
+- Verifier execution record: PASS during review and again immediately before apply;
+  both runs reported five resource changes, zero resource drift, and four output changes
+- Retained verifier artifact: independently proves only the immediate-preapply PASS,
+  the saved-plan SHA-256 above, and those exact counts
 - Accepted action set: create only the A1 instance and reserved regional IPv4; read the
   primary private-IP data source after instance creation; update only the RaceTime
   dynamic-group matching rule and instance CPU-alarm query for the new identity
@@ -368,8 +370,11 @@ commit `e59798b77a730234bd13f2ba8c34c1d612012984` with Terraform 1.12.2.
   `ab20c42152c58eca5d1d7de5f687dacef70f28af46604823b9a76db88c966084`
 - Custody JSON SHA-256:
   `2bfc1ebd9165e85ea2d314c88121bdf0dc43d0f05834f34fb111f9972ea758be`
-- Saved-plan verifier: PASS during review and immediately before apply, with three
-  resource changes, one exact computed drift item, and zero output changes
+- Verifier execution record: PASS during review and again immediately before apply;
+  both runs reported three resource changes, one exact computed drift item, and zero
+  output changes
+- Retained verifier artifact: independently proves only the immediate-preapply PASS,
+  the saved-plan SHA-256 above, and those exact counts
 - Accepted action set: one in-place instance update changing only nested launch
   encryption `false` to `true`, the dependency-pending primary-private-IP read, and the
   deferred reserved-public-IP binding update; no create, delete, replacement, output
