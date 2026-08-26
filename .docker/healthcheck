@@ -14,7 +14,10 @@ if not health_host:
     sys.exit(1)
 request = Request(
     "http://127.0.0.1:8000/healthz",
-    headers={"Host": health_host},
+    headers={
+        "Host": health_host,
+        "X-Forwarded-Proto": "https",
+    },
 )
 response = urlopen(request, timeout=2)
 body = response.read(64)

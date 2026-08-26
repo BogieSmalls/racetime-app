@@ -93,14 +93,17 @@ class ImageContractTests(unittest.TestCase):
         )
         self.assertIsNotNone(match)
         observed_hosts = []
+        observed_protos = []
         expected_host = [None]
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 observed_hosts.append(self.headers.get("Host"))
+                observed_protos.append(self.headers.get("X-Forwarded-Proto"))
                 accepted = (
                     self.path == "/healthz"
                     and self.headers.get("Host") == expected_host[0]
+                    and self.headers.get("X-Forwarded-Proto") == "https"
                 )
                 self.send_response(200 if accepted else 400)
                 self.end_headers()
@@ -130,6 +133,7 @@ class ImageContractTests(unittest.TestCase):
             for variable, origin, host in cases:
                 with self.subTest(variable=variable):
                     observed_hosts.clear()
+                    observed_protos.clear()
                     expected_host[0] = host
                     result = subprocess.run(
                         [sys.executable, "-c", probe],
@@ -143,8 +147,10 @@ class ImageContractTests(unittest.TestCase):
                         result.returncode, 0, result.stdout + result.stderr,
                     )
                     self.assertEqual(observed_hosts, [host])
+                    self.assertEqual(observed_protos, ["https"])
 
             observed_hosts.clear()
+            observed_protos.clear()
             result = subprocess.run(
                 [sys.executable, "-c", probe],
                 cwd=ROOT,
