@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import scripts.g0.runner as runner_module
+
 from scripts.g0.runner import CommandSpec, Runner, RunnerError
 
 
@@ -203,6 +205,232 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual("command thread-start failed to initialize", str(observed))
         self.assertNotIn(unsafe_detail, str(observed))
         self.assertFalse(marker.exists(), "the launched process survived setup failure")
+
+    def test_lineage_tracker_binds_only_root_descendants_and_new_adoptions(self):
+        identity = runner_module._ProcessIdentity
+        record = runner_module._ProcessRecord
+        baseline_child = identity(pid=20, start_time=200)
+        root = identity(pid=10, start_time=100)
+        child = identity(pid=11, start_time=110)
+        unrelated_child = identity(pid=21, start_time=210)
+        tracker = runner_module._LineageTracker(
+            runner_pid=1000,
+            baseline_children=frozenset({baseline_child}),
+        )
+        tracker.bind_root(root)
+
+        owned = tracker.update(
+            {
+                root: record(identity=root, parent_pid=1000, state="S"),
+                child: record(identity=child, parent_pid=root.pid, state="S"),
+                baseline_child: record(
+                    identity=baseline_child,
+                    parent_pid=1000,
+                    state="S",
+                ),
+                unrelated_child: record(
+                    identity=unrelated_child,
+                    parent_pid=baseline_child.pid,
+                    state="S",
+                ),
+            }
+        )
+
+        self.assertEqual({root, child}, owned)
+
+        daemon = identity(pid=12, start_time=120)
+        owned = tracker.update(
+            {
+                child: record(identity=child, parent_pid=1000, state="S"),
+                daemon: record(identity=daemon, parent_pid=1000, state="S"),
+                unrelated_child: record(
+                    identity=unrelated_child,
+                    parent_pid=1000,
+                    state="S",
+                ),
+                baseline_child: record(
+                    identity=baseline_child,
+                    parent_pid=1000,
+                    state="S",
+                ),
+            }
+        )
+
+        self.assertEqual({child, daemon}, owned)
+        self.assertNotIn(baseline_child, tracker.owned)
+        self.assertNotIn(unrelated_child, tracker.owned)
+
+    def test_linux_stat_parser_accepts_non_ascii_process_names(self):
+        fields = [b"S", b"42", *([b"0"] * 17), b"999"]
+        content = b"123 (daemon-\xff) " + b" ".join(fields)
+
+        record = runner_module._parse_linux_stat(content, pid=123)
+
+        self.assertEqual(
+            runner_module._ProcessIdentity(pid=123, start_time=999),
+            record.identity,
+        )
+        self.assertEqual(42, record.parent_pid)
+        self.assertEqual("S", record.state)
+
+    def test_linux_identity_signal_uses_pidfd_across_pid_reuse(self):
+        identity = runner_module._ProcessIdentity
+        record = runner_module._ProcessRecord
+        original = identity(pid=55, start_time=100)
+        reused = identity(pid=55, start_time=101)
+        current = {55: original}
+        opened = []
+        signalled = []
+        closed = []
+
+        def open_pidfd(pid, flags):
+            opened.append((pid, flags))
+            return 73
+
+        def read_record(pid):
+            observed = current[pid]
+            current[pid] = reused
+            return record(identity=observed, parent_pid=1, state="S")
+
+        def send_signal(pidfd, signal_number, siginfo, flags):
+            signalled.append((pidfd, signal_number, siginfo, flags))
+
+        runner_module._signal_linux_identity(
+            original,
+            open_pidfd=open_pidfd,
+            read_record=read_record,
+            send_signal=send_signal,
+            close_pidfd=closed.append,
+        )
+
+        self.assertEqual([(55, 0)], opened)
+        self.assertEqual([(73, 9, None, 0)], signalled)
+        self.assertEqual([73], closed)
+        self.assertEqual(reused, current[55], "the numeric PID was reused before signal")
+
+        signalled.clear()
+        runner_module._signal_linux_identity(
+            original,
+            open_pidfd=lambda pid, flags: 74,
+            read_record=lambda pid: record(
+                identity=reused,
+                parent_pid=1,
+                state="S",
+            ),
+            send_signal=lambda *args: signalled.append(args),
+            close_pidfd=closed.append,
+        )
+        self.assertEqual([], signalled, "a reused PID identity must not be signalled")
+        self.assertEqual([73, 74], closed)
+
+    def test_linux_baseline_rejects_preexisting_direct_children(self):
+        identity = runner_module._ProcessIdentity
+        record = runner_module._ProcessRecord
+        runner = identity(pid=1000, start_time=10)
+        preexisting = identity(pid=20, start_time=200)
+        records = {
+            runner: record(identity=runner, parent_pid=1, state="S"),
+            preexisting: record(
+                identity=preexisting,
+                parent_pid=runner.pid,
+                state="S",
+            ),
+        }
+
+        with self.assertRaises(runner_module._LinuxOwnershipError):
+            runner_module._safe_linux_baseline(records, runner.pid)
+
+        self.assertEqual(
+            frozenset({preexisting}),
+            runner_module._safe_linux_baseline(
+                {
+                    preexisting: record(
+                        identity=preexisting,
+                        parent_pid=1,
+                        state="S",
+                    )
+                },
+                runner.pid,
+            ),
+        )
+
+    def test_linux_ownership_failure_stops_before_process_launch(self):
+        spec = self.spec(
+            "linux-owner-unavailable",
+            (sys.executable, "-I", "-c", "raise SystemExit('not-run')"),
+        )
+
+        with (
+            mock.patch.object(runner_module.sys, "platform", "linux"),
+            mock.patch.object(
+                runner_module,
+                "_LinuxProcessOwner",
+                side_effect=runner_module._LinuxOwnershipError("unsafe detail"),
+                create=True,
+            ),
+            mock.patch("scripts.g0.runner.subprocess.Popen") as popen,
+        ):
+            with self.assertRaisesRegex(
+                RunnerError,
+                r"^command linux-owner-unavailable could not start$",
+            ):
+                self.runner.run(spec)
+
+        popen.assert_not_called()
+
+    def test_non_linux_posix_stops_before_process_launch(self):
+        spec = self.spec(
+            "unsupported-posix",
+            (sys.executable, "-I", "-c", "raise SystemExit('not-run')"),
+        )
+
+        with (
+            mock.patch.object(runner_module.sys, "platform", "darwin"),
+            mock.patch.object(runner_module.os, "name", "posix"),
+            mock.patch("scripts.g0.runner.subprocess.Popen") as popen,
+        ):
+            with self.assertRaisesRegex(
+                RunnerError,
+                r"^command unsupported-posix could not start$",
+            ):
+                self.runner.run(spec)
+
+        popen.assert_not_called()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux subreaper regression")
+    def test_linux_timeout_kills_daemonized_new_session_with_closed_stdio(self):
+        marker = self.root / "linux-daemon-survived"
+        daemon_code = (
+            "import ctypes, pathlib, sys, time; "
+            "libc=ctypes.CDLL(None); "
+            "libc.prctl.argtypes=(ctypes.c_int, ctypes.c_ulong, "
+            "ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong); "
+            "name=ctypes.create_string_buffer(b'\\xffdaemon'); "
+            "result=libc.prctl(15, ctypes.addressof(name), 0, 0, 0); "
+            "assert result == 0; "
+            "time.sleep(2); pathlib.Path(sys.argv[1]).write_text('alive')"
+        )
+        parent_code = (
+            "import subprocess, sys; "
+            "subprocess.Popen([sys.executable, '-I', '-c', sys.argv[1], sys.argv[2]], "
+            "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+            "stderr=subprocess.DEVNULL, start_new_session=True)"
+        )
+        spec = self.spec(
+            "linux-daemon-timeout",
+            (sys.executable, "-I", "-c", parent_code, daemon_code, str(marker)),
+            timeout_seconds=1,
+        )
+
+        try:
+            observed = self.runner.run(spec)
+        except Exception as error:
+            observed = error
+
+        time.sleep(1.5)
+        self.assertIsInstance(observed, RunnerError)
+        self.assertEqual("command linux-daemon-timeout timed out", str(observed))
+        self.assertFalse(marker.exists(), "a daemonized Linux descendant survived")
 
     def test_full_streams_are_hashed_while_logs_are_size_bounded(self):
         stdout = b"A" * 10000

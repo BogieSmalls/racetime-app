@@ -16,7 +16,354 @@ from pathlib import Path
 
 _SAFE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _TERMINATION_GRACE_SECONDS = 1.0
+_LINUX_SIGKILL = 9
 
+
+@dataclass(frozen=True)
+class _ProcessIdentity:
+    pid: int
+    start_time: int
+
+
+@dataclass(frozen=True)
+class _ProcessRecord:
+    identity: _ProcessIdentity
+    parent_pid: int
+    state: str
+
+
+class _LineageTracker:
+    """Bind a root and its descendants without trusting reusable PIDs."""
+
+    def __init__(
+        self,
+        *,
+        runner_pid: int,
+        baseline_children: frozenset[_ProcessIdentity],
+    ) -> None:
+        self._runner_pid = runner_pid
+        self._excluded = set(baseline_children)
+        self._owned: set[_ProcessIdentity] = set()
+
+    @property
+    def owned(self) -> frozenset[_ProcessIdentity]:
+        return frozenset(self._owned)
+
+    def bind_root(self, identity: _ProcessIdentity) -> None:
+        self._owned.add(identity)
+
+    def update(
+        self,
+        records: dict[_ProcessIdentity, _ProcessRecord],
+    ) -> set[_ProcessIdentity]:
+        current_by_pid = {identity.pid: identity for identity in records}
+        changed = True
+        while changed:
+            changed = False
+            for identity, record in records.items():
+                if identity in self._owned or identity in self._excluded:
+                    continue
+                parent_identity = current_by_pid.get(record.parent_pid)
+                if parent_identity in self._excluded:
+                    self._excluded.add(identity)
+                    changed = True
+                    continue
+                is_descendant = parent_identity in self._owned
+                is_new_adoption = (
+                    record.parent_pid == self._runner_pid
+                    and identity not in self._excluded
+                )
+                if is_descendant or is_new_adoption:
+                    self._owned.add(identity)
+                    changed = True
+        return {identity for identity in self._owned if identity in records}
+
+
+class _LinuxOwnershipError(RuntimeError):
+    """Raised when Linux process ownership cannot be proved."""
+
+
+def _parse_linux_stat(content: bytes, *, pid: int) -> _ProcessRecord:
+    closing_parenthesis = content.rfind(b")")
+    if closing_parenthesis < 2:
+        raise _LinuxOwnershipError("Linux process stat is malformed")
+    fields = content[closing_parenthesis + 2 :].split()
+    if len(fields) < 20:
+        raise _LinuxOwnershipError("Linux process stat is incomplete")
+    try:
+        state = fields[0].decode("ascii")
+        parent_pid = int(fields[1])
+        start_time = int(fields[19])
+    except (UnicodeError, ValueError) as error:
+        raise _LinuxOwnershipError(
+            "Linux process stat contains invalid fields"
+        ) from error
+    identity = _ProcessIdentity(pid=pid, start_time=start_time)
+    return _ProcessRecord(
+        identity=identity,
+        parent_pid=parent_pid,
+        state=state,
+    )
+
+
+def _signal_linux_identity(
+    identity: _ProcessIdentity,
+    *,
+    open_pidfd,
+    read_record,
+    send_signal,
+    close_pidfd,
+) -> None:
+    try:
+        pidfd = open_pidfd(identity.pid, 0)
+    except (FileNotFoundError, ProcessLookupError):
+        return
+    except OSError as error:
+        raise _LinuxOwnershipError("Linux pidfd cannot be opened") from error
+    try:
+        try:
+            current = read_record(identity.pid)
+        except (FileNotFoundError, ProcessLookupError):
+            return
+        except OSError as error:
+            raise _LinuxOwnershipError(
+                "Linux process identity cannot be rechecked"
+            ) from error
+        if current.identity != identity:
+            return
+        try:
+            send_signal(pidfd, _LINUX_SIGKILL, None, 0)
+        except ProcessLookupError:
+            return
+        except OSError as error:
+            raise _LinuxOwnershipError(
+                "Linux pidfd termination failed"
+            ) from error
+    finally:
+        try:
+            close_pidfd(pidfd)
+        except OSError as error:
+            raise _LinuxOwnershipError(
+                "Linux pidfd cannot be closed"
+            ) from error
+
+
+def _safe_linux_baseline(
+    records: dict[_ProcessIdentity, _ProcessRecord],
+    runner_pid: int,
+) -> frozenset[_ProcessIdentity]:
+    if any(record.parent_pid == runner_pid for record in records.values()):
+        raise _LinuxOwnershipError(
+            "Linux runner already has a child process"
+        )
+    return frozenset(
+        identity for identity in records if identity.pid != runner_pid
+    )
+
+
+if sys.platform == "linux":
+    import ctypes as _linux_ctypes
+    import errno as _linux_errno
+
+    _PR_SET_CHILD_SUBREAPER = 36
+    _PR_GET_CHILD_SUBREAPER = 37
+    try:
+        _linux_libc = _linux_ctypes.CDLL(None, use_errno=True)
+        _linux_prctl = _linux_libc.prctl
+    except (AttributeError, OSError):
+        _linux_prctl = None
+    else:
+        _linux_prctl.argtypes = (
+            _linux_ctypes.c_int,
+            _linux_ctypes.c_ulong,
+            _linux_ctypes.c_ulong,
+            _linux_ctypes.c_ulong,
+            _linux_ctypes.c_ulong,
+        )
+        _linux_prctl.restype = _linux_ctypes.c_int
+
+    class _LinuxProcessOwner:
+        """Own one Linux command tree with subreaper adoption and /proc identity."""
+
+        _POLL_SECONDS = 0.01
+
+        def __init__(self) -> None:
+            self.runner_pid = os.getpid()
+            self._ensure_pidfd_primitives()
+            self._ensure_subreaper()
+            records = self._read_table()
+            baseline_children = _safe_linux_baseline(records, self.runner_pid)
+            self.tracker = _LineageTracker(
+                runner_pid=self.runner_pid,
+                baseline_children=baseline_children,
+            )
+            self.root_identity: _ProcessIdentity | None = None
+
+        @staticmethod
+        def _prctl(option: int, argument: int) -> None:
+            if _linux_prctl is None:
+                raise _LinuxOwnershipError("Linux prctl is unavailable")
+            result = _linux_prctl(option, argument, 0, 0, 0)
+            if result != 0:
+                raise _LinuxOwnershipError("Linux subreaper control failed")
+
+        @classmethod
+        def _ensure_subreaper(cls) -> None:
+            current = _linux_ctypes.c_int()
+            address = _linux_ctypes.addressof(current)
+            cls._prctl(_PR_GET_CHILD_SUBREAPER, address)
+            if current.value != 1:
+                cls._prctl(_PR_SET_CHILD_SUBREAPER, 1)
+                current = _linux_ctypes.c_int()
+                cls._prctl(
+                    _PR_GET_CHILD_SUBREAPER,
+                    _linux_ctypes.addressof(current),
+                )
+            if current.value != 1:
+                raise _LinuxOwnershipError("Linux subreaper verification failed")
+
+        @staticmethod
+        def _ensure_pidfd_primitives() -> None:
+            open_pidfd = getattr(os, "pidfd_open", None)
+            send_signal = getattr(signal, "pidfd_send_signal", None)
+            if not callable(open_pidfd) or not callable(send_signal):
+                raise _LinuxOwnershipError("Linux pidfd is unavailable")
+            pidfd = None
+            try:
+                pidfd = open_pidfd(os.getpid(), 0)
+                send_signal(pidfd, 0, None, 0)
+            except OSError as error:
+                raise _LinuxOwnershipError(
+                    "Linux pidfd verification failed"
+                ) from error
+            finally:
+                if pidfd is not None:
+                    try:
+                        os.close(pidfd)
+                    except OSError as error:
+                        raise _LinuxOwnershipError(
+                            "Linux pidfd verification cleanup failed"
+                        ) from error
+
+        @staticmethod
+        def _read_record(path: Path) -> _ProcessRecord:
+            try:
+                pid = int(path.parent.name)
+            except ValueError as error:
+                raise _LinuxOwnershipError(
+                    "Linux process path contains an invalid pid"
+                ) from error
+            return _parse_linux_stat(path.read_bytes(), pid=pid)
+
+        @classmethod
+        def _read_table(cls) -> dict[_ProcessIdentity, _ProcessRecord]:
+            proc_root = Path("/proc")
+            try:
+                cls._read_record(proc_root / str(os.getpid()) / "stat")
+                entries = tuple(proc_root.iterdir())
+            except (OSError, UnicodeError) as error:
+                raise _LinuxOwnershipError("Linux procfs is unavailable") from error
+            records = {}
+            for entry in entries:
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    record = cls._read_record(entry / "stat")
+                except FileNotFoundError:
+                    continue
+                except UnicodeError as error:
+                    raise _LinuxOwnershipError(
+                        "Linux procfs process visibility is incomplete"
+                    ) from error
+                except OSError as error:
+                    if error.errno in {
+                        _linux_errno.ENOENT,
+                        _linux_errno.ESRCH,
+                    }:
+                        continue
+                    raise _LinuxOwnershipError(
+                        "Linux procfs process visibility is incomplete"
+                    ) from error
+                records[record.identity] = record
+            return records
+
+        def bind_root(self, pid: int) -> None:
+            try:
+                record = self._read_record(Path("/proc") / str(pid) / "stat")
+            except (OSError, UnicodeError) as error:
+                raise _LinuxOwnershipError(
+                    "Linux command root identity is unavailable"
+                ) from error
+            self.root_identity = record.identity
+            self.tracker.bind_root(record.identity)
+
+        def scan_active(self) -> dict[_ProcessIdentity, _ProcessRecord]:
+            records = self._read_table()
+            owned = self.tracker.update(records)
+            reaped = False
+            for identity in owned:
+                record = records[identity]
+                if (
+                    identity != self.root_identity
+                    and record.parent_pid == self.runner_pid
+                ):
+                    try:
+                        reaped_pid, _ = os.waitpid(identity.pid, os.WNOHANG)
+                    except ChildProcessError:
+                        reaped_pid = 0
+                    except OSError as error:
+                        raise _LinuxOwnershipError(
+                            "Linux adopted child cannot be reaped"
+                        ) from error
+                    if reaped_pid:
+                        reaped = True
+            if reaped:
+                records = self._read_table()
+                owned = self.tracker.update(records)
+            return {identity: records[identity] for identity in owned}
+
+        def active_descendants(self) -> dict[_ProcessIdentity, _ProcessRecord]:
+            return {
+                identity: record
+                for identity, record in self.scan_active().items()
+                if identity != self.root_identity
+            }
+
+        @staticmethod
+        def _kill_identity(identity: _ProcessIdentity) -> None:
+            _signal_linux_identity(
+                identity,
+                open_pidfd=os.pidfd_open,
+                read_record=lambda pid: _LinuxProcessOwner._read_record(
+                    Path("/proc") / str(pid) / "stat"
+                ),
+                send_signal=signal.pidfd_send_signal,
+                close_pidfd=os.close,
+            )
+
+        def terminate_until_clear(
+            self,
+            process: subprocess.Popen,
+            deadline: float,
+        ) -> bool:
+            while True:
+                active = self.scan_active()
+                for identity in active:
+                    self._kill_identity(identity)
+                remaining_active = self.scan_active()
+                active_descendants = {
+                    identity: record
+                    for identity, record in remaining_active.items()
+                    if identity != self.root_identity
+                }
+                if process.poll() is not None and not active_descendants:
+                    return True
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    for identity in remaining_active:
+                        self._kill_identity(identity)
+                    return False
+                time.sleep(min(self._POLL_SECONDS, remaining))
 
 if os.name == "nt":
     import ctypes
@@ -265,6 +612,7 @@ class Runner:
         command_id = self._validate(spec, input_bytes)
         started = time.monotonic()
         deadline = started + spec.timeout_seconds
+        termination_deadline = deadline + _TERMINATION_GRACE_SECONDS
         try:
             canaries = tuple(value.encode("utf-8") for value in spec.secret_canaries)
         except UnicodeError:
@@ -275,6 +623,17 @@ class Runner:
         event = None
         launch_argv = list(spec.argv)
         startupinfo = None
+        linux_owner = None
+        if sys.platform == "linux":
+            try:
+                linux_owner = _LinuxProcessOwner()
+            except _LinuxOwnershipError:
+                raise RunnerError(
+                    f"command {command_id} could not start"
+                ) from None
+        elif os.name == "posix":
+            raise RunnerError(f"command {command_id} could not start")
+
         if os.name == "nt":
             try:
                 job = _WindowsJob()
@@ -324,6 +683,21 @@ class Runner:
                 job.close()
             raise RunnerError(f"command {command_id} could not start") from None
 
+        if linux_owner is not None:
+            try:
+                linux_owner.bind_root(process.pid)
+            except _LinuxOwnershipError:
+                try:
+                    linux_owner.terminate_until_clear(
+                        process,
+                        termination_deadline,
+                    )
+                except _LinuxOwnershipError:
+                    self._kill_direct_process(process)
+                raise RunnerError(
+                    f"command {command_id} could not start"
+                ) from None
+
         if job is not None:
             try:
                 job.assign(process)
@@ -357,38 +731,61 @@ class Runner:
                     input_thread.start()
                     started_threads.append(input_thread)
             except RuntimeError:
-                termination_deadline = time.monotonic() + _TERMINATION_GRACE_SECONDS
-                self._kill_process_tree(process, job)
-                try:
-                    process.wait(
-                        timeout=max(0, termination_deadline - time.monotonic())
-                    )
-                except subprocess.TimeoutExpired:
-                    pass
+                self._kill_process_tree(
+                    process,
+                    job,
+                    linux_owner,
+                    termination_deadline,
+                )
+                if linux_owner is None:
+                    self._wait_process_until(process, termination_deadline)
                 self._join_threads_until(tuple(started_threads), termination_deadline)
                 raise RunnerError(
                     f"command {command_id} failed to initialize"
                 ) from None
 
             threads = tuple(started_threads)
-            timed_out = False
             try:
-                process.wait(timeout=max(0, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                timed_out = True
-            if not timed_out and not self._join_threads_until(threads, deadline):
-                timed_out = True
-
-            drained = not any(thread.is_alive() for thread in threads)
-            if timed_out:
-                termination_deadline = time.monotonic() + _TERMINATION_GRACE_SECONDS
-                self._kill_process_tree(process, job)
-                try:
-                    process.wait(
-                        timeout=max(0, termination_deadline - time.monotonic())
+                if linux_owner is not None:
+                    timed_out, drained = self._wait_linux_command(
+                        process,
+                        threads,
+                        linux_owner,
+                        deadline,
                     )
-                except subprocess.TimeoutExpired:
-                    pass
+                else:
+                    timed_out = False
+                    try:
+                        process.wait(timeout=max(0, deadline - time.monotonic()))
+                    except subprocess.TimeoutExpired:
+                        timed_out = True
+                    if not timed_out and not self._join_threads_until(
+                        threads,
+                        deadline,
+                    ):
+                        timed_out = True
+                    drained = not any(thread.is_alive() for thread in threads)
+            except _LinuxOwnershipError:
+                self._kill_process_tree(
+                    process,
+                    job,
+                    linux_owner,
+                    termination_deadline,
+                )
+                self._join_threads_until(threads, termination_deadline)
+                raise RunnerError(
+                    f"command {command_id} ownership failed"
+                ) from None
+
+            if timed_out:
+                self._kill_process_tree(
+                    process,
+                    job,
+                    linux_owner,
+                    termination_deadline,
+                )
+                if linux_owner is None:
+                    self._wait_process_until(process, termination_deadline)
                 drained = self._join_threads_until(threads, termination_deadline)
 
             duration_ms = int((time.monotonic() - started) * 1000)
@@ -495,6 +892,34 @@ class Runner:
                 os.close(descriptor)
 
     @staticmethod
+    def _wait_linux_command(
+        process: subprocess.Popen,
+        threads: tuple[threading.Thread, ...],
+        owner: _LinuxProcessOwner,
+        deadline: float,
+    ) -> tuple[bool, bool]:
+        while True:
+            process.poll()
+            descendants = owner.active_descendants()
+            drained = not any(thread.is_alive() for thread in threads)
+            if process.returncode is not None and not descendants and drained:
+                return False, True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return True, drained
+            time.sleep(min(owner._POLL_SECONDS, remaining))
+
+    @staticmethod
+    def _wait_process_until(
+        process: subprocess.Popen,
+        deadline: float,
+    ) -> None:
+        try:
+            process.wait(timeout=max(0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            pass
+
+    @staticmethod
     def _join_threads_until(
         threads: tuple[threading.Thread, ...],
         deadline: float,
@@ -504,14 +929,30 @@ class Runner:
         return not any(thread.is_alive() for thread in threads)
 
     @staticmethod
-    def _kill_process_tree(process: subprocess.Popen, job) -> None:
+    def _kill_process_tree(
+        process: subprocess.Popen,
+        job,
+        linux_owner,
+        deadline: float,
+    ) -> bool:
+        if linux_owner is not None:
+            try:
+                return linux_owner.terminate_until_clear(process, deadline)
+            except _LinuxOwnershipError:
+                Runner._kill_direct_process(process)
+                return False
         if job is not None:
             job.terminate()
-        else:
+        elif os.name == "posix":
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except (OSError, ProcessLookupError):
                 pass
+        Runner._kill_direct_process(process)
+        return True
+
+    @staticmethod
+    def _kill_direct_process(process: subprocess.Popen) -> None:
         if process.poll() is None:
             try:
                 process.kill()

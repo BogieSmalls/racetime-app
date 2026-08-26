@@ -185,7 +185,10 @@ class QualificationState:
             return False
         if isinstance(value, (list, tuple)):
             return any(cls._contains_skip(child) for child in value)
-        return isinstance(value, str) and value.upper() == "SKIP"
+        return (
+            isinstance(value, str)
+            and value.strip().upper() in {"SKIP", "SKIPPED", "SKIPPING"}
+        )
 
     @staticmethod
     def _truthy_skip(value: object) -> bool:

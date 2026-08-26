@@ -119,6 +119,31 @@ class QualificationStateTests(unittest.TestCase):
         )
         self.assertNotIn("preflight", result["evidence"])
 
+    def test_skip_status_spellings_and_mandatory_skip_objects_fail_closed(self):
+        skipped_evidence = (
+            {"status": "SKIP"},
+            {"status": "skipped"},
+            {"status": "  Skipping  "},
+            {"result": {"status": "SKIPPED", "mandatory": True}},
+        )
+        for index, evidence in enumerate(skipped_evidence):
+            state = QualificationState()
+            state.begin("preflight")
+
+            state.pass_phase(
+                "preflight",
+                {"command_id": f"skip-{index}", "test_result": evidence},
+            )
+            result = state.close()
+
+            with self.subTest(evidence=evidence):
+                self.assertEqual("FAIL", result["result"])
+                self.assertEqual(
+                    {"phase": "preflight", "error_class": "MandatorySkip"},
+                    result["primary_failure"],
+                )
+                self.assertNotIn("preflight", result["evidence"])
+
     def test_duplicate_cleanup_registration_is_rejected(self):
         state = QualificationState()
         state.register_cleanup("restore", lambda: None)
