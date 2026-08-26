@@ -346,7 +346,7 @@ in ignored evidence for the final reviewed DNS handoff and is not committed here
 - Replacement live-summary SHA-256:
   `767cb76c0346610659e5517292c29a7d32b827607abe381a317368726e4489b6`
 - Private-DNS proof SHA-256:
-  `63716cb308cdb36f9dc802e9ca856c198cabca996e53edb51abf7110d1860052`
+  `63716cb308cdb36f9dc802e9ca856c198cabcaa96e53edb51abf7110d1860052`
 
 The private FQDN is exactly `racetime.racetime.restream.oraclevcn.com`. An authenticated
 Ubuntu SSH session through OCI Bastion proved ARM64 system identity and independently
