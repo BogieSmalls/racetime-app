@@ -238,7 +238,7 @@ DISCORD_CLIENT_SECRET = None
 
 RT_SITE_INFO = {
     'title': 'Z1RR Raceroom',
-    'header_text': 'Z1RR <span class="dot">.</span> Raceroom',
+    'header_text': 'Z1RR Raceroom',
     'header_logo': 'racetime/image/icon-192.png',
     'theme_color': '#e05000',
     'meta_site_name': 'Z1RR Raceroom',

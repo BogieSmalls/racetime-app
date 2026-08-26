@@ -20,7 +20,7 @@ class BrandingTests(TestCase):
         self.assertEqual(site_info["title"], "Z1RR Raceroom")
         self.assertEqual(
             site_info["header_text"],
-            'Z1RR <span class="dot">.</span> Raceroom',
+            "Z1RR Raceroom",
         )
         self.assertEqual(site_info["meta_site_name"], "Z1RR Raceroom")
         self.assertEqual(site_info["theme_color"], "#e05000")
