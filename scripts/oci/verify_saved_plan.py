@@ -569,7 +569,10 @@ def _verify_replacement(
         raise VerificationError("public-IP configuration is missing")
     expression = _expressions(configured_public_ip).get("private_ip_id")
     references = _references(expression)
-    if references != ["data.oci_core_private_ips.racetime.private_ips"]:
+    if references != [
+        "data.oci_core_private_ips.racetime.private_ips",
+        "data.oci_core_private_ips.racetime",
+    ]:
         raise VerificationError("public IP does not use the private-IP data source")
 
 

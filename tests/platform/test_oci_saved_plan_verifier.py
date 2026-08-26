@@ -239,7 +239,8 @@ def replacement_plan() -> dict:
             "expressions": {
                 "private_ip_id": {
                     "references": [
-                        "data.oci_core_private_ips.racetime.private_ips"
+                        "data.oci_core_private_ips.racetime.private_ips",
+                        "data.oci_core_private_ips.racetime",
                     ]
                 }
             },
@@ -1097,19 +1098,25 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
                 self.assert_rejected(fixture, "replacement")
 
     def test_replacement_requires_private_ip_data_reference(self) -> None:
-        fixture = self.fixture(replacement_plan())
-        expression = fixture.plan["configuration"]["root_module"]["resources"][0][
-            "expressions"
-        ]["private_ip_id"]
-        expression["references"] = ["oci_core_instance.racetime.private_ip"]
-        self.assert_rejected(fixture, "replacement")
-
-        fixture = self.fixture(replacement_plan())
-        expression = fixture.plan["configuration"]["root_module"]["resources"][0][
-            "expressions"
-        ]["private_ip_id"]
-        expression["references"] = ["data.oci_core_private_ips.racetime.id"]
-        self.assert_rejected(fixture, "replacement")
+        attribute = "data.oci_core_private_ips.racetime.private_ips"
+        root = "data.oci_core_private_ips.racetime"
+        invalid_references = (
+            [attribute],
+            [root],
+            ["oci_core_instance.racetime.private_ip"],
+            [attribute, root, "data.oci_core_private_ips.unrelated"],
+            [],
+            [attribute, root, root],
+            [root, attribute],
+        )
+        for references in invalid_references:
+            with self.subTest(references=references):
+                fixture = self.fixture(replacement_plan())
+                expression = fixture.plan["configuration"]["root_module"][
+                    "resources"
+                ][0]["expressions"]["private_ip_id"]
+                expression["references"] = references
+                self.assert_rejected(fixture, "replacement")
 
     def test_replacement_rejects_non_live_expected_subnet_identifier(self) -> None:
         fixture = self.fixture(replacement_plan())
