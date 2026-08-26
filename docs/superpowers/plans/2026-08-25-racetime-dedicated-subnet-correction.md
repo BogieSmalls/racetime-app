@@ -683,13 +683,18 @@ Create a time-limited OCI Bastion port-forwarding session from the approved oper
 CIDR to the replacement private IP port 22 using only the operator public key. Complete
 an authenticated SSH session as Ubuntu; require the tunnel client's actual public source
 to fall within the approved CIDR, require `hostname` to return `racetime`, require
-`hostname -A` to include `racetime.racetime.restream.oraclevcn.com`, and require
-`getent ahostsv4 racetime.racetime.restream.oraclevcn.com` to resolve to the exact live
-primary VNIC address. Do not use `hostname --fqdn` as the OCI network-identity gate:
-Ubuntu may prefer its short local `/etc/hosts` canonical entry even when OCI private DNS
-is correct. Record only the host-key fingerprint and system identity. Re-enumerate the
-NSG and reconfirm the exact single Bastion `/32` SSH source after the test, then
-delete/expire the session and prove no local listener remains.
+`hostname -A` to include `racetime.racetime.restream.oraclevcn.com`, and reject any
+non-comment `/etc/hosts` token equal to that full FQDN. Require
+`resolvectl query --type=A --legend=yes racetime.racetime.restream.oraclevcn.com` to
+report DNS protocol through OCI's `169.254.169.254` VCN resolver, with the deduplicated A
+address set equal to exactly the single live primary VNIC address. Independently require
+the deduplicated first-column address set from
+`getent ahostsv4 racetime.racetime.restream.oraclevcn.com` to equal that same singleton.
+Do not use `hostname --fqdn` as the OCI network-identity gate: Ubuntu may prefer its
+short local `/etc/hosts` canonical entry even when OCI private DNS is correct. Record
+only the host-key fingerprint and system identity. Re-enumerate the NSG and reconfirm
+the exact single Bastion `/32` SSH source after the test, then delete/expire the session
+and prove no local listener remains.
 
 - [ ] **Step 6: Prove no drift and unchanged Restream inventory**
 
