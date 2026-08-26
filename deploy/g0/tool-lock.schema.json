@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racetime.z1rracing.com/schemas/g0-tool-lock-v1.json",
+  "title": "Z1RR RaceTime OCI G0 workspace tool lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at_utc",
+    "bootstrap_lock_sha256",
+    "tools"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "generated_at_utc": {"$ref": "#/$defs/utc_timestamp"},
+    "bootstrap_lock_sha256": {"$ref": "#/$defs/sha256"},
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {"$ref": "#/$defs/binary"},
+          {"$ref": "#/$defs/image"}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "https_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^@/\\s]+(?:/[^\\s]*)?$",
+      "maxLength": 2048
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^(?!/)(?!~)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "version", "url", "sha256", "executable_path"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "kind": {"const": "binary"},
+        "version": {"$ref": "#/$defs/identifier"},
+        "url": {"$ref": "#/$defs/https_url"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "executable_path": {"$ref": "#/$defs/relative_path"}
+      }
+    },
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "digest"],
+      "properties": {
+        "platform": {"enum": ["linux/amd64", "linux/arm64"]},
+        "digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "version", "reference", "index_digest", "platforms"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "kind": {"const": "image"},
+        "version": {"$ref": "#/$defs/identifier"},
+        "reference": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9][A-Za-z0-9._-]*)?@sha256:[0-9a-f]{64}$",
+          "maxLength": 512
+        },
+        "index_digest": {"$ref": "#/$defs/sha256"},
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/platform"}
+        }
+      }
+    }
+  }
+}

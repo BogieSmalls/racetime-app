@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racetime.z1rracing.com/schemas/g0-worker-evidence-v1.json",
+  "title": "Z1RR RaceTime OCI G0 worker evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "project_prefix",
+    "source_commit",
+    "started_at_utc",
+    "completed_at_utc",
+    "result",
+    "phases",
+    "retained_artifacts",
+    "cleanup_state"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"$ref": "#/$defs/run_id"},
+    "project_prefix": {
+      "type": "string",
+      "pattern": "^z1rr-racetime-g0-[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
+    },
+    "source_commit": {"$ref": "#/$defs/commit"},
+    "started_at_utc": {"$ref": "#/$defs/utc_timestamp"},
+    "completed_at_utc": {"$ref": "#/$defs/utc_timestamp"},
+    "result": {"enum": ["PASS", "FAIL"]},
+    "phases": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {"$ref": "#/$defs/phase"}
+    },
+    "retained_artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/retained_artifact"}
+    },
+    "cleanup_state": {"enum": ["verified", "failed"]}
+  },
+  "$defs": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^(?!/)(?!~)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "safe_name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "expected_result",
+        "observed_result",
+        "command_id",
+        "exit_status",
+        "duration_seconds",
+        "stdout_sha256",
+        "stderr_sha256",
+        "retained_artifact_hashes",
+        "cleanup_state"
+      ],
+      "properties": {
+        "name": {
+          "enum": [
+            "preflight",
+            "worker-setup",
+            "images",
+            "security-and-sbom",
+            "services-and-configuration",
+            "recovery-and-service-hardening",
+            "cross-repository-evidence",
+            "identities-and-gates",
+            "cleanup"
+          ]
+        },
+        "expected_result": {"const": "PASS"},
+        "observed_result": {"enum": ["PASS", "FAIL"]},
+        "command_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        },
+        "exit_status": {"type": "integer", "minimum": -255, "maximum": 255},
+        "duration_seconds": {"type": "number", "minimum": 0, "maximum": 86400},
+        "stdout_sha256": {"$ref": "#/$defs/sha256"},
+        "stderr_sha256": {"$ref": "#/$defs/sha256"},
+        "retained_artifact_hashes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/sha256"}
+        },
+        "cleanup_state": {
+          "enum": ["not-required", "pending", "verified", "failed"]
+        }
+      }
+    },
+    "retained_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "sha256", "custody_class"],
+      "properties": {
+        "name": {"$ref": "#/$defs/safe_name"},
+        "path": {"$ref": "#/$defs/relative_path"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "custody_class": {"const": "retained"}
+      }
+    }
+  }
+}

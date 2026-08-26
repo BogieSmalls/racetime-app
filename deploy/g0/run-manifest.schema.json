@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://racetime.z1rracing.com/schemas/g0-run-manifest-v1.json",
+  "title": "Z1RR RaceTime OCI G0 run manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "project_prefix",
+    "created_at_utc",
+    "remote_root",
+    "aggregate_timeout_seconds",
+    "lock_identities",
+    "sources",
+    "outputs",
+    "phases"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"$ref": "#/$defs/run_id"},
+    "project_prefix": {
+      "type": "string",
+      "pattern": "^z1rr-racetime-g0-[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
+    },
+    "created_at_utc": {"$ref": "#/$defs/utc_timestamp"},
+    "remote_root": {
+      "type": "string",
+      "pattern": "^/var/lib/z1rr-racetime/g0/[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
+    },
+    "aggregate_timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 86400
+    },
+    "lock_identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["docker_bootstrap_sha256", "tool_lock_sha256"],
+      "properties": {
+        "docker_bootstrap_sha256": {"$ref": "#/$defs/sha256"},
+        "tool_lock_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/source"}
+    },
+    "outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/output"}
+    },
+    "phases": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "prefixItems": [
+        {"$ref": "#/$defs/phase_preflight"},
+        {"$ref": "#/$defs/phase_worker_setup"},
+        {"$ref": "#/$defs/phase_images"},
+        {"$ref": "#/$defs/phase_security_and_sbom"},
+        {"$ref": "#/$defs/phase_services_and_configuration"},
+        {"$ref": "#/$defs/phase_recovery_and_service_hardening"},
+        {"$ref": "#/$defs/phase_cross_repository_evidence"},
+        {"$ref": "#/$defs/phase_identities_and_gates"},
+        {"$ref": "#/$defs/phase_cleanup"}
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "relative_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^(?!/)(?!~)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+    },
+    "custody_class": {
+      "enum": ["retained", "transient"]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "branch",
+        "commit",
+        "local_path",
+        "bundle_path",
+        "bundle_sha256",
+        "archive_path",
+        "archive_sha256",
+        "custody_class"
+      ],
+      "properties": {
+        "name": {"enum": ["racetime", "restream", "ttpbot", "livesplit"]},
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+        },
+        "commit": {"$ref": "#/$defs/commit"},
+        "local_path": {"$ref": "#/$defs/relative_path"},
+        "bundle_path": {"$ref": "#/$defs/relative_path"},
+        "bundle_sha256": {"$ref": "#/$defs/sha256"},
+        "archive_path": {"$ref": "#/$defs/relative_path"},
+        "archive_sha256": {"$ref": "#/$defs/sha256"},
+        "custody_class": {"$ref": "#/$defs/custody_class"}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "path", "custody_class"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"
+        },
+        "path": {"$ref": "#/$defs/relative_path"},
+        "custody_class": {"$ref": "#/$defs/custody_class"}
+      }
+    },
+    "phase_preflight": {"$ref": "#/$defs/phase_preflight_value"},
+    "phase_preflight_value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "preflight"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_worker_setup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "worker-setup"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "images"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_security_and_sbom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "security-and-sbom"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_services_and_configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "services-and-configuration"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_recovery_and_service_hardening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "recovery-and-service-hardening"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_cross_repository_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "cross-repository-evidence"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_identities_and_gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "identities-and-gates"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "phase_cleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "timeout_seconds"],
+      "properties": {
+        "name": {"const": "cleanup"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    }
+  }
+}
