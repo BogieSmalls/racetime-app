@@ -20,11 +20,11 @@
 
 - Modify `.gitignore`: keep all `.tmp` raw evidence and helper material outside Git.
 - Create `scripts/oci/verify_saved_plan.py`: fail-closed phase-specific Terraform plan verifier with redacted output.
-- Create `tests/platform/test_oci_saved_plan_verifier.py`: synthetic behavior tests for all three saved-plan phases and evidence hygiene.
+- Create `tests/platform/test_oci_saved_plan_verifier.py`: synthetic behavior tests for all four saved-plan phases and evidence hygiene.
 - Modify `tests/platform/test_terraform_contract.py`: assert the dedicated subnet, custom security list, stable public-IP graph, and continued Restream read-only boundary.
 - Modify `infra/oci/data.tf`: read the existing Bastion subnet and resolve the replacement VNIC's primary private-IP object.
 - Modify `infra/oci/network.tf`: own the RaceTime security list/subnet and, in the recreation phase, the reserved public IP.
-- Modify `infra/oci/compute.tf`: switch only the replacement instance to the dedicated subnet and disable ephemeral public-IP assignment.
+- Modify `infra/oci/compute.tf`: switch only the replacement instance to the dedicated subnet, disable ephemeral public-IP assignment, and bind provider 8.27's separate create/update encryption fields.
 - Modify `infra/oci/variables.tf`: add the explicit RaceTime subnet CIDR contract.
 - Modify `infra/oci/terraform.tfvars.example`: document the non-secret subnet value.
 - Modify `infra/oci/tests/activation_gate.tftest.hcl`: supply the subnet CIDR and deterministic mocked private-IP data if required by the precondition.
@@ -84,14 +84,18 @@ Require `/.tmp/` in `.gitignore` and prove `git check-ignore -q
   one-egress values, omission of an `availability_domain` configuration expression
   (planned null or computed-unknown are both valid), and a configuration reference from
   subnet `security_list_ids` to `oci_core_security_list.racetime.id`;
-- `refresh-only` and `replacement`: always `complete=true`; a targeted marker cannot
-  relax either phase. `refresh-only`: `resource_drift` exactly
+- `refresh-only`, `replacement`, and `launch-encryption`: always `complete=true`; a
+  targeted marker cannot relax these phases. `refresh-only`: `resource_drift` exactly
   `oci_core_instance.racetime:["delete"]`, empty live `resource_changes`, and exactly
   `instance_id`, `instance_public_ip`, `instance_private_ip`, and `boot_volume_id`
   output changes;
 - `replacement`: exact instance/public-IP creates, only dynamic-group `matching_rule` and
   CPU-alarm `query` in-place changes, VNIC dedicated-subnet/NSG/no-ephemeral/no-IPv6
   values, and `RESERVED` public-IP lifetime/private-IP reference.
+- `launch-encryption`: exact instance in-place update, dependency-pending private-IP
+  data read, and deferred reserved-public-IP binding; only nested launch encryption may
+  change from `false` to `true`, with provider-native computed `public_ip` drift exactly
+  empty-string to the expected reserved IPv4.
 
 Negative fixtures cover a non-ignored untracked Terraform file, wrong CIDR,
 default-list attachment, non-null availability
@@ -112,7 +116,7 @@ Implement a stdlib-only CLI:
 
 ```text
 python scripts/oci/verify_saved_plan.py \
-  --phase subnet-add|refresh-only|replacement \
+  --phase subnet-add|refresh-only|replacement|launch-encryption \
   --terraform-bin .tmp/tools/terraform-1.12.2/terraform.exe \
   --plan-file infra/oci/<phase>.tfplan \
   --plan-json .tmp/evidence/<phase>-plan.json \
@@ -618,6 +622,9 @@ git commit -m "fix: reserve RaceTime public network identity"
 - Create ignored: `infra/oci/racetime-replacement.tfplan`
 - Create ignored: `.tmp/evidence/racetime-replacement-plan.json`
 - Create ignored: `.tmp/evidence/replacement-expected.json`
+- Create ignored: `infra/oci/racetime-launch-encryption.tfplan`
+- Create ignored: `.tmp/evidence/racetime-launch-encryption-plan.json`
+- Create ignored: `.tmp/evidence/launch-encryption-expected.json`
 - Modify: `docs/evidence/2026-08-25-oci-subnet-correction.md`
 - Modify: `docs/racetime-z1rr/launch-readiness-checklist.md`
 
@@ -696,7 +703,42 @@ only the host-key fingerprint and system identity. Re-enumerate the NSG and reco
 the exact single Bastion `/32` SSH source after the test, then delete/expire the session
 and prove no local listener remains.
 
-- [ ] **Step 6: Prove no drift and unchanged Restream inventory**
+- [ ] **Step 6: Apply the reviewed in-place encryption correction**
+
+Provider 8.27.0 uses the top-level encryption field only when creating an instance and
+the nested `launch_options` field when updating one. Retain both as `true`; protect only
+the top-level create-only field with the exact lifecycle ignore so adding it cannot
+replace the current VM. Never ignore the nested field.
+
+Only after the source commit passes spec and quality review, create a fresh full saved
+plan and custody JSON from that exact clean commit. Run the verifier with phase
+`launch-encryption`; require complete/applyable/non-errored source-bound evidence and
+only the known instance update, dependency-pending private-IP read, and deferred
+reserved-public-IP binding. The instance update must be only nested encryption
+`false -> true`, with every other launch option identical and no unknown launch value.
+The sole drift is provider-native computed `public_ip` `""` to the expected reserved
+IPv4; no null or omitted substitute is accepted. Rerun the verifier immediately before
+applying the exact saved plan. Do not apply a different or stale plan.
+Bind the ignored expected manifest to the exact reserved IPv4, dedicated-subnet ID,
+current primary-private-IP ID, source commit, Terraform binary, saved plan, and custody
+JSON digests.
+
+```powershell
+venv\Scripts\python.exe scripts/oci/verify_saved_plan.py --phase launch-encryption `
+  --terraform-bin $terraform `
+  --plan-file infra/oci/racetime-launch-encryption.tfplan `
+  --plan-json .tmp/evidence/racetime-launch-encryption-plan.json `
+  --expected-json .tmp/evidence/launch-encryption-expected.json `
+  --source-commit $sourceCommit `
+  --terraform-version 1.12.2
+```
+
+The update is expected to reboot the A1 instance. Wait for `RUNNING`, then require the
+live OCI launch option to report paravirtualized in-transit encryption `true`. Any
+replacement/delete, extra action, failed reboot, or live `false` result blocks the
+remaining task.
+
+- [ ] **Step 7: Prove no drift and unchanged Restream inventory**
 
 Run the exact command below and require exit 0; never treat exit 2 as success:
 
@@ -712,9 +754,9 @@ If Task 3 recorded an audited lifecycle-only duty-cycle transition, compare inst
 the retained post-transition continuing baseline and preserve the original baseline plus
 the transition proof.
 
-- [ ] **Step 7: Finalize and commit redacted correction evidence**
+- [ ] **Step 8: Finalize and commit redacted correction evidence**
 
-Record all three saved-plan hashes/action sets, original instance/volume terminal proof,
+Record all four saved-plan hashes/action sets, original instance/volume terminal proof,
 replacement/reserved-IP/network/Bastion proof, final public IPv4 DNS target, and no-drift
 result. Update only truthful checklist items.
 

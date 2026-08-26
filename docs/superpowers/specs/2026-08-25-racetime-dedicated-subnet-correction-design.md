@@ -63,6 +63,14 @@ auditable network boundary without mutating existing Restream resources.
 - Keep IPv6 disabled. No AAAA record will be created.
 - Protect the new subnet and security list with `prevent_destroy` from their initial
   creation and retain it throughout.
+- OCI provider 8.27.0 splits paravirtualized in-transit encryption across two fields:
+  top-level `is_pv_encryption_in_transit_enabled` is the create authority, while the
+  nested `launch_options.is_pv_encryption_in_transit_enabled` field is the update and
+  read authority. Configure both as `true`. Ignore changes to only the top-level,
+  create-only field so adding the durable create contract cannot replace the running
+  VM; never ignore the nested field, which must continue to expose the live
+  `false -> true` update. The provider serializes the pre-reserved-address computed
+  `public_ip` absence as the exact empty string in this plan shape.
 
 The dedicated subnet deliberately reuses the existing public route table and DHCP
 options as read-only VCN plumbing. This is an accepted residual dependency: their live
@@ -110,6 +118,12 @@ never asks Terraform to destroy the instance:
 7. Prove that the live subnet's `security-list-ids` contains exactly the RaceTime list
    and excludes the VCN default list, the custom list has no ingress, the VNIC has only
    the RaceTime NSG, and the combined OCI rules expose no public SSH, MariaDB, or Redis.
+8. After the dual-field source change passes spec and quality review, create a fresh
+   saved plan and verify it with the `launch-encryption` phase. The plan may contain
+   only the in-place nested encryption update, its dependency-pending private-IP read,
+   and the resulting deferred reserved-public-IP binding. Reverify immediately before
+   applying the exact saved plan, wait for the rebooted instance to return `RUNNING`,
+   prove live in-transit encryption is `true`, and then require a full no-drift plan.
 
 Existing Restream instances, volumes, VNICs, subnet, route table, DHCP options, and
 security list are never changed.
@@ -148,6 +162,9 @@ Tests and live checks must prove:
 - Live effective-rule inspection finds no public TCP/22, 3306, or 6379.
 - The replacement boot volume is exactly 50 GB Balanced at 10 VPUs/GB, and the original
   exposed boot volume is absent rather than retained or orphaned.
+- The durable configuration sets both provider create/update encryption authorities to
+  `true`, ignores only the top-level create-only field, and the live A1 reports
+  paravirtualized in-transit encryption enabled after the reviewed rebooting update.
 - A post-apply Terraform plan reports no drift.
 
 The repository contract test that previously prohibited every Terraform-managed subnet

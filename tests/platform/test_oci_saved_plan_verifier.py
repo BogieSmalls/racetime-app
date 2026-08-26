@@ -266,6 +266,138 @@ def replacement_plan() -> dict:
     return plan
 
 
+def launch_encryption_plan() -> dict:
+    plan = base_plan()
+    reserved_public_ip = "203.0.113.10"
+    private_ip = "10.1.1.10"
+    subnet_id = "ocid1.subnet.expected"
+    private_ip_id = "ocid1.privateip.expected"
+    launch_before = {
+        "boot_volume_type": "PARAVIRTUALIZED",
+        "firmware": "UEFI_64",
+        "is_consistent_volume_naming_enabled": True,
+        "is_pv_encryption_in_transit_enabled": False,
+        "network_type": "PARAVIRTUALIZED",
+        "remote_data_volume_type": "PARAVIRTUALIZED",
+    }
+    instance_before = {
+        "is_pv_encryption_in_transit_enabled": None,
+        "launch_options": [launch_before],
+        "private_ip": private_ip,
+        "public_ip": reserved_public_ip,
+        "subnet_id": subnet_id,
+    }
+    instance_after = copy.deepcopy(instance_before)
+    instance_after["launch_options"][0][
+        "is_pv_encryption_in_transit_enabled"
+    ] = True
+    instance = change(
+        "oci_core_instance.racetime",
+        ["update"],
+        instance_after,
+    )
+    instance["change"]["before"] = instance_before
+
+    private_ips = change(
+        "data.oci_core_private_ips.racetime",
+        ["read"],
+        {
+            "ip_address": private_ip,
+            "subnet_id": subnet_id,
+        },
+    )
+    private_ips["action_reason"] = "read_because_dependency_pending"
+    private_ips["change"]["before"] = None
+    private_ips["change"]["after_unknown"] = {
+        "id": True,
+        "private_ips": True,
+    }
+
+    public_ip = change(
+        "oci_core_public_ip.racetime",
+        ["update"],
+        {
+            "lifetime": "RESERVED",
+            "private_ip_id": None,
+        },
+    )
+    public_ip["change"]["before"] = {
+        "lifetime": "RESERVED",
+        "private_ip_id": private_ip_id,
+    }
+    public_ip["change"]["after_unknown"] = {"private_ip_id": True}
+
+    drift_before = copy.deepcopy(instance_before)
+    drift_before["public_ip"] = ""
+    drift = change(
+        "oci_core_instance.racetime",
+        ["update"],
+        copy.deepcopy(instance_before),
+    )
+    drift["change"]["before"] = drift_before
+
+    plan["resource_changes"] = [instance, private_ips, public_ip]
+    plan["resource_drift"] = [drift]
+    plan["configuration"]["root_module"]["resources"] = [
+        {
+            "address": "oci_core_instance.racetime",
+            "mode": "managed",
+            "type": "oci_core_instance",
+            "name": "racetime",
+            "expressions": {
+                "is_pv_encryption_in_transit_enabled": {
+                    "constant_value": True,
+                },
+                "launch_options": [
+                    {
+                        "is_pv_encryption_in_transit_enabled": {
+                            "constant_value": True,
+                        },
+                        "network_type": {
+                            "constant_value": "PARAVIRTUALIZED",
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            "address": "data.oci_core_private_ips.racetime",
+            "mode": "data",
+            "type": "oci_core_private_ips",
+            "name": "racetime",
+            "expressions": {
+                "ip_address": {
+                    "references": [
+                        "oci_core_instance.racetime.private_ip",
+                        "oci_core_instance.racetime",
+                    ]
+                },
+                "subnet_id": {
+                    "references": [
+                        "oci_core_subnet.racetime.id",
+                        "oci_core_subnet.racetime",
+                    ]
+                },
+            },
+        },
+        {
+            "address": "oci_core_public_ip.racetime",
+            "mode": "managed",
+            "type": "oci_core_public_ip",
+            "name": "racetime",
+            "expressions": {
+                "private_ip_id": {
+                    "references": [
+                        "data.oci_core_private_ips.racetime.private_ips",
+                        "data.oci_core_private_ips.racetime",
+                    ]
+                }
+            },
+        },
+    ]
+    return plan
+
+
 class PlanFixture:
     def __init__(self, verifier, plan: dict) -> None:
         self.verifier = verifier
@@ -294,7 +426,16 @@ class PlanFixture:
             item.get("address") for item in self.plan.get("resource_changes", [])
         }
         if "oci_core_public_ip.racetime" in addresses:
-            phase = "replacement"
+            instance = next(
+                item
+                for item in self.plan["resource_changes"]
+                if item["address"] == "oci_core_instance.racetime"
+            )
+            phase = (
+                "launch-encryption"
+                if instance["change"]["actions"] == ["update"]
+                else "replacement"
+            )
         elif self.plan.get("resource_drift"):
             phase = "refresh-only"
         else:
@@ -320,6 +461,11 @@ class PlanFixture:
                 "network_security_group_ids": [
                     "ocid1.networksecuritygroup.expected"
                 ],
+                "private_ip_id": "ocid1.privateip.expected",
+            },
+            "launch_encryption": {
+                "reserved_public_ip": "203.0.113.10",
+                "subnet_id": "ocid1.subnet.expected",
                 "private_ip_id": "ocid1.privateip.expected",
             },
         }
@@ -467,6 +613,7 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         for phase, plan in (
             ("refresh-only", refresh_plan()),
             ("replacement", replacement_plan()),
+            ("launch-encryption", launch_encryption_plan()),
         ):
             for marker in (None, False):
                 with self.subTest(phase=phase, marker=marker):
@@ -480,6 +627,7 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         for phase, plan in (
             ("refresh-only", refresh_plan()),
             ("replacement", replacement_plan()),
+            ("launch-encryption", launch_encryption_plan()),
         ):
             with self.subTest(phase=phase):
                 fixture = self.fixture(plan)
@@ -812,6 +960,201 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         self.assertEqual(summary.resource_changes, 5)
         self.assertEqual(summary.resource_drift, 0)
         self.assertEqual(summary.output_changes, 4)
+
+    def test_accepts_exact_launch_encryption_plan(self) -> None:
+        fixture = self.fixture(launch_encryption_plan())
+        summary = fixture.verify("launch-encryption")
+        self.assertEqual(summary.resource_changes, 3)
+        self.assertEqual(summary.resource_drift, 1)
+        self.assertEqual(summary.output_changes, 0)
+
+    def test_launch_encryption_requires_exact_action_set(self) -> None:
+        invalid_actions = (
+            ["create"],
+            ["delete"],
+            ["delete", "create"],
+            ["no-op"],
+        )
+        for actions in invalid_actions:
+            with self.subTest(actions=actions):
+                fixture = self.fixture(launch_encryption_plan())
+                fixture.plan["resource_changes"][0]["change"]["actions"] = actions
+                self.assert_rejected(fixture, "launch-encryption")
+
+        fixture = self.fixture(launch_encryption_plan())
+        fixture.plan["resource_changes"].append(
+            change("oci_core_instance.unexpected", ["update"], {"stable": "new"})
+        )
+        self.assert_rejected(fixture, "launch-encryption")
+
+        fixture = self.fixture(launch_encryption_plan())
+        fixture.plan["resource_changes"].pop()
+        self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_requires_exact_public_ip_drift(self) -> None:
+        invalid_before = (
+            ("missing", object()),
+            ("null", None),
+            ("known-address", "203.0.113.9"),
+        )
+        for label, value in invalid_before:
+            with self.subTest(before=label):
+                fixture = self.fixture(launch_encryption_plan())
+                drift = fixture.plan["resource_drift"][0]["change"]
+                if label == "missing":
+                    drift["before"].pop("public_ip")
+                else:
+                    drift["before"]["public_ip"] = value
+                self.assert_rejected(fixture, "launch-encryption")
+
+        mutations = (
+            lambda change: change["after"].__setitem__("public_ip", "203.0.113.9"),
+            lambda change: change["after_unknown"].__setitem__("public_ip", True),
+            lambda change: change["before"].__setitem__("state", "STOPPED"),
+            lambda change: change.__setitem__("actions", ["delete", "create"]),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                fixture = self.fixture(launch_encryption_plan())
+                mutate(fixture.plan["resource_drift"][0]["change"])
+                self.assert_rejected(fixture, "launch-encryption")
+
+        fixture = self.fixture(launch_encryption_plan())
+        fixture.plan["resource_drift"].append(
+            change("oci_core_public_ip.racetime", ["update"], {"stable": "new"})
+        )
+        self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_requires_only_nested_false_to_true(self) -> None:
+        mutations = (
+            lambda change: change["before"]["launch_options"][0].__setitem__(
+                "is_pv_encryption_in_transit_enabled", True
+            ),
+            lambda change: change["after"]["launch_options"][0].__setitem__(
+                "is_pv_encryption_in_transit_enabled", False
+            ),
+            lambda change: change["after"]["launch_options"][0].__setitem__(
+                "network_type", "VFIO"
+            ),
+            lambda change: change["after_unknown"].__setitem__(
+                "launch_options", [True]
+            ),
+            lambda change: change["after"].__setitem__(
+                "is_pv_encryption_in_transit_enabled", True
+            ),
+            lambda change: change["after"].__setitem__("shape", "changed"),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                fixture = self.fixture(launch_encryption_plan())
+                mutate(fixture.plan["resource_changes"][0]["change"])
+                self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_requires_dual_field_configuration(self) -> None:
+        mutations = (
+            lambda expressions: expressions.pop(
+                "is_pv_encryption_in_transit_enabled"
+            ),
+            lambda expressions: expressions[
+                "is_pv_encryption_in_transit_enabled"
+            ].__setitem__("constant_value", False),
+            lambda expressions: expressions["launch_options"][0][
+                "is_pv_encryption_in_transit_enabled"
+            ].__setitem__("constant_value", False),
+            lambda expressions: expressions["launch_options"][0][
+                "network_type"
+            ].__setitem__("constant_value", "VFIO"),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                fixture = self.fixture(launch_encryption_plan())
+                expressions = fixture.plan["configuration"]["root_module"][
+                    "resources"
+                ][0]["expressions"]
+                mutate(expressions)
+                self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_requires_dependency_pending_private_ip_read(self) -> None:
+        fixture = self.fixture(launch_encryption_plan())
+        fixture.plan["resource_changes"][1]["action_reason"] = (
+            "read_because_config_unknown"
+        )
+        self.assert_rejected(fixture, "launch-encryption")
+
+        fixture = self.fixture(launch_encryption_plan())
+        instance = fixture.plan["resource_changes"][0]["change"]
+        instance["after"]["private_ip"] = "10.1.1.11"
+        self.assert_rejected(fixture, "launch-encryption")
+
+        invalid_references = (
+            ["oci_core_instance.racetime.private_ip"],
+            ["oci_core_instance.racetime"],
+            [
+                "oci_core_instance.racetime.private_ip",
+                "oci_core_instance.racetime",
+                "oci_core_instance.unexpected",
+            ],
+        )
+        for references in invalid_references:
+            with self.subTest(references=references):
+                fixture = self.fixture(launch_encryption_plan())
+                data_config = fixture.plan["configuration"]["root_module"][
+                    "resources"
+                ][1]
+                data_config["expressions"]["ip_address"][
+                    "references"
+                ] = references
+                self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_requires_only_deferred_public_ip_binding(self) -> None:
+        mutations = (
+            lambda change: change["before"].__setitem__("private_ip_id", "wrong"),
+            lambda change: change["after"].__setitem__(
+                "private_ip_id", "ocid1.privateip.expected"
+            ),
+            lambda change: change["after_unknown"].pop("private_ip_id"),
+            lambda change: change["after"].__setitem__("lifetime", "EPHEMERAL"),
+            lambda change: change["after"].__setitem__("display_name", "changed"),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                fixture = self.fixture(launch_encryption_plan())
+                mutate(fixture.plan["resource_changes"][2]["change"])
+                self.assert_rejected(fixture, "launch-encryption")
+
+        fixture = self.fixture(launch_encryption_plan())
+        public_config = fixture.plan["configuration"]["root_module"]["resources"][
+            2
+        ]
+        public_config["expressions"]["private_ip_id"]["references"].reverse()
+        self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_rejects_output_changes(self) -> None:
+        fixture = self.fixture(launch_encryption_plan())
+        fixture.plan["output_changes"]["instance_id"] = {
+            "actions": ["update"],
+            "before": "old",
+            "after": "new",
+            "after_unknown": False,
+        }
+        self.assert_rejected(fixture, "launch-encryption")
+
+    def test_launch_encryption_requires_bound_reserved_ipv4(self) -> None:
+        for value in (None, "", "2001:db8::1", [], {}, 1):
+            with self.subTest(value=value):
+                fixture = self.fixture(launch_encryption_plan())
+                fixture.expected["launch_encryption"][
+                    "reserved_public_ip"
+                ] = value
+                self.assert_rejected(fixture, "launch-encryption")
+
+        fixture = self.fixture(launch_encryption_plan())
+        fixture.expected["launch_encryption"]["reserved_public_ip"] = 1
+        instance = fixture.plan["resource_changes"][0]["change"]
+        instance["before"]["public_ip"] = 1
+        instance["after"]["public_ip"] = 1
+        fixture.plan["resource_drift"][0]["change"]["after"]["public_ip"] = 1
+        self.assert_rejected(fixture, "launch-encryption")
 
     def test_unknown_field_detection_requires_literal_nested_true(self) -> None:
         unknowns = {

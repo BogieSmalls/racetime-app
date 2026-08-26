@@ -102,6 +102,33 @@ class TerraformContractTests(unittest.TestCase):
         self.assertIn("VM.Standard.E5.Flex", self.files["README.md"])
         self.assertIn("1 OCPU / 6 GB", self.files["README.md"])
 
+    def test_instance_encryption_uses_create_and_update_fields_without_replacement(self):
+        instance = _hcl_block(
+            self.files["compute.tf"],
+            'resource "oci_core_instance" "racetime"',
+        )
+        self.assertRegex(
+            instance,
+            r"(?m)^  is_pv_encryption_in_transit_enabled\s*=\s*true\s*$",
+        )
+
+        launch_options = _hcl_block(instance, "launch_options")
+        self.assertRegex(
+            launch_options,
+            r"(?m)^\s*is_pv_encryption_in_transit_enabled\s*=\s*true\s*$",
+        )
+        self.assertRegex(
+            launch_options,
+            r'(?m)^\s*network_type\s*=\s*"PARAVIRTUALIZED"\s*$',
+        )
+
+        lifecycle = _hcl_block(instance, "lifecycle")
+        ignored = re.findall(r"ignore_changes\s*=\s*\[([^\]]*)\]", lifecycle)
+        self.assertEqual(
+            [value.strip() for value in ignored],
+            ["is_pv_encryption_in_transit_enabled"],
+        )
+
     def test_replacement_uses_dedicated_subnet_and_reserved_public_ip(self):
         compute = self.files["compute.tf"]
         data = self.files["data.tf"]

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import ipaddress
 import json
 from pathlib import Path
 import re
@@ -14,7 +15,12 @@ import sys
 from typing import Any
 
 
-PHASES = ("subnet-add", "refresh-only", "replacement")
+PHASES = (
+    "subnet-add",
+    "refresh-only",
+    "replacement",
+    "launch-encryption",
+)
 PINNED_TERRAFORM_VERSION = "1.12.2"
 SOURCE_COMMIT = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -511,6 +517,20 @@ def _changed_fields(change: dict[str, Any]) -> set[str]:
     return changed | _truthy_unknown_fields(change.get("after_unknown", {}))
 
 
+def _constant_value(expression: Any, label: str) -> Any:
+    value = _require_mapping(expression, label)
+    if set(value) != {"constant_value"}:
+        raise VerificationError(f"{label} must be an exact constant")
+    return value["constant_value"]
+
+
+def _single_launch_options(value: Any, label: str) -> dict[str, Any]:
+    options = _require_list(value, label)
+    if len(options) != 1:
+        raise VerificationError(f"{label} must contain exactly one block")
+    return _require_mapping(options[0], label)
+
+
 def _verify_replacement(
     plan: dict[str, Any],
     expected: dict[str, Any],
@@ -620,6 +640,214 @@ def _verify_replacement(
         raise VerificationError("public IP does not use the private-IP data source")
 
 
+def _verify_launch_encryption(
+    plan: dict[str, Any],
+    expected: dict[str, Any],
+    resources: dict[str, dict[str, Any]],
+    drift: dict[str, dict[str, Any]],
+    outputs: dict[str, dict[str, Any]],
+) -> None:
+    _require_actions(
+        resources,
+        {
+            "oci_core_instance.racetime": ["update"],
+            "data.oci_core_private_ips.racetime": ["read"],
+            "oci_core_public_ip.racetime": ["update"],
+        },
+        "resource_changes",
+    )
+    _require_actions(
+        drift,
+        {"oci_core_instance.racetime": ["update"]},
+        "resource_drift",
+    )
+    if outputs:
+        raise VerificationError("launch-encryption contains an output change")
+
+    reserved_public_ip = _expected_value(
+        expected, "launch_encryption", "reserved_public_ip"
+    )
+    if not isinstance(reserved_public_ip, str) or not reserved_public_ip:
+        raise VerificationError("expected reserved public IP is invalid")
+    try:
+        parsed_public_ip = ipaddress.ip_address(reserved_public_ip)
+    except ValueError as exc:
+        raise VerificationError("expected reserved public IP is invalid") from exc
+    if not isinstance(parsed_public_ip, ipaddress.IPv4Address):
+        raise VerificationError("expected reserved public IP is not IPv4")
+    expected_subnet_id = _expected_value(
+        expected, "launch_encryption", "subnet_id"
+    )
+    expected_private_ip_id = _expected_value(
+        expected, "launch_encryption", "private_ip_id"
+    )
+    if any(
+        not isinstance(value, str) or not value
+        for value in (expected_subnet_id, expected_private_ip_id)
+    ):
+        raise VerificationError("expected launch-encryption identity is invalid")
+
+    instance_change = resources["oci_core_instance.racetime"]
+    instance_before = _require_mapping(
+        instance_change.get("before"), "instance update before value"
+    )
+    instance_after = _require_mapping(
+        instance_change.get("after"), "instance update after value"
+    )
+    if (
+        _changed_fields(instance_change) != {"launch_options"}
+        or _truthy_unknown_fields(instance_change.get("after_unknown", {}))
+    ):
+        raise VerificationError("instance update exceeds launch encryption")
+    private_ip = instance_before.get("private_ip")
+    if (
+        not isinstance(private_ip, str)
+        or not private_ip
+        or instance_after.get("private_ip") != private_ip
+    ):
+        raise VerificationError("instance private IP is not stable")
+    launch_before = _single_launch_options(
+        instance_before.get("launch_options"), "instance launch_options before"
+    )
+    launch_after = _single_launch_options(
+        instance_after.get("launch_options"), "instance launch_options after"
+    )
+    if set(launch_before) != set(launch_after):
+        raise VerificationError("launch option fields changed shape")
+    for name in launch_before:
+        if name == "is_pv_encryption_in_transit_enabled":
+            continue
+        if launch_before[name] != launch_after[name]:
+            raise VerificationError("an unrelated launch option changed")
+    if (
+        launch_before.get("is_pv_encryption_in_transit_enabled") is not False
+        or launch_after.get("is_pv_encryption_in_transit_enabled") is not True
+        or launch_before.get("network_type") != "PARAVIRTUALIZED"
+        or launch_after.get("network_type") != "PARAVIRTUALIZED"
+    ):
+        raise VerificationError("launch encryption transition does not match")
+
+    instance_drift = drift["oci_core_instance.racetime"]
+    drift_before = _require_mapping(
+        instance_drift.get("before"), "instance drift before value"
+    )
+    drift_after = _require_mapping(
+        instance_drift.get("after"), "instance drift after value"
+    )
+    if (
+        _changed_fields(instance_drift) != {"public_ip"}
+        or _truthy_unknown_fields(instance_drift.get("after_unknown", {}))
+        or drift_before.get("public_ip") != ""
+        or drift_after.get("public_ip") != reserved_public_ip
+        or drift_after != instance_before
+    ):
+        raise VerificationError("instance public-IP drift does not match")
+
+    private_ips_entry = next(
+        entry
+        for entry in _require_list(plan.get("resource_changes", []), "resource_changes")
+        if isinstance(entry, dict)
+        and entry.get("address") == "data.oci_core_private_ips.racetime"
+    )
+    private_ips_change = resources["data.oci_core_private_ips.racetime"]
+    if private_ips_entry.get("action_reason") != "read_because_dependency_pending":
+        raise VerificationError("private-IP data read is not dependency-pending")
+    if private_ips_change.get("before") is not None:
+        raise VerificationError("private-IP data read has a prior value")
+    private_ips_after = _after(private_ips_change)
+    if (
+        private_ips_after.get("ip_address") != private_ip
+        or private_ips_after.get("subnet_id") != expected_subnet_id
+        or _truthy_unknown_fields(
+            private_ips_change.get("after_unknown", {})
+        )
+        != {"id", "private_ips"}
+    ):
+        raise VerificationError("private-IP data read exceeds the contract")
+
+    public_ip_change = resources["oci_core_public_ip.racetime"]
+    public_ip_before = _require_mapping(
+        public_ip_change.get("before"), "public-IP update before value"
+    )
+    public_ip_after = _require_mapping(
+        public_ip_change.get("after"), "public-IP update after value"
+    )
+    if (
+        _changed_fields(public_ip_change) != {"private_ip_id"}
+        or public_ip_before.get("private_ip_id") != expected_private_ip_id
+        or public_ip_after.get("private_ip_id") is not None
+        or public_ip_before.get("lifetime") != "RESERVED"
+        or public_ip_after.get("lifetime") != "RESERVED"
+        or _truthy_unknown_fields(
+            public_ip_change.get("after_unknown", {})
+        )
+        != {"private_ip_id"}
+    ):
+        raise VerificationError("reserved public-IP update exceeds the contract")
+
+    configuration = _configuration_resources(plan)
+    configured_instance = configuration.get("oci_core_instance.racetime")
+    configured_private_ips = configuration.get(
+        "data.oci_core_private_ips.racetime"
+    )
+    configured_public_ip = configuration.get("oci_core_public_ip.racetime")
+    if (
+        configured_instance is None
+        or configured_private_ips is None
+        or configured_public_ip is None
+    ):
+        raise VerificationError("launch-encryption configuration is missing")
+
+    instance_expressions = _expressions(configured_instance)
+    if (
+        _constant_value(
+            instance_expressions.get("is_pv_encryption_in_transit_enabled"),
+            "top-level launch encryption",
+        )
+        is not True
+    ):
+        raise VerificationError("top-level launch encryption is not enabled")
+    launch_expressions = _single_launch_options(
+        instance_expressions.get("launch_options"),
+        "launch_options configuration",
+    )
+    if set(launch_expressions) != {
+        "is_pv_encryption_in_transit_enabled",
+        "network_type",
+    }:
+        raise VerificationError("launch_options configuration exceeds the contract")
+    if (
+        _constant_value(
+            launch_expressions.get("is_pv_encryption_in_transit_enabled"),
+            "nested launch encryption",
+        )
+        is not True
+        or _constant_value(
+            launch_expressions.get("network_type"),
+            "launch network type",
+        )
+        != "PARAVIRTUALIZED"
+    ):
+        raise VerificationError("launch_options configuration does not match")
+
+    private_ip_expressions = _expressions(configured_private_ips)
+    if _references(private_ip_expressions.get("ip_address")) != [
+        "oci_core_instance.racetime.private_ip",
+        "oci_core_instance.racetime",
+    ] or _references(private_ip_expressions.get("subnet_id")) != [
+        "oci_core_subnet.racetime.id",
+        "oci_core_subnet.racetime",
+    ]:
+        raise VerificationError("private-IP data references do not match")
+    if _references(
+        _expressions(configured_public_ip).get("private_ip_id")
+    ) != [
+        "data.oci_core_private_ips.racetime.private_ips",
+        "data.oci_core_private_ips.racetime",
+    ]:
+        raise VerificationError("public IP private-IP reference does not match")
+
+
 def verify_saved_plan(
     *,
     phase: str,
@@ -716,8 +944,10 @@ def verify_saved_plan(
         )
     elif phase == "refresh-only":
         _verify_refresh_only(resources, drift, outputs)
-    else:
+    elif phase == "replacement":
         _verify_replacement(plan, expected, resources, drift, outputs)
+    else:
+        _verify_launch_encryption(plan, expected, resources, drift, outputs)
 
     return VerificationSummary(
         phase=phase,

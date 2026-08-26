@@ -1,10 +1,11 @@
 resource "oci_core_instance" "racetime" {
-  availability_domain  = var.availability_domain
-  compartment_id       = var.compartment_ocid
-  display_name         = "racetime"
-  shape                = "VM.Standard.A1.Flex"
-  preserve_boot_volume = true
-  freeform_tags        = local.common_tags
+  availability_domain                 = var.availability_domain
+  compartment_id                      = var.compartment_ocid
+  display_name                        = "racetime"
+  shape                               = "VM.Standard.A1.Flex"
+  preserve_boot_volume                = true
+  is_pv_encryption_in_transit_enabled = true
+  freeform_tags                       = local.common_tags
 
   shape_config {
     ocpus         = 1
@@ -56,6 +57,7 @@ resource "oci_core_instance" "racetime" {
 
   lifecycle {
     prevent_destroy = true
+    ignore_changes  = [is_pv_encryption_in_transit_enabled]
 
     precondition {
       condition     = length(trimspace(var.activation_record)) > 0
