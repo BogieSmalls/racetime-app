@@ -32,15 +32,15 @@
       "type": "string",
       "pattern": "^/var/lib/z1rr-racetime/g0/[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}$"
     },
-    "aggregate_wall_seconds": {"const": 86400},
+    "aggregate_wall_seconds": {"type": "integer", "const": 86400},
     "final_cleanup_timeout_seconds": {
       "type": "integer",
       "minimum": 60,
       "maximum": 1800
     },
-    "heartbeat_interval_seconds": {"const": 15},
-    "lease_timeout_seconds": {"const": 90},
-    "absolute_terminal_seconds": {"const": 86490},
+    "heartbeat_interval_seconds": {"type": "integer", "const": 15},
+    "lease_timeout_seconds": {"type": "integer", "const": 90},
+    "absolute_terminal_seconds": {"type": "integer", "const": 86490},
     "lock_identities": {
       "type": "object",
       "additionalProperties": false,

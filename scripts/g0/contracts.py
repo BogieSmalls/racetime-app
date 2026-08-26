@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -153,12 +154,23 @@ _COMPLETE_HASH_KINDS = frozenset(
         "control-record",
     }
 )
+_FIXED_COMPLETE_HASH_NAMES = {
+    "run-manifest": "run-manifest.json",
+    "docker-bootstrap-lock": "docker-bootstrap-lock.json",
+    "tool-lock": "tool-lock.json",
+    "control-record": "control-record.json",
+}
+_MAX_CONTRACT_BYTES = 1_048_576
+_MAX_JSON_DEPTH = 32
+_MAX_JSON_NODES = 100_000
+_MAX_MONOTONIC_NS = (1 << 63) - 1
+_NANOSECONDS_PER_SECOND = 1_000_000_000
 
 
 def safe_relative_path(value: object, label: str) -> PurePosixPath:
     """Return a workspace-relative POSIX path or fail closed."""
 
-    if not isinstance(value, str) or not value or len(value) > 255:
+    if type(value) is not str or not value or len(value) > 255:
         raise ContractError(f"{label} must be a non-empty relative path")
     if (
         "\x00" in value
@@ -185,7 +197,7 @@ def safe_relative_path(value: object, label: str) -> PurePosixPath:
 def safe_sha256(value: object, label: str) -> str:
     """Return an immutable sha256 identity with its algorithm prefix."""
 
-    if not isinstance(value, str) or _DIGEST_PATTERN.fullmatch(value) is None:
+    if type(value) is not str or _DIGEST_PATTERN.fullmatch(value) is None:
         raise ContractError(f"{label} must be sha256 followed by 64 lowercase hex digits")
     return value
 
@@ -255,21 +267,43 @@ def redact_text(value: str, canaries: Sequence[str]) -> str:
     return redacted
 
 
+def _require_plain_json(value: object, label: str) -> None:
+    stack = [(value, 0)]
+    nodes = 0
+    while stack:
+        current, depth = stack.pop()
+        nodes += 1
+        if depth > _MAX_JSON_DEPTH or nodes > _MAX_JSON_NODES:
+            raise ContractError(f"{label} exceeds safe structural limits")
+        current_type = type(current)
+        if current_type is dict:
+            for key, child in current.items():
+                if type(key) is not str:
+                    raise ContractError(f"{label} contains a non-JSON object key")
+                stack.append((child, depth + 1))
+        elif current_type is list:
+            for child in current:
+                stack.append((child, depth + 1))
+        elif current_type is float:
+            if not math.isfinite(current):
+                raise ContractError(f"{label} contains a non-finite number")
+        elif current_type not in (str, int, bool, type(None)):
+            raise ContractError(f"{label} contains a non-builtin JSON value")
+
+
 def _object(value: object, label: str, keys: set[str]) -> dict:
-    if not isinstance(value, dict):
+    if type(value) is not dict:
         raise ContractError(f"{label} must be an object")
-    if any(not isinstance(key, str) for key in value):
+    if any(type(key) is not str for key in value):
         raise ContractError(f"{label} keys must be strings")
     actual = set(value)
     if actual != keys:
-        missing = sorted(keys - actual)
-        unknown = sorted(actual - keys)
-        raise ContractError(f"{label} has missing keys {missing} and unknown keys {unknown}")
+        raise ContractError(f"{label} keys do not match the closed contract")
     return value
 
 
 def _array(value: object, label: str, *, minimum: int = 0) -> list:
-    if not isinstance(value, list) or len(value) < minimum:
+    if type(value) is not list or len(value) < minimum:
         raise ContractError(f"{label} must be an array with at least {minimum} item(s)")
     return value
 
@@ -281,7 +315,7 @@ def _string(
     pattern: re.Pattern[str] | None = None,
     maximum: int = 255,
 ) -> str:
-    if not isinstance(value, str) or not value or len(value) > maximum:
+    if type(value) is not str or not value or len(value) > maximum:
         raise ContractError(f"{label} must be a non-empty string")
     if pattern is not None and pattern.fullmatch(value) is None:
         raise ContractError(f"{label} has an unsafe format")
@@ -290,8 +324,7 @@ def _string(
 
 def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
     if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
+        type(value) is not int
         or value < minimum
         or value > maximum
     ):
@@ -300,12 +333,12 @@ def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
 
 
 def _require_schema_version_one(value: object, label: str) -> None:
-    if not isinstance(value, int) or isinstance(value, bool) or value != 1:
+    if type(value) is not int or value != 1:
         raise ContractError(f"{label} schema_version must be the integer 1")
 
 
 def _number(value: object, label: str, minimum: float, maximum: float) -> float:
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
+    if type(value) not in (int, float):
         raise ContractError(f"{label} must be a number from {minimum} through {maximum}")
     try:
         numeric = float(value)
@@ -319,13 +352,13 @@ def _number(value: object, label: str, minimum: float, maximum: float) -> float:
 
 
 def _choice(value: object, label: str, choices: frozenset[str]) -> str:
-    if not isinstance(value, str) or value not in choices:
+    if type(value) is not str or value not in choices:
         raise ContractError(f"{label} must be one of {sorted(choices)}")
     return value
 
 
 def _timestamp(value: object, label: str) -> datetime:
-    if not isinstance(value, str) or not re.fullmatch(
+    if type(value) is not str or not re.fullmatch(
         r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z",
         value,
     ):
@@ -334,6 +367,18 @@ def _timestamp(value: object, label: str) -> datetime:
         return datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
     except ValueError as error:
         raise ContractError(f"{label} is not a real UTC timestamp") from error
+
+
+def _disposal_timestamp(value: object, label: str) -> datetime:
+    if type(value) is not str or not re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z",
+        value,
+    ):
+        raise ContractError(f"{label} must be canonical UTC with six fractional digits")
+    try:
+        return datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError as error:
+        raise ContractError(f"{label} is not a real canonical UTC timestamp") from error
 
 
 def _commit(value: object, label: str) -> str:
@@ -425,6 +470,7 @@ def _validate_image_lock(value: object, label: str) -> dict:
 
 
 def validate_run_manifest(value: object) -> dict:
+    _require_plain_json(value, "run manifest")
     result = _object(
         value,
         "run manifest",
@@ -622,6 +668,7 @@ def validate_run_manifest(value: object) -> dict:
 
 
 def _validate_bootstrap_lock(value: object) -> dict:
+    _require_plain_json(value, "docker bootstrap lock")
     result = _object(
         value,
         "docker bootstrap lock",
@@ -712,6 +759,7 @@ def _validate_bootstrap_lock(value: object) -> dict:
 
 
 def validate_tool_lock(value: object) -> dict:
+    _require_plain_json(value, "tool lock")
     result = _object(
         value,
         "tool lock",
@@ -738,6 +786,7 @@ def validate_tool_lock(value: object) -> dict:
 
 
 def validate_worker_evidence(value: object) -> dict:
+    _require_plain_json(value, "worker evidence")
     result = _object(
         value,
         "worker evidence",
@@ -889,6 +938,7 @@ def validate_worker_evidence(value: object) -> dict:
 def validate_worker_disposal(value: object) -> dict:
     """Validate the redacted, append-only worker-disposal control record."""
 
+    _require_plain_json(value, "worker disposal")
     result = _object(
         value,
         "worker disposal",
@@ -922,7 +972,7 @@ def validate_worker_disposal(value: object) -> dict:
         raise ContractError("worker disposal instance fingerprint domain is incorrect")
     safe_sha256(fingerprint["sha256"], "worker disposal instance fingerprint")
 
-    heartbeat_at = _timestamp(
+    heartbeat_at = _disposal_timestamp(
         result["last_authenticated_heartbeat_at_utc"],
         "worker disposal last_authenticated_heartbeat_at_utc",
     )
@@ -967,7 +1017,7 @@ def validate_worker_disposal(value: object) -> dict:
         if lifecycle["state"] != _DISPOSAL_LIFECYCLE[index]:
             raise ContractError("worker disposal lifecycle must be an exact monotonic prefix")
         lifecycle_times.append(
-            _timestamp(
+            _disposal_timestamp(
                 lifecycle["recorded_at_utc"],
                 f"worker disposal lifecycle_events[{index}].recorded_at_utc",
             )
@@ -997,16 +1047,19 @@ def validate_worker_disposal(value: object) -> dict:
         )
         if _is_secret_key(name) or "ocid1." in name:
             raise ContractError("worker disposal complete hash name is unsafe")
-        _choice(
+        kind = _choice(
             complete_hash["kind"],
             f"worker disposal complete_pre_failure_hashes[{index}].kind",
             _COMPLETE_HASH_KINDS,
         )
+        expected_fixed_name = _FIXED_COMPLETE_HASH_NAMES.get(kind)
+        if expected_fixed_name is not None and name != expected_fixed_name:
+            raise ContractError("worker disposal hash name and kind do not match protocol")
         safe_sha256(
             complete_hash["sha256"],
             f"worker disposal complete_pre_failure_hashes[{index}].sha256",
         )
-        completed_at = _timestamp(
+        completed_at = _disposal_timestamp(
             complete_hash["completed_at_utc"],
             f"worker disposal complete_pre_failure_hashes[{index}].completed_at_utc",
         )
@@ -1017,7 +1070,221 @@ def validate_worker_disposal(value: object) -> dict:
     return result
 
 
+def _canonical_sha256(value: dict) -> str:
+    try:
+        payload = json.dumps(
+            value,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError, RecursionError) as error:
+        raise ContractError("contract cannot be encoded canonically") from error
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
+    _require_plain_json(value, "trusted disposal control")
+    control = _object(
+        value,
+        "trusted disposal control",
+        {
+            "schema_version",
+            "armed",
+            "run_id",
+            "project_prefix",
+            "instance_fingerprint_sha256",
+            "run_manifest_sha256",
+            "lease_status",
+            "run_started_monotonic_ns",
+            "last_authenticated_heartbeat_monotonic_ns",
+            "disposal_observed_monotonic_ns",
+            "absolute_terminal_deadline_monotonic_ns",
+        },
+    )
+    _require_schema_version_one(control["schema_version"], "trusted disposal control")
+    if type(control["armed"]) is not bool:
+        raise ContractError("trusted disposal control armed must be a boolean")
+    run_id = _string(
+        control["run_id"], "trusted disposal control run_id", pattern=_RUN_ID_PATTERN
+    )
+    if control["project_prefix"] != f"z1rr-racetime-g0-{run_id}":
+        raise ContractError("trusted disposal control run identity is inconsistent")
+    safe_sha256(
+        control["instance_fingerprint_sha256"],
+        "trusted disposal control instance fingerprint",
+    )
+    manifest_sha256 = safe_sha256(
+        control["run_manifest_sha256"], "trusted disposal control run manifest hash"
+    )
+    if manifest_sha256 != _canonical_sha256(run_manifest):
+        raise ContractError("trusted disposal control run manifest hash is incorrect")
+    _choice(control["lease_status"], "trusted disposal control lease_status", _LEASE_STATUSES)
+
+    run_started = _integer(
+        control["run_started_monotonic_ns"],
+        "trusted disposal control run start",
+        0,
+        _MAX_MONOTONIC_NS,
+    )
+    last_heartbeat = _integer(
+        control["last_authenticated_heartbeat_monotonic_ns"],
+        "trusted disposal control last heartbeat",
+        0,
+        _MAX_MONOTONIC_NS,
+    )
+    disposal_observed = _integer(
+        control["disposal_observed_monotonic_ns"],
+        "trusted disposal control disposal observation",
+        0,
+        _MAX_MONOTONIC_NS,
+    )
+    absolute_deadline = _integer(
+        control["absolute_terminal_deadline_monotonic_ns"],
+        "trusted disposal control absolute deadline",
+        0,
+        _MAX_MONOTONIC_NS,
+    )
+    expected_deadline = (
+        run_started
+        + run_manifest["absolute_terminal_seconds"] * _NANOSECONDS_PER_SECOND
+    )
+    if absolute_deadline != expected_deadline:
+        raise ContractError("trusted disposal control absolute deadline is incorrect")
+    if last_heartbeat < run_started or disposal_observed < last_heartbeat:
+        raise ContractError("trusted disposal control monotonic clocks move backwards")
+    if control["lease_status"] == "heartbeat-lost":
+        lease_ns = run_manifest["lease_timeout_seconds"] * _NANOSECONDS_PER_SECOND
+        if disposal_observed - last_heartbeat < lease_ns:
+            raise ContractError("trusted disposal control heartbeat lease has not expired")
+    elif control["lease_status"] == "terminal-response-lost":
+        if disposal_observed < absolute_deadline:
+            raise ContractError("trusted disposal control terminal deadline has not expired")
+    return control
+
+
+def _disposal_hash_allowlist(run_manifest: dict) -> dict[str, tuple[str, str | None]]:
+    allowed: dict[str, tuple[str, str | None]] = {}
+
+    def register(name: str, kind: str, sha256: str | None) -> None:
+        entry = (kind, sha256)
+        previous = allowed.get(name)
+        if previous is not None and previous != entry:
+            raise ContractError("run manifest disposal hash protocol is ambiguous")
+        allowed[name] = entry
+
+    register("run-manifest.json", "run-manifest", _canonical_sha256(run_manifest))
+    register(
+        "docker-bootstrap-lock.json",
+        "docker-bootstrap-lock",
+        run_manifest["lock_identities"]["docker_bootstrap_sha256"],
+    )
+    register(
+        "tool-lock.json",
+        "tool-lock",
+        run_manifest["lock_identities"]["tool_lock_sha256"],
+    )
+    register("control-record.json", "control-record", None)
+    for source in run_manifest["sources"]:
+        register(
+            PurePosixPath(source["bundle_path"]).name,
+            "source-bundle",
+            source["bundle_sha256"],
+        )
+        register(
+            PurePosixPath(source["archive_path"]).name,
+            "source-archive",
+            source["archive_sha256"],
+        )
+    for output in run_manifest["outputs"]:
+        if output["custody_class"] == "retained" and output["name"] != "worker-evidence.json":
+            register(output["name"], "retained-artifact", None)
+    return allowed
+
+
+def _require_append_only_prefix(previous: list, candidate: list, label: str) -> None:
+    if len(candidate) < len(previous) or candidate[: len(previous)] != previous:
+        raise ContractError(f"worker disposal {label} is not append-only")
+
+
+def validate_worker_disposal_transition(
+    previous: object | None,
+    candidate: object,
+    *,
+    run_manifest: object,
+    trusted_control: object,
+) -> dict:
+    """Validate one monotonic disposal-record transition against trusted control state."""
+
+    manifest = validate_run_manifest(run_manifest)
+    current = validate_worker_disposal(candidate)
+    prior = None if previous is None else validate_worker_disposal(previous)
+    control = _validate_disposal_control(trusted_control, manifest)
+
+    if current["run_id"] != manifest["run_id"] or current["project_prefix"] != manifest[
+        "project_prefix"
+    ]:
+        raise ContractError("worker disposal run identity does not match its manifest")
+    if control["run_id"] != current["run_id"] or control["project_prefix"] != current[
+        "project_prefix"
+    ]:
+        raise ContractError("worker disposal run identity does not match trusted control")
+    if (
+        current["instance_fingerprint"]["sha256"]
+        != control["instance_fingerprint_sha256"]
+    ):
+        raise ContractError("worker disposal instance identity does not match trusted control")
+    if current["lease_status"] != control["lease_status"]:
+        raise ContractError("worker disposal lease status does not match trusted control")
+
+    allowlist = _disposal_hash_allowlist(manifest)
+    manifest_hash = None
+    for complete_hash in current["complete_pre_failure_hashes"]:
+        allowed = allowlist.get(complete_hash["name"])
+        if allowed is None or allowed[0] != complete_hash["kind"]:
+            raise ContractError("worker disposal hash is outside the protocol allowlist")
+        if allowed[1] is not None and complete_hash["sha256"] != allowed[1]:
+            raise ContractError("worker disposal hash does not match its protocol identity")
+        if complete_hash["name"] == "run-manifest.json":
+            manifest_hash = complete_hash["sha256"]
+    if control["armed"] and manifest_hash != control["run_manifest_sha256"]:
+        raise ContractError("armed worker disposal lacks the exact run manifest hash")
+
+    if prior is None:
+        return current
+
+    immutable_keys = (
+        "schema_version",
+        "disposition",
+        "run_id",
+        "project_prefix",
+        "instance_fingerprint",
+        "last_authenticated_heartbeat_at_utc",
+        "lease_status",
+    )
+    if any(prior[key] != current[key] for key in immutable_keys):
+        raise ContractError("worker disposal immutable identity changed")
+    if prior["lifecycle_events"][-1]["state"] == "recovery-verified":
+        if current != prior:
+            raise ContractError("worker disposal recovery-verified record is terminal")
+        return current
+    _require_append_only_prefix(
+        prior["lifecycle_events"], current["lifecycle_events"], "lifecycle"
+    )
+    _require_append_only_prefix(
+        prior["failed_proof_classes"], current["failed_proof_classes"], "proof classes"
+    )
+    _require_append_only_prefix(
+        prior["complete_pre_failure_hashes"],
+        current["complete_pre_failure_hashes"],
+        "complete hashes",
+    )
+    return current
+
+
 def validate_restream_history(value: object) -> dict:
+    _require_plain_json(value, "restream history")
     result = _object(
         value,
         "restream history",
@@ -1095,18 +1362,18 @@ def _reject_symlink(path: Path) -> None:
     absolute = path.absolute()
     for candidate in (absolute, *absolute.parents):
         if candidate.is_symlink():
-            raise ContractError(f"contract path traverses a symlink: {path}")
+            raise ContractError("contract path traverses a symlink")
 
 
 def _reject_constant(value: str) -> None:
-    raise ContractError(f"non-standard JSON constant is forbidden: {value}")
+    raise ContractError("non-standard JSON constant is forbidden")
 
 
 def _pairs_to_object(pairs: list[tuple[str, object]]) -> dict:
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ContractError(f"duplicate JSON key: {key}")
+            raise ContractError("duplicate JSON key")
         result[key] = value
     return result
 
@@ -1117,9 +1384,16 @@ def load_json(path: Path, schema_name: str) -> dict:
     contract_path = Path(path)
     _reject_symlink(contract_path)
     try:
-        text = contract_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        raise ContractError(f"cannot load {contract_path}: {error}") from error
+        with contract_path.open("rb") as stream:
+            raw = stream.read(_MAX_CONTRACT_BYTES + 1)
+    except OSError as error:
+        raise ContractError("cannot load contract file") from error
+    if len(raw) > _MAX_CONTRACT_BYTES:
+        raise ContractError("contract JSON exceeds the byte limit")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeError as error:
+        raise ContractError("contract JSON is not valid UTF-8") from error
     try:
         value = json.loads(
             text,
@@ -1128,8 +1402,8 @@ def load_json(path: Path, schema_name: str) -> dict:
         )
     except ContractError:
         raise
-    except ValueError as error:
-        raise ContractError(f"cannot load {contract_path}: {error}") from error
+    except (ValueError, RecursionError) as error:
+        raise ContractError("cannot decode contract JSON") from error
     normalized_name = schema_name.removesuffix(".schema.json")
     validators: dict[str, Callable[[object], dict]] = {
         "run-manifest": validate_run_manifest,
@@ -1141,5 +1415,5 @@ def load_json(path: Path, schema_name: str) -> dict:
     }
     validator = validators.get(normalized_name)
     if validator is None:
-        raise ContractError(f"unknown schema name: {schema_name}")
+        raise ContractError("unknown schema name")
     return validator(value)

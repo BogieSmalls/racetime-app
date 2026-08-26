@@ -1,10 +1,13 @@
 import copy
+import hashlib
 import json
 import re
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+
+import scripts.g0.contracts as g0_contracts
 
 from scripts.g0.contracts import (
     ContractError,
@@ -55,14 +58,15 @@ def schema_errors(schema, value, root=None, location="$"):
         if siblings:
             errors.extend(schema_errors(siblings, value, root, location))
         return errors
+    errors = []
     if "oneOf" in schema:
         matches = [
             not schema_errors(option, value, root, location)
             for option in schema["oneOf"]
         ]
-        return [] if matches.count(True) == 1 else [f"{location}: oneOf mismatch"]
+        if matches.count(True) != 1:
+            errors.append(f"{location}: oneOf mismatch")
 
-    errors = []
     for subschema in schema.get("allOf", []):
         errors.extend(schema_errors(subschema, value, root, location))
     if "if" in schema:
@@ -114,6 +118,15 @@ def schema_errors(schema, value, root=None, location="$"):
             serialized = [json.dumps(item, sort_keys=True) for item in value]
             if len(set(serialized)) != len(value):
                 errors.append(f"{location}: duplicate items")
+        if "contains" in schema:
+            matches = sum(
+                not schema_errors(schema["contains"], item, root, f"{location}[{index}]")
+                for index, item in enumerate(value)
+            )
+            if matches < schema.get("minContains", 1):
+                errors.append(f"{location}: contains matched too few items")
+            if "maxContains" in schema and matches > schema["maxContains"]:
+                errors.append(f"{location}: contains matched too many items")
         prefix_items = schema.get("prefixItems", [])
         for index, item_schema in enumerate(prefix_items[: len(value)]):
             errors.extend(
@@ -247,6 +260,15 @@ def valid_run_manifest():
 
 
 def valid_worker_disposal():
+    manifest_sha256 = "sha256:" + hashlib.sha256(
+        json.dumps(
+            valid_run_manifest(),
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
     return {
         "schema_version": 1,
         "disposition": "WORKER_DISPOSAL_REQUIRED",
@@ -256,27 +278,55 @@ def valid_worker_disposal():
             "domain": "z1rr-racetime-g0-instance-ocid-v1",
             "sha256": SHA_C,
         },
-        "last_authenticated_heartbeat_at_utc": "2026-08-26T12:04:45Z",
+        "last_authenticated_heartbeat_at_utc": "2026-08-26T12:04:45.000000Z",
         "failed_proof_classes": ["boundary-emptiness"],
         "lease_status": "authenticated-remote-signal",
         "lifecycle_events": [
             {
                 "state": "disposal-recorded",
-                "recorded_at_utc": "2026-08-26T12:05:00Z",
+                "recorded_at_utc": "2026-08-26T12:05:00.000000Z",
             },
             {
                 "state": "external-cleanup-complete",
-                "recorded_at_utc": "2026-08-26T12:05:15Z",
+                "recorded_at_utc": "2026-08-26T12:05:15.000000Z",
             },
         ],
         "complete_pre_failure_hashes": [
             {
                 "name": "run-manifest.json",
                 "kind": "run-manifest",
-                "sha256": SHA_A,
-                "completed_at_utc": "2026-08-26T12:00:00Z",
+                "sha256": manifest_sha256,
+                "completed_at_utc": "2026-08-26T12:00:00.000000Z",
             }
         ],
+    }
+
+
+def valid_trusted_control():
+    manifest = valid_run_manifest()
+    manifest_sha256 = "sha256:" + hashlib.sha256(
+        json.dumps(
+            manifest,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    run_started = 1_000_000_000
+    return {
+        "schema_version": 1,
+        "armed": True,
+        "run_id": RUN_ID,
+        "project_prefix": PROJECT_PREFIX,
+        "instance_fingerprint_sha256": SHA_C,
+        "run_manifest_sha256": manifest_sha256,
+        "lease_status": "authenticated-remote-signal",
+        "run_started_monotonic_ns": run_started,
+        "last_authenticated_heartbeat_monotonic_ns": 10_000_000_000,
+        "disposal_observed_monotonic_ns": 20_000_000_000,
+        "absolute_terminal_deadline_monotonic_ns": run_started
+        + 86_490_000_000_000,
     }
 
 
@@ -592,6 +642,23 @@ class ContractTests(unittest.TestCase):
                     with self.assertRaises(ContractError):
                         load_json(path, schema_name)
 
+    def test_run_manifest_integer_constants_declare_integer_schema_types(self):
+        schema = self.schemas["run-manifest"]
+        for field in (
+            "schema_version",
+            "aggregate_wall_seconds",
+            "heartbeat_interval_seconds",
+            "lease_timeout_seconds",
+            "absolute_terminal_seconds",
+        ):
+            with self.subTest(field=field):
+                self.assertEqual("integer", schema["properties"][field].get("type"))
+                mutation = valid_run_manifest()
+                mutation[field] = True
+                self.assertSchemaInvalid("run-manifest", mutation)
+                with self.assertRaises(ContractError):
+                    validate_run_manifest(mutation)
+
     def test_run_identity_root_phase_order_and_timeouts_fail_closed(self):
         mutations = []
         bad_prefix = valid_run_manifest()
@@ -765,18 +832,18 @@ class ContractTests(unittest.TestCase):
         reversed_time = valid_worker_disposal()
         reversed_time["lifecycle_events"][1][
             "recorded_at_utc"
-        ] = "2026-08-26T12:04:59Z"
+        ] = "2026-08-26T12:04:59.000000Z"
 
         heartbeat_after_disposal = valid_worker_disposal()
         heartbeat_after_disposal[
             "last_authenticated_heartbeat_at_utc"
-        ] = "2026-08-26T12:05:01Z"
+        ] = "2026-08-26T12:05:01.000000Z"
 
         duplicate_state = valid_worker_disposal()
         duplicate_state["lifecycle_events"].append(
             {
                 "state": "external-cleanup-complete",
-                "recorded_at_utc": "2026-08-26T12:05:30Z",
+                "recorded_at_utc": "2026-08-26T12:05:30.000000Z",
             }
         )
 
@@ -794,12 +861,12 @@ class ContractTests(unittest.TestCase):
         after_failure = valid_worker_disposal()
         after_failure["complete_pre_failure_hashes"][0][
             "completed_at_utc"
-        ] = "2026-08-26T12:05:01Z"
+        ] = "2026-08-26T12:05:01.000000Z"
 
         at_disposal_boundary = valid_worker_disposal()
         at_disposal_boundary["complete_pre_failure_hashes"][0][
             "completed_at_utc"
-        ] = "2026-08-26T12:05:00Z"
+        ] = "2026-08-26T12:05:00.000000Z"
 
         incomplete = valid_worker_disposal()
         incomplete["complete_pre_failure_hashes"][0]["complete"] = False
@@ -827,7 +894,7 @@ class ContractTests(unittest.TestCase):
                 "name": f"artifact-{index:03d}.json",
                 "kind": "retained-artifact",
                 "sha256": SHA_A,
-                "completed_at_utc": "2026-08-26T12:00:00Z",
+                "completed_at_utc": "2026-08-26T12:00:00.000000Z",
             }
             for index in range(257)
         ]
@@ -846,6 +913,399 @@ class ContractTests(unittest.TestCase):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
                     validate_worker_disposal(mutation)
+
+    def test_worker_disposal_requires_exact_builtin_json_types(self):
+        class HostileString(str):
+            def __eq__(self, other):
+                raise AssertionError("custom equality executed")
+
+            __hash__ = str.__hash__
+
+        class HostileInt(int):
+            pass
+
+        class HostileDict(dict):
+            pass
+
+        class HostileList(list):
+            pass
+
+        root_subclass = HostileDict(valid_worker_disposal())
+        string_subclass = valid_worker_disposal()
+        string_subclass["instance_fingerprint"]["domain"] = HostileString(
+            "z1rr-racetime-g0-instance-ocid-v1"
+        )
+        integer_subclass = valid_worker_disposal()
+        integer_subclass["schema_version"] = HostileInt(1)
+        array_subclass = valid_worker_disposal()
+        array_subclass["failed_proof_classes"] = HostileList(
+            array_subclass["failed_proof_classes"]
+        )
+
+        for label, mutation in (
+            ("root object", root_subclass),
+            ("custom equality string", string_subclass),
+            ("integer", integer_subclass),
+            ("array", array_subclass),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    validate_worker_disposal(mutation)
+
+        with self.assertRaises(ContractError):
+            g0_contracts.validate_worker_disposal_transition(
+                None,
+                valid_worker_disposal(),
+                run_manifest=valid_run_manifest(),
+                trusted_control=HostileDict(valid_trusted_control()),
+            )
+
+    def test_worker_disposal_timestamps_use_exact_microsecond_utc_form(self):
+        setters = (
+            lambda record, value: record.__setitem__(
+                "last_authenticated_heartbeat_at_utc", value
+            ),
+            lambda record, value: record["lifecycle_events"][0].__setitem__(
+                "recorded_at_utc", value
+            ),
+            lambda record, value: record["complete_pre_failure_hashes"][0].__setitem__(
+                "completed_at_utc", value
+            ),
+        )
+        invalid_timestamps = (
+            "2026-08-26T12:00:00Z",
+            "2026-08-26T12:00:00.0Z",
+            "2026-08-26T12:00:00.00000Z",
+            "2026-08-26T12:00:00.0000000Z",
+            "2026-08-26T12:00:00.000000+00:00",
+        )
+        for setter_index, setter in enumerate(setters):
+            for timestamp in invalid_timestamps:
+                mutation = valid_worker_disposal()
+                setter(mutation, timestamp)
+                with self.subTest(field=setter_index, timestamp=timestamp):
+                    self.assertSchemaInvalid("worker-disposal", mutation)
+                    with self.assertRaises(ContractError):
+                        validate_worker_disposal(mutation)
+
+    def test_worker_disposal_schema_matches_structural_runtime_constraints(self):
+        skipped_lifecycle = valid_worker_disposal()
+        skipped_lifecycle["lifecycle_events"][1]["state"] = "stopped"
+
+        missing_lease_proof = valid_worker_disposal()
+        missing_lease_proof["lease_status"] = "heartbeat-lost"
+
+        mismatched_fixed_hash = valid_worker_disposal()
+        mismatched_fixed_hash["complete_pre_failure_hashes"][0]["kind"] = "tool-lock"
+
+        for label, mutation in (
+            ("lifecycle prefix", skipped_lifecycle),
+            ("lease proof", missing_lease_proof),
+            ("hash protocol", mismatched_fixed_hash),
+        ):
+            with self.subTest(case=label):
+                self.assertSchemaInvalid("worker-disposal", mutation)
+                with self.assertRaises(ContractError):
+                    validate_worker_disposal(mutation)
+
+    def test_worker_disposal_transition_accepts_only_append_only_progress(self):
+        manifest = valid_run_manifest()
+        control = valid_trusted_control()
+        previous = valid_worker_disposal()
+        self.assertEqual(
+            previous,
+            g0_contracts.validate_worker_disposal_transition(
+                None,
+                previous,
+                run_manifest=manifest,
+                trusted_control=control,
+            ),
+        )
+
+        candidate = copy.deepcopy(previous)
+        candidate["failed_proof_classes"].append("process-ownership")
+        candidate["lifecycle_events"].append(
+            {
+                "state": "stop-requested",
+                "recorded_at_utc": "2026-08-26T12:05:30.000000Z",
+            }
+        )
+        candidate["complete_pre_failure_hashes"].append(
+            {
+                "name": "racetime.bundle",
+                "kind": "source-bundle",
+                "sha256": SHA_A,
+                "completed_at_utc": "2026-08-26T12:01:00.000000Z",
+            }
+        )
+        self.assertEqual(
+            candidate,
+            g0_contracts.validate_worker_disposal_transition(
+                previous,
+                candidate,
+                run_manifest=manifest,
+                trusted_control=control,
+            ),
+        )
+
+    def test_worker_disposal_transition_rejects_identity_and_prefix_mutation(self):
+        manifest = valid_run_manifest()
+        control = valid_trusted_control()
+        previous = valid_worker_disposal()
+
+        fingerprint_mutation = copy.deepcopy(previous)
+        fingerprint_mutation["instance_fingerprint"]["sha256"] = SHA_B
+
+        run_identity_mutation = copy.deepcopy(previous)
+        run_identity_mutation["run_id"] = "20260826t120001z-1234abcd"
+        run_identity_mutation[
+            "project_prefix"
+        ] = "z1rr-racetime-g0-20260826t120001z-1234abcd"
+
+        heartbeat_mutation = copy.deepcopy(previous)
+        heartbeat_mutation[
+            "last_authenticated_heartbeat_at_utc"
+        ] = "2026-08-26T12:04:44.000000Z"
+
+        lifecycle_rollback = copy.deepcopy(previous)
+        lifecycle_rollback["lifecycle_events"].pop()
+
+        lifecycle_mutation = copy.deepcopy(previous)
+        lifecycle_mutation["lifecycle_events"][1][
+            "recorded_at_utc"
+        ] = "2026-08-26T12:05:16.000000Z"
+
+        proof_reorder = copy.deepcopy(previous)
+        proof_reorder["failed_proof_classes"] = [
+            "process-ownership",
+            "boundary-emptiness",
+        ]
+
+        hash_mutation = copy.deepcopy(previous)
+        hash_mutation["complete_pre_failure_hashes"][0]["sha256"] = SHA_B
+
+        for label, candidate in (
+            ("instance fingerprint", fingerprint_mutation),
+            ("run identity", run_identity_mutation),
+            ("last heartbeat", heartbeat_mutation),
+            ("lifecycle rollback", lifecycle_rollback),
+            ("lifecycle mutation", lifecycle_mutation),
+            ("proof reorder", proof_reorder),
+            ("hash mutation", hash_mutation),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    g0_contracts.validate_worker_disposal_transition(
+                        previous,
+                        candidate,
+                        run_manifest=manifest,
+                        trusted_control=control,
+                    )
+
+        proof_previous = copy.deepcopy(previous)
+        proof_previous["failed_proof_classes"].append("process-ownership")
+        proof_rollback = copy.deepcopy(proof_previous)
+        proof_rollback["failed_proof_classes"].pop()
+
+        hash_previous = copy.deepcopy(previous)
+        hash_previous["complete_pre_failure_hashes"].append(
+            {
+                "name": "racetime.bundle",
+                "kind": "source-bundle",
+                "sha256": SHA_A,
+                "completed_at_utc": "2026-08-26T12:01:00.000000Z",
+            }
+        )
+        hash_rollback = copy.deepcopy(hash_previous)
+        hash_rollback["complete_pre_failure_hashes"].pop()
+
+        for label, prior, candidate in (
+            ("proof rollback", proof_previous, proof_rollback),
+            ("hash rollback", hash_previous, hash_rollback),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    g0_contracts.validate_worker_disposal_transition(
+                        prior,
+                        candidate,
+                        run_manifest=manifest,
+                        trusted_control=control,
+                    )
+
+    def test_worker_disposal_recovery_verified_snapshot_is_terminal(self):
+        manifest = valid_run_manifest()
+        control = valid_trusted_control()
+        previous = valid_worker_disposal()
+        states = (
+            "disposal-recorded",
+            "external-cleanup-complete",
+            "stop-requested",
+            "stopped",
+            "restart-requested",
+            "running",
+            "verify-clean-requested",
+            "recovery-verified",
+        )
+        previous["lifecycle_events"] = [
+            {
+                "state": state,
+                "recorded_at_utc": f"2026-08-26T12:05:{index * 5:02d}.000000Z",
+            }
+            for index, state in enumerate(states)
+        ]
+        self.assertEqual(
+            previous,
+            g0_contracts.validate_worker_disposal_transition(
+                previous,
+                copy.deepcopy(previous),
+                run_manifest=manifest,
+                trusted_control=control,
+            ),
+        )
+
+        changed = copy.deepcopy(previous)
+        changed["failed_proof_classes"].append("process-ownership")
+        with self.assertRaises(ContractError):
+            g0_contracts.validate_worker_disposal_transition(
+                previous,
+                changed,
+                run_manifest=manifest,
+                trusted_control=control,
+            )
+
+    def test_worker_disposal_transition_uses_trusted_monotonic_lease_clocks(self):
+        manifest = valid_run_manifest()
+        candidate = valid_worker_disposal()
+        candidate["lease_status"] = "heartbeat-lost"
+        candidate["failed_proof_classes"].append("heartbeat-authentication")
+        control = valid_trusted_control()
+        control["lease_status"] = "heartbeat-lost"
+        control["disposal_observed_monotonic_ns"] = (
+            control["last_authenticated_heartbeat_monotonic_ns"] + 90_000_000_000
+        )
+        self.assertEqual(
+            candidate,
+            g0_contracts.validate_worker_disposal_transition(
+                None,
+                candidate,
+                run_manifest=manifest,
+                trusted_control=control,
+            ),
+        )
+
+        early_lease = copy.deepcopy(control)
+        early_lease["disposal_observed_monotonic_ns"] -= 1
+        wall_clock_cannot_extend_lease = copy.deepcopy(candidate)
+        wall_clock_cannot_extend_lease[
+            "last_authenticated_heartbeat_at_utc"
+        ] = "2020-01-01T00:00:00.000000Z"
+
+        terminal_candidate = valid_worker_disposal()
+        terminal_candidate["lease_status"] = "terminal-response-lost"
+        terminal_candidate["failed_proof_classes"].append(
+            "terminal-response-authentication"
+        )
+        early_terminal = valid_trusted_control()
+        early_terminal["lease_status"] = "terminal-response-lost"
+        early_terminal["disposal_observed_monotonic_ns"] = (
+            early_terminal["absolute_terminal_deadline_monotonic_ns"] - 1
+        )
+
+        wrong_deadline = copy.deepcopy(early_terminal)
+        wrong_deadline["absolute_terminal_deadline_monotonic_ns"] += 2
+        wrong_deadline["disposal_observed_monotonic_ns"] += 2
+
+        for label, disposal, bad_control in (
+            ("heartbeat silence", candidate, early_lease),
+            ("wall-clock lease", wall_clock_cannot_extend_lease, early_lease),
+            ("terminal deadline", terminal_candidate, early_terminal),
+            ("deadline identity", terminal_candidate, wrong_deadline),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    g0_contracts.validate_worker_disposal_transition(
+                        None,
+                        disposal,
+                        run_manifest=manifest,
+                        trusted_control=bad_control,
+                    )
+
+    def test_worker_disposal_transition_requires_armed_manifest_hash_and_allowlist(self):
+        manifest = valid_run_manifest()
+        control = valid_trusted_control()
+
+        missing_manifest_hash = valid_worker_disposal()
+        missing_manifest_hash["complete_pre_failure_hashes"] = []
+
+        wrong_manifest_hash = valid_worker_disposal()
+        wrong_manifest_hash["complete_pre_failure_hashes"][0]["sha256"] = SHA_B
+
+        unlisted_artifact = valid_worker_disposal()
+        unlisted_artifact["complete_pre_failure_hashes"].append(
+            {
+                "name": "unlisted-artifact.json",
+                "kind": "retained-artifact",
+                "sha256": SHA_B,
+                "completed_at_utc": "2026-08-26T12:01:00.000000Z",
+            }
+        )
+
+        for label, candidate in (
+            ("missing manifest", missing_manifest_hash),
+            ("wrong manifest", wrong_manifest_hash),
+            ("unlisted artifact", unlisted_artifact),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaises(ContractError):
+                    g0_contracts.validate_worker_disposal_transition(
+                        None,
+                        candidate,
+                        run_manifest=manifest,
+                        trusted_control=control,
+                    )
+
+    def test_load_json_is_bounded_and_never_echoes_untrusted_key_or_path(self):
+        canary = "private-secret-path-canary"
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+
+            oversized = root / "oversized.json"
+            oversized.write_text(
+                json.dumps(valid_worker_disposal()) + " " * 1_048_577,
+                encoding="utf-8",
+            )
+            with self.assertRaises(ContractError):
+                load_json(oversized, "worker-disposal")
+
+            deep = root / "deep.json"
+            deep.write_text("[" * 40 + "0" + "]" * 40, encoding="utf-8")
+            with self.assertRaisesRegex(ContractError, "structural limits"):
+                load_json(deep, "worker-disposal")
+
+            recursive = root / "recursive.json"
+            recursive.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+            with self.assertRaises(ContractError):
+                load_json(recursive, "worker-disposal")
+
+            missing = root / f"{canary}.json"
+            with self.assertRaises(ContractError) as path_error:
+                load_json(missing, "worker-disposal")
+            self.assertNotIn(canary, str(path_error.exception))
+
+            unknown_key = valid_worker_disposal()
+            unknown_key[canary] = True
+            with self.assertRaises(ContractError) as key_error:
+                validate_worker_disposal(unknown_key)
+            self.assertNotIn(canary, str(key_error.exception))
+
+            duplicate = root / "duplicate.json"
+            duplicate.write_text(
+                '{"%s": 1, "%s": 2}' % (canary, canary),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ContractError) as duplicate_error:
+                load_json(duplicate, "worker-disposal")
+            self.assertNotIn(canary, str(duplicate_error.exception))
 
     def test_paths_are_workspace_relative_and_outputs_have_safe_names(self):
         for valid in (

@@ -54,7 +54,17 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 8,
-      "items": {"$ref": "#/$defs/lifecycle_event"}
+      "prefixItems": [
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "disposal-recorded"}}},
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "external-cleanup-complete"}}},
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "stop-requested"}}},
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "stopped"}}},
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "restart-requested"}}},
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "running"}}},
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "verify-clean-requested"}}},
+        {"$ref": "#/$defs/lifecycle_event", "properties": {"state": {"const": "recovery-verified"}}}
+      ],
+      "items": false
     },
     "complete_pre_failure_hashes": {
       "type": "array",
@@ -62,6 +72,24 @@
       "items": {"$ref": "#/$defs/complete_hash"}
     }
   },
+  "allOf": [
+    {
+      "if": {"properties": {"lease_status": {"const": "heartbeat-lost"}}},
+      "then": {
+        "properties": {
+          "failed_proof_classes": {"contains": {"const": "heartbeat-authentication"}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"lease_status": {"const": "terminal-response-lost"}}},
+      "then": {
+        "properties": {
+          "failed_proof_classes": {"contains": {"const": "terminal-response-authentication"}}
+        }
+      }
+    }
+  ],
   "$defs": {
     "run_id": {
       "type": "string",
@@ -74,7 +102,7 @@
     "utc_timestamp": {
       "type": "string",
       "format": "date-time",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
     },
     "instance_fingerprint": {
       "type": "object",
@@ -127,7 +155,16 @@
         },
         "sha256": {"$ref": "#/$defs/sha256"},
         "completed_at_utc": {"$ref": "#/$defs/utc_timestamp"}
-      }
+      },
+      "oneOf": [
+        {"properties": {"kind": {"const": "run-manifest"}, "name": {"const": "run-manifest.json"}}},
+        {"properties": {"kind": {"const": "docker-bootstrap-lock"}, "name": {"const": "docker-bootstrap-lock.json"}}},
+        {"properties": {"kind": {"const": "tool-lock"}, "name": {"const": "tool-lock.json"}}},
+        {"properties": {"kind": {"const": "control-record"}, "name": {"const": "control-record.json"}}},
+        {"properties": {"kind": {"const": "source-bundle"}}},
+        {"properties": {"kind": {"const": "source-archive"}}},
+        {"properties": {"kind": {"const": "retained-artifact"}}}
+      ]
     }
   }
 }
