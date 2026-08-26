@@ -138,6 +138,10 @@ class ProductionSettingsTests(unittest.TestCase):
             "https://integration.racetime.test/account/discord/wrong",
         )
 
+    def test_twitch_accepts_provider_issued_30_character_secret(self):
+        self.load_settings(TWITCH_CLIENT_SECRET="t" * 30)
+        self.assert_invalid("TWITCH_CLIENT_SECRET", "t" * 29)
+
     def test_unknown_security_environment_name_is_rejected(self):
         completed = run_production_probe(
             overrides={"RACETIME_ACCESS_PHSAE": "public"},

@@ -234,7 +234,7 @@ DISCORD_REDIRECT_URI = env.required("DISCORD_REDIRECT_URI")
 if DISCORD_REDIRECT_URI != RT_SITE_URI + "/account/discord/callback":
     _invalid("DISCORD_REDIRECT_URI")
 TWITCH_CLIENT_ID = env.required("TWITCH_CLIENT_ID")
-TWITCH_CLIENT_SECRET = env.secret("TWITCH_CLIENT_SECRET", minimum=32)
+TWITCH_CLIENT_SECRET = env.secret("TWITCH_CLIENT_SECRET", minimum=30)
 
 STATIC_ROOT = env.required("STATIC_ROOT")
 MEDIA_ROOT = env.required("MEDIA_ROOT")
