@@ -890,6 +890,9 @@ def load_json(path: Path, schema_name: str) -> dict:
     _reject_symlink(contract_path)
     try:
         text = contract_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise ContractError(f"cannot load {contract_path}: {error}") from error
+    try:
         value = json.loads(
             text,
             object_pairs_hook=_pairs_to_object,
@@ -897,7 +900,7 @@ def load_json(path: Path, schema_name: str) -> dict:
         )
     except ContractError:
         raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+    except ValueError as error:
         raise ContractError(f"cannot load {contract_path}: {error}") from error
     normalized_name = schema_name.removesuffix(".schema.json")
     validators: dict[str, Callable[[object], dict]] = {

@@ -854,6 +854,26 @@ class ContractTests(unittest.TestCase):
                     with self.assertRaises(ContractError):
                         operation()
 
+    def test_load_json_normalizes_oversized_integer_decoder_errors(self):
+        raw_fixture = json.dumps(valid_worker_evidence()).replace(
+            '"duration_seconds": 1.25',
+            '"duration_seconds": ' + "9" * 5000,
+            1,
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "worker-evidence.json"
+            path.write_text(raw_fixture, encoding="utf-8")
+            with self.assertRaises(ContractError):
+                load_json(path, "worker-evidence")
+
+            duplicate = Path(temporary_directory) / "duplicate.json"
+            duplicate.write_text(
+                '{"schema_version": 1, "schema_version": 1}',
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ContractError, r"^duplicate JSON key"):
+                load_json(duplicate, "worker-evidence")
+
     def test_tool_urls_have_schema_and_runtime_parity(self):
         valid_urls = (
             "https://example.invalid",
