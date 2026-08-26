@@ -755,6 +755,30 @@ class ContractTests(unittest.TestCase):
                 with self.assertRaises(ContractError):
                     redact_text(unsafe, [])
 
+    def test_redaction_removes_ambiguous_unquoted_remainders_without_canaries(self):
+        probes = (
+            ("DATABASE_PASSWORD=", ()),
+            ("DATABASE_PASSWORD=alpha,beta", ("alpha", "beta")),
+            ("DATABASE_PASSWORD=alpha;beta", ("alpha", "beta")),
+            ("DATABASE_PASSWORD=alpha beta", ("alpha", "beta")),
+            ('DATABASE_PASSWORD="alpha beta', ("alpha", "beta")),
+            ("Authorization: Bearer alpha beta", ("alpha", "beta")),
+            ("Authorization: Basic alpha,beta;gamma", ("alpha", "beta", "gamma")),
+        )
+        for text, secret_fragments in probes:
+            with self.subTest(text=text):
+                redacted = redact_text(text, [])
+                for fragment in secret_fragments:
+                    self.assertNotIn(fragment, redacted)
+                self.assertIn("<redacted>", redacted.lower())
+
+        quoted = redact_text(
+            'DATABASE_PASSWORD="quoted alpha,beta"; safe_field=visible',
+            [],
+        )
+        self.assertNotIn("quoted alpha,beta", quoted)
+        self.assertIn("safe_field=visible", quoted)
+
     def test_pass_evidence_requires_consistent_phase_and_cleanup_results(self):
         nonzero = valid_worker_evidence()
         nonzero["phases"][2]["exit_status"] = 1
@@ -815,6 +839,20 @@ class ContractTests(unittest.TestCase):
             with self.subTest(duration=duration):
                 with self.assertRaises(ContractError):
                     validate_worker_evidence(evidence)
+
+    def test_oversized_integer_duration_always_raises_contract_error(self):
+        evidence = valid_worker_evidence()
+        evidence["phases"][0]["duration_seconds"] = 10**400
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "worker-evidence.json"
+            path.write_text(json.dumps(evidence), encoding="utf-8")
+            for label, operation in (
+                ("direct", lambda: validate_worker_evidence(evidence)),
+                ("load_json", lambda: load_json(path, "worker-evidence")),
+            ):
+                with self.subTest(operation=label):
+                    with self.assertRaises(ContractError):
+                        operation()
 
     def test_tool_urls_have_schema_and_runtime_parity(self):
         valid_urls = (

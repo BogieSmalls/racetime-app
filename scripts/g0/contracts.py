@@ -40,14 +40,19 @@ _ASSIGNMENT_PATTERN = re.compile(
         (?<![A-Za-z0-9_.-])
         (?:export[ \t]+)?
         (?P<key_quote>["']?)
-        (?P<key>[A-Za-z_][A-Za-z0-9_.-]*)
+        (?P<key>
+            (?=[A-Za-z0-9_.-]*(?:
+                password|secret|token|credential|api[_.-]?key|private[_.-]?key
+            ))
+            [A-Za-z_][A-Za-z0-9_.-]*
+        )
         (?P=key_quote)
         [ \t]*[:=][ \t]*
     )
     (?P<value>
         "(?:\\.|[^"\\])*"
         | '(?:\\.|[^'\\])*'
-        | [^\s,;{}\[\]]+
+        | [^\r\n]*
     )
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -73,7 +78,7 @@ _AUTHORIZATION_PATTERN = re.compile(
     (?P<value>
         "(?:bearer|basic)[ \t]+(?:\\.|[^"\\])*"
         | '(?:bearer|basic)[ \t]+(?:\\.|[^'\\])*'
-        | (?:bearer|basic)[ \t]+[^\s,;{}\[\]]+
+        | (?:bearer|basic)[^\r\n]*
     )
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -169,7 +174,9 @@ def _redact_assignment(match: re.Match[str]) -> str:
     original_value = match.group("value")
     if _is_redacted_value(original_value):
         return match.group(0)
-    quote = original_value[0] if original_value[0] in {'"', "'"} else ""
+    if original_value.lstrip().startswith(("{", "[")):
+        raise ContractError("structured secret assignments cannot be safely redacted")
+    quote = original_value[0] if original_value[:1] in {'"', "'"} else ""
     replacement = f"{quote}<redacted>{quote}" if quote else "<redacted>"
     return match.group("head") + replacement
 
@@ -255,7 +262,12 @@ def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
 def _number(value: object, label: str, minimum: float, maximum: float) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ContractError(f"{label} must be a number from {minimum} through {maximum}")
-    numeric = float(value)
+    try:
+        numeric = float(value)
+    except (OverflowError, ValueError) as error:
+        raise ContractError(
+            f"{label} must be a number from {minimum} through {maximum}"
+        ) from error
     if not math.isfinite(numeric) or numeric < minimum or numeric > maximum:
         raise ContractError(f"{label} must be a number from {minimum} through {maximum}")
     return numeric
