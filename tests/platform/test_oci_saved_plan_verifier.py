@@ -233,7 +233,6 @@ def replacement_plan() -> dict:
         name: {
             "actions": ["update"],
             "before": None,
-            "after": None,
             "after_unknown": True,
             "before_sensitive": True,
             "after_sensitive": True,
@@ -1076,10 +1075,16 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
                 self.assert_rejected(fixture, "replacement")
 
     def test_replacement_requires_exact_deferred_output_shape(self) -> None:
+        fixture = self.fixture(replacement_plan())
+        for change in fixture.plan["output_changes"].values():
+            change["after"] = None
+        self.assert_rejected(fixture, "replacement")
+
         mutations = {
             "known-before": lambda change: change.__setitem__(
                 "before", "injected"
             ),
+            "unexpected-after": lambda change: change.__setitem__("after", None),
             "known-after": lambda change: change.__setitem__("after", "injected"),
             "not-unknown": lambda change: change.__setitem__(
                 "after_unknown", False
@@ -1106,7 +1111,6 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
         fixture.plan["output_changes"]["unexpected"] = {
             "actions": ["update"],
             "before": None,
-            "after": None,
             "after_unknown": True,
             "before_sensitive": True,
             "after_sensitive": True,

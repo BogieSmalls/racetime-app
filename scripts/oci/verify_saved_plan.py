@@ -512,7 +512,6 @@ def _verify_replacement(
     output_shape = {
         "actions",
         "before",
-        "after",
         "after_unknown",
         "before_sensitive",
         "after_sensitive",
@@ -521,7 +520,6 @@ def _verify_replacement(
         if (
             set(change) != output_shape
             or change.get("before") is not None
-            or change.get("after") is not None
             or change.get("after_unknown") is not True
             or change.get("before_sensitive") is not True
             or change.get("after_sensitive") is not True
