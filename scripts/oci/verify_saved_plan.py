@@ -579,7 +579,8 @@ def _verify_replacement(
     if _changed_fields(resources["oci_monitoring_alarm.instance_cpu"]) != {"query"}:
         raise VerificationError("alarm update exceeds the contract")
 
-    instance = _after(resources["oci_core_instance.racetime"])
+    instance_change = resources["oci_core_instance.racetime"]
+    instance = _after(instance_change)
     vnic_value = instance.get("create_vnic_details")
     if isinstance(vnic_value, list) and len(vnic_value) == 1:
         vnic = _require_mapping(vnic_value[0], "create_vnic_details")
@@ -615,6 +616,44 @@ def _verify_replacement(
     ):
         raise VerificationError("instance VNIC does not match the contract")
 
+    encryption_field = "is_pv_encryption_in_transit_enabled"
+    launch_options = _single_launch_options(
+        instance.get("launch_options"), "replacement launch_options"
+    )
+    instance_unknown = _require_mapping(
+        instance_change.get("after_unknown"), "replacement instance after_unknown"
+    )
+    _truthy_unknown_fields(instance_unknown)
+    top_level_unknown = instance_unknown.get(encryption_field, False)
+    if type(top_level_unknown) is not bool or top_level_unknown:
+        raise VerificationError("replacement top-level encryption is unknown")
+    launch_unknown_value = instance_unknown.get("launch_options", [])
+    if type(launch_unknown_value) is bool:
+        if launch_unknown_value:
+            raise VerificationError("replacement launch_options are unknown")
+        launch_unknown = {}
+    elif isinstance(launch_unknown_value, list):
+        if not launch_unknown_value:
+            launch_unknown = {}
+        elif len(launch_unknown_value) == 1:
+            launch_unknown = _require_mapping(
+                launch_unknown_value[0], "replacement launch_options after_unknown"
+            )
+        else:
+            raise VerificationError("replacement launch_options unknown shape differs")
+    else:
+        raise VerificationError("replacement launch_options unknown shape differs")
+    for field in (encryption_field, "network_type"):
+        marker = launch_unknown.get(field, False)
+        if type(marker) is not bool or marker:
+            raise VerificationError(f"replacement launch option {field} is unknown")
+    if (
+        instance.get(encryption_field) is not True
+        or launch_options.get(encryption_field) is not True
+        or launch_options.get("network_type") != "PARAVIRTUALIZED"
+    ):
+        raise VerificationError("replacement launch encryption does not match")
+
     public_ip_change = resources["oci_core_public_ip.racetime"]
     public_ip = _after(public_ip_change)
     public_ip_unknown = _require_mapping(
@@ -628,9 +667,33 @@ def _verify_replacement(
         raise VerificationError("reserved public-IP value is not safely deferred")
 
     configuration = _configuration_resources(plan)
+    configured_instance = configuration.get("oci_core_instance.racetime")
     configured_public_ip = configuration.get("oci_core_public_ip.racetime")
-    if configured_public_ip is None:
-        raise VerificationError("public-IP configuration is missing")
+    if configured_instance is None or configured_public_ip is None:
+        raise VerificationError("replacement configuration is missing")
+    instance_expressions = _expressions(configured_instance)
+    launch_expressions = _single_launch_options(
+        instance_expressions.get("launch_options"),
+        "replacement launch_options configuration",
+    )
+    if (
+        _constant_value(
+            instance_expressions.get(encryption_field),
+            "replacement top-level launch encryption",
+        )
+        is not True
+        or _constant_value(
+            launch_expressions.get(encryption_field),
+            "replacement nested launch encryption",
+        )
+        is not True
+        or _constant_value(
+            launch_expressions.get("network_type"),
+            "replacement launch network type",
+        )
+        != "PARAVIRTUALIZED"
+    ):
+        raise VerificationError("replacement launch configuration does not match")
     expression = _expressions(configured_public_ip).get("private_ip_id")
     references = _references(expression)
     if references != [

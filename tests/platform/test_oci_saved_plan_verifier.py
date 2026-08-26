@@ -191,9 +191,26 @@ def replacement_plan() -> dict:
                     "assign_public_ip": "false",
                     "assign_ipv6ip": False,
                 }
-            ]
+            ],
+            "is_pv_encryption_in_transit_enabled": True,
+            "launch_options": [
+                {
+                    "is_pv_encryption_in_transit_enabled": True,
+                    "network_type": "PARAVIRTUALIZED",
+                }
+            ],
         },
     )
+    instance["change"]["after_unknown"] = {
+        "launch_options": [
+            {
+                "boot_volume_type": True,
+                "firmware": True,
+                "is_consistent_volume_naming_enabled": True,
+                "remote_data_volume_type": True,
+            }
+        ]
+    }
     public_ip = change(
         "oci_core_public_ip.racetime",
         ["create"],
@@ -261,7 +278,28 @@ def replacement_plan() -> dict:
                     ]
                 }
             },
-        }
+        },
+        {
+            "address": "oci_core_instance.racetime",
+            "mode": "managed",
+            "type": "oci_core_instance",
+            "name": "racetime",
+            "expressions": {
+                "is_pv_encryption_in_transit_enabled": {
+                    "constant_value": True,
+                },
+                "launch_options": [
+                    {
+                        "is_pv_encryption_in_transit_enabled": {
+                            "constant_value": True,
+                        },
+                        "network_type": {
+                            "constant_value": "PARAVIRTUALIZED",
+                        },
+                    }
+                ],
+            },
+        },
     ]
     return plan
 
@@ -1255,6 +1293,122 @@ class OciSavedPlanVerifierTests(unittest.TestCase):
                 fixture.plan["resource_changes"][0]["change"]["after"][
                     "create_vnic_details"
                 ][0]["assign_public_ip"] = value
+                self.assert_rejected(fixture, "replacement")
+
+    def test_replacement_requires_known_create_encryption_and_network(self) -> None:
+        top_level = "is_pv_encryption_in_transit_enabled"
+        mutations = (
+            ("top-false", lambda change: change["after"].__setitem__(top_level, False)),
+            ("top-missing", lambda change: change["after"].pop(top_level)),
+            (
+                "top-unknown",
+                lambda change: change["after_unknown"].__setitem__(top_level, True),
+            ),
+            (
+                "nested-false",
+                lambda change: change["after"]["launch_options"][0].__setitem__(
+                    top_level, False
+                ),
+            ),
+            (
+                "nested-missing",
+                lambda change: change["after"]["launch_options"][0].pop(top_level),
+            ),
+            (
+                "nested-unknown",
+                lambda change: change["after_unknown"]["launch_options"][
+                    0
+                ].__setitem__(top_level, True),
+            ),
+            (
+                "network-wrong",
+                lambda change: change["after"]["launch_options"][0].__setitem__(
+                    "network_type", "VFIO"
+                ),
+            ),
+            (
+                "network-missing",
+                lambda change: change["after"]["launch_options"][0].pop(
+                    "network_type"
+                ),
+            ),
+            (
+                "network-unknown",
+                lambda change: change["after_unknown"]["launch_options"][
+                    0
+                ].__setitem__("network_type", True),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                fixture = self.fixture(replacement_plan())
+                mutate(fixture.plan["resource_changes"][0]["change"])
+                self.assert_rejected(fixture, "replacement")
+
+    def test_replacement_requires_configured_encryption_and_network(self) -> None:
+        top_level = "is_pv_encryption_in_transit_enabled"
+        mutations = (
+            (
+                "top-false",
+                lambda expressions: expressions[top_level].__setitem__(
+                    "constant_value", False
+                ),
+            ),
+            ("top-missing", lambda expressions: expressions.pop(top_level)),
+            (
+                "top-unknown",
+                lambda expressions: expressions.__setitem__(
+                    top_level, {"references": ["var.unexpected"]}
+                ),
+            ),
+            (
+                "nested-false",
+                lambda expressions: expressions["launch_options"][0][
+                    top_level
+                ].__setitem__("constant_value", False),
+            ),
+            (
+                "nested-missing",
+                lambda expressions: expressions["launch_options"][0].pop(
+                    top_level
+                ),
+            ),
+            (
+                "nested-unknown",
+                lambda expressions: expressions["launch_options"][0].__setitem__(
+                    top_level, {"references": ["var.unexpected"]}
+                ),
+            ),
+            (
+                "network-wrong",
+                lambda expressions: expressions["launch_options"][0][
+                    "network_type"
+                ].__setitem__("constant_value", "VFIO"),
+            ),
+            (
+                "network-missing",
+                lambda expressions: expressions["launch_options"][0].pop(
+                    "network_type"
+                ),
+            ),
+            (
+                "network-unknown",
+                lambda expressions: expressions["launch_options"][0].__setitem__(
+                    "network_type", {"references": ["var.unexpected"]}
+                ),
+            ),
+        )
+        for label, mutate in mutations:
+            with self.subTest(label=label):
+                fixture = self.fixture(replacement_plan())
+                configured_instance = next(
+                    resource
+                    for resource in fixture.plan["configuration"]["root_module"][
+                        "resources"
+                    ]
+                    if resource["address"] == "oci_core_instance.racetime"
+                )
+                mutate(configured_instance["expressions"])
                 self.assert_rejected(fixture, "replacement")
 
     def test_accepts_terraform_omitted_empty_change_collections(self) -> None:
