@@ -70,15 +70,20 @@ root. Docker builders, containers, networks, volumes, cache, and images use the
 Every Docker workload is denied OCI Instance Metadata Service (IMDS) access.
 The bootstrap snapshots the complete active Docker forwarding rules in raw and
 normalized form, then installs an idempotent, persistently managed jump at the
-start of `DOCKER-USER` to a dedicated Z1RR chain that rejects every protocol
-from Docker forwarding to `169.254.169.254/32`. This is an intentional
-persistent production-host delta: it protects later RaceTime containers while
-leaving the host's root-owned backup tooling able to use instance-principal
-credentials. No qualification container may use host networking to bypass the
-forwarding guard. Before the first container and after Docker daemon restart,
-the harness proves from both an ordinary container and the BuildKit network
-that IMDSv1 and IMDSv2 requests fail, while ordinary DNS and a locked public
-artifact fetch work. It records status only, never metadata or credentials.
+start of `DOCKER-USER` to a dedicated Z1RR chain. That chain first permits only
+TCP and UDP destination port 53 to `169.254.169.254/32`, OCI's VCN DNS
+resolver, and then rejects every other protocol and port to that address before
+its terminal return. No broader link-local exception is allowed. This is an
+intentional persistent production-host delta: it protects later RaceTime
+containers while leaving the host's root-owned backup tooling able to use
+instance-principal credentials. No qualification container may use host
+networking to bypass the forwarding guard. Before the first container and after
+Docker daemon restart, the harness proves from both an ordinary container and
+the BuildKit network that IMDSv1 and IMDSv2 requests fail, while TCP/UDP DNS
+through the OCI resolver and a locked public artifact fetch work. It records
+status only, never metadata or credentials. The verifier proves the exact
+first-jump and allow/deny/return ordering, not merely the presence of
+equivalent-looking rules.
 
 Bootstrap failure before this firewall baseline is accepted restores the exact
 pre-bootstrap rules and removes only the Z1RR-owned unit, chain, and jump. Once
