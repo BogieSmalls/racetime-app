@@ -17,6 +17,7 @@
 - `scripts/g0/contracts.py` — closed schemas, safe identities, path and redaction rules.
 - `scripts/g0/runner.py` — bounded subprocess execution and safe result capture.
 - `scripts/g0/state.py` — phase state machine, evidence ledger, and LIFO cleanup registry.
+- `scripts/g0/supervisor.py` — per-command containment, stream handling, and secure log finalization.
 - `scripts/g0/prepare_inputs.py` — exact Git/archive/artifact custody manifests.
 - `scripts/g0/registry.py` — OCI Registry v2 resolution and immutable platform identities.
 - `scripts/g0/bootstrap_lock.py` — Docker key/repository/package lock resolution and verification.
@@ -30,6 +31,7 @@
 - `scripts/g0/services.py` — MariaDB/Redis tests, fixture Compose render, real recovery, and systemd analysis.
 - `scripts/g0/cross_repo.py` — candidate scans, inherited-history baseline, and retained artifact checks.
 - `scripts/g0/worker.py` — nine-phase remote controller and cleanup owner.
+- `scripts/g0/watchdog.py` — independent local lease monitor and exact-worker stop controller.
 - `scripts/g0/invoke-oci-worker.ps1` — host-key-pinned Bastion transfer/invocation/evidence return.
 - `deploy/g0/*.schema.json` and `deploy/g0/*.example.json` — closed machine contracts.
 - `deploy/g0/docker-bootstrap-lock.json` — reviewed host-specific package lock created before installation.
@@ -49,13 +51,14 @@
 - Create: `deploy/g0/tool-lock.schema.json`
 - Create: `deploy/g0/worker-evidence.schema.json`
 - Create: `deploy/g0/restream-history.schema.json`
+- Create: `deploy/g0/worker-disposal.schema.json`
 - Create: `deploy/g0/run-manifest.example.json`
 - Create: `tests/g0/__init__.py`
 - Create: `tests/g0/test_contracts.py`
 
 - [ ] **Step 1: Write failing closed-schema tests**
 
-Cover exact top-level keys, schema version, 40-character commits, `sha256:` digests, UTC timestamps, run ID/project prefix, allowed absolute remote root, workspace-relative local paths, custody classes, exact nine-phase names, per-phase timeouts, 24-hour aggregate ceiling, the separate bootstrap/tool lock identities, and rejection of unknown keys, symlinks, traversal, mutable tags, secret-like runtime fields, private paths, and unsafe output names.
+Cover exact top-level keys, schema version, 40-character commits, `sha256:` digests, UTC timestamps, run ID/project prefix, allowed absolute remote root, workspace-relative local paths, custody classes, exact nine-phase names, execution/cleanup/external-lease deadlines, 24-hour aggregate ceiling, the separate bootstrap/tool lock identities, the closed `WORKER_DISPOSAL_REQUIRED` control record, and rejection of unknown keys, symlinks, traversal, mutable tags, secret-like runtime fields, private paths, and unsafe output names.
 
 - [ ] **Step 2: Run the focused test and capture RED**
 
@@ -74,12 +77,18 @@ Expose:
     def validate_run_manifest(value: object) -> dict: ...
     def validate_tool_lock(value: object) -> dict: ...
     def validate_worker_evidence(value: object) -> dict: ...
+    def validate_worker_disposal(value: object) -> dict: ...
     def validate_restream_history(value: object) -> dict: ...
     def safe_relative_path(value: object, label: str) -> PurePosixPath: ...
     def safe_sha256(value: object, label: str) -> str: ...
     def redact_text(value: str, canaries: Sequence[str]) -> str: ...
 
 Keep schemas closed with `additionalProperties: false`. Evidence must contain phase expected/observed result, command ID, exit status, duration, safe stdout/stderr hashes, retained artifact hashes, cleanup state, and no raw logs or matches.
+
+The separate disposal schema contains only safe run/instance identities, last
+heartbeat, failed proof classes, lease/disposal lifecycle status, and hashes
+known complete before failure. It must reject phase PASS claims, incomplete
+command hashes/log identities, and ordinary verified-clean status.
 
 - [ ] **Step 4: Run GREEN and schema self-validation**
 
@@ -91,6 +100,7 @@ Run:
     python -m json.tool deploy/g0/tool-lock.schema.json > NUL
     python -m json.tool deploy/g0/worker-evidence.schema.json > NUL
     python -m json.tool deploy/g0/restream-history.schema.json > NUL
+    python -m json.tool deploy/g0/worker-disposal.schema.json > NUL
 
 Expected: all pass.
 
@@ -104,20 +114,36 @@ Expected: all pass.
 **Files:**
 - Create: `scripts/g0/runner.py`
 - Create: `scripts/g0/state.py`
+- Create: `scripts/g0/supervisor.py`
 - Create: `tests/g0/test_runner.py`
 - Create: `tests/g0/test_state.py`
+- Create: `tests/g0/test_supervisor.py`
 
 - [ ] **Step 1: Write failing runner tests**
 
-Use temporary helper processes to prove: argv is a list; no shell; controlled cwd/env; timeout kills the process tree; stdout/stderr are hashed and size-bounded; secret canaries fail the command without being reproduced; exit status is checked; logs use mode `0600` on POSIX; and exceptions contain only safe command IDs.
+Use temporary helper processes to prove: argv is a list; no shell; controlled cwd/env; every command runs through a dedicated operation supervisor; the manifest-bound execution timeout is 1–18,000 seconds and cleanup timeout is 5–600 seconds; execution plus cleanup fits the phase/aggregate reserve; timeout returns `TIMED_OUT` only after the command boundary is killed/reaped/proven empty, streams close, and logs finalize; stdout/stderr are hashed and size-bounded; secret canaries fail the command without being reproduced; exit status is checked; logs use secure retained-directory-handle traversal and mode `0600` on POSIX; and exceptions contain only safe command IDs.
+
+On Linux require cgroup v2, `cgroup.kill`, procfs, subreaper support, retained
+pidfds, one target cgroup, a supervisor outside that cgroup, fixed nonblocking
+IPC, and exact cgroup removal after emptiness. On Windows require a retained
+kill-on-close Job Object, blocked-child assignment before release, verified
+termination/empty state, reparse-safe directory handles, and checked handle
+closure. Missing capabilities fail before target launch.
+
+Adversarial cases include a concurrent unrelated sibling, PID reuse, stalled
+supervisor, nonempty cgroup/job, simulated kernel `D` state, lost control
+channel, stalled log close/fsync/rename, ancestor/final symlink swaps, and
+network log paths, bind-mount crossings, canary-log unlink/directory-fsync
+failure, and local-filesystem identity mismatch. A proof failure produces `WORKER_DISPOSAL_REQUIRED`; no
+daemon thread or mutation-capable callback may outlive an ordinary return.
 
 - [ ] **Step 2: Write failing state-machine tests**
 
-Require the exact phase order `preflight → setup → images → security → services → recovery → cross_repo → identities → cleanup`. Any failure blocks later promotion but always runs cleanup. Cleanup is LIFO, idempotent, registered before mutation, separately reports restoration failure, and never turns a mandatory skip into pass.
+Require the exact phase order `preflight → setup → images → security → services → recovery → cross_repo → identities → cleanup`. Any failure blocks later promotion. Verified ordinary failures run LIFO, idempotent cleanup registered before mutation; safely bounded restoration failures produce ordinary `FAIL + cleanup failed`. A disposal-required failure closes cleanup as `unverifiable`, blocks later in-host callbacks, and delegates only external worker disposal. Cleanup catches and safely aggregates other `BaseException` subclasses, rejects reentrant close, but special-cases `WorkerDisposalRequired`: transition immediately to `unverifiable`, stop the remaining callbacks, and propagate disposal. It never turns a mandatory skip into pass.
 
 - [ ] **Step 3: Capture RED**
 
-    python -m unittest tests.g0.test_runner tests.g0.test_state -v
+    python -m unittest tests.g0.test_runner tests.g0.test_state tests.g0.test_supervisor -v
 
 - [ ] **Step 4: Implement minimal interfaces**
 
@@ -126,7 +152,8 @@ Require the exact phase order `preflight → setup → images → security → s
         command_id: str
         argv: tuple[str, ...]
         cwd: Path
-        timeout_seconds: int
+        execution_timeout_seconds: int
+        cleanup_timeout_seconds: int
         environment: tuple[tuple[str, str], ...]
         secret_canaries: tuple[str, ...]
         stdout_limit: int
@@ -144,6 +171,8 @@ Require the exact phase order `preflight → setup → images → security → s
     class Runner:
         def run(self, spec: CommandSpec, *, input_bytes: bytes | None = None) -> CommandResult: ...
 
+    class WorkerDisposalRequired(BaseException): ...
+
     class QualificationState:
         def begin(self, phase: str) -> None: ...
         def pass_phase(self, phase: str, evidence: dict) -> None: ...
@@ -153,7 +182,7 @@ Require the exact phase order `preflight → setup → images → security → s
 
 - [ ] **Step 5: Run GREEN and commit**
 
-    python -m unittest tests.g0.test_runner tests.g0.test_state -v
+    python -m unittest tests.g0.test_runner tests.g0.test_state tests.g0.test_supervisor -v
     git add scripts/g0 tests/g0
     git commit -m "feat: add fail-closed worker state"
 
@@ -397,13 +426,15 @@ Do not fabricate `release-paths.json` or the Restream baseline before exact arti
 
 **Files:**
 - Create: `scripts/g0/worker.py`
+- Create: `scripts/g0/watchdog.py`
 - Create: `scripts/g0/invoke-oci-worker.ps1`
 - Create: `tests/g0/test_worker.py`
+- Create: `tests/g0/test_watchdog.py`
 - Create: `tests/g0/test_invoke_oci_worker.py`
 
 - [ ] **Step 1: Write failing controller tests**
 
-With fake adapters, exercise all nine phases, exact phase dependencies, one run root/label/prefix, aggregate/per-phase timeouts, persistent-baseline vs transient cleanup, failure injection at every mutation, evidence hashes, `WORKER_QUALIFICATION=PASS` only after every gate, and `FAIL` plus cleanup status otherwise.
+With fake adapters, exercise all nine phases, exact phase dependencies, one run root/label/prefix, command execution/cleanup budgets, 60–1,800-second final-cleanup reserve inside the 86,400-second aggregate, 15-second authenticated heartbeat, 90-second rolling lease, exact 86,490-second absolute terminal deadline, persistent-baseline vs transient cleanup, failure injection at every mutation, evidence hashes, `WORKER_QUALIFICATION=PASS` only after every gate, ordinary `FAIL` with `verified` or safely bounded `failed` cleanup, and the distinct `WORKER_DISPOSAL_REQUIRED` control path.
 
 Pin these remote interfaces:
 
@@ -411,29 +442,39 @@ Pin these remote interfaces:
     python3 scripts/g0/worker.py cleanup --run-manifest PATH --state PATH --evidence-root PATH
     python3 scripts/g0/worker.py verify-clean --run-manifest PATH --state PATH --evidence-root PATH
 
-`run` owns run-root creation, Docker/binfmt/service resources, phase evidence, its in-process signal/timeout traps, and the first cleanup attempt. `cleanup` is an idempotent recovery entry point bound to the same manifest/state and may remove only recorded project resources plus a handler that state proves this run added. `verify-clean` is read-only. None accepts arbitrary commands, resource names, secret values, or paths outside the manifest root.
+`run` owns run-root creation, Docker/binfmt/service resources, phase evidence,
+per-command supervisors, signal/timeout traps, heartbeats, and the first cleanup
+attempt. `cleanup` is an idempotent recovery entry point bound to the same
+manifest/state and may remove only recorded project resources plus a handler
+that state proves this run added. It refuses in-host cleanup when state is
+`unverifiable`. `verify-clean` is read-only. None accepts arbitrary commands,
+resource names, secret values, or paths outside the manifest root.
 
 - [ ] **Step 2: Write failing invocation tests**
 
-Require clean exact commit, host-key pin, OCI Bastion target identity, `sudo -n true`, no production credential read, manifest/hash verification before move, no private input in argv/log/evidence, no direct public SSH, bounded session/listener, redacted evidence allowlist on return, and session/listener cleanup on success/failure/interrupt.
+Require clean exact commit, host-key pin, OCI Bastion target identity, `sudo -n true`, no production credential read, manifest/hash verification before move, no private input in argv/log/evidence, no direct public SSH, bounded session/listener, an independently supervised external heartbeat/terminal-response lease, redacted evidence allowlist on return, and session/listener cleanup on success/failure/interrupt.
 
 Pin the local interface:
 
-    pwsh -File scripts/g0/invoke-oci-worker.ps1 -Mode Prepare|Run|Cleanup|VerifyClean -WorkspaceRoot PATH -RunManifest PATH -DockerBootstrapLock PATH -ToolLock PATH -EvidenceDestination PATH -OciProfile NAME -InstanceId VALUE -BastionId VALUE -TargetPrivateIp VALUE -SshHostKeyFingerprint VALUE -SshPrivateKeyPath PATH
+    pwsh -File scripts/g0/invoke-oci-worker.ps1 -Mode Prepare|Run|Cleanup|VerifyClean|RecoverDisposal -WorkspaceRoot PATH -RunManifest PATH -DockerBootstrapLock PATH -ToolLock PATH -EvidenceDestination PATH -OciProfile NAME -InstanceId VALUE -BastionId VALUE -TargetPrivateIp VALUE -SshHostKeyFingerprint VALUE -SshPrivateKeyPath PATH
 
-Runtime OCI IDs, private IP, profile, key path, and host-key fingerprint are never committed or echoed. The invoker alone owns OCI Bastion session lifecycle, the localhost listener/SSH process, transfer staging, and evidence return. On any local or remote failure it first requests remote `cleanup` if the authenticated channel is still available, always deletes the exact Bastion session and listener it created, and finally runs local residue checks. It never deletes a session it did not create. The remote controller owns Docker/binfmt/run-root cleanup; persistent Docker packages and the accepted IMDS guard are never cleanup targets.
+Runtime OCI IDs, private IP, profile, key path, and host-key fingerprint are never committed or echoed. Preparation atomically creates two separate owner-only, no-reparse local files with exclusive-create semantics: a one-run 256-bit control-authentication key and a closed canonical runtime control record. The record binds run ID, frozen commit, authenticated SSH target/private IP, exact instance OCID, domain-separated instance fingerprint, and live read-only instance/VNIC identities, and carries an HMAC-SHA-256 over that complete tuple and schema version. Neither file may be supplied by an existing path, link, or network filesystem. Every later mode, heartbeat, watchdog action, and post-action live identity read verifies the HMAC and exact tuple before acting; mismatch fails without OCI mutation. Both files are ignored runtime custody, never tracked or echoed, and are removed only after a terminal verified state.
+
+Before `Run`, the invoker launches `watchdog.py` as an independent local process with its private inputs read from those files rather than argv/logs. Arming atomically transfers custody of the exact Bastion session ID, listener PID/start identity/loopback port, and worker identity to the watchdog. The watchdog owns their external cleanup plus the rolling and absolute leases and remains able to delete only that session, stop only that listener, and force-stop only that worker if the PowerShell parent exits or stalls. Normal authenticated terminal disposition disarms it only after the invoker has completed and verified those same external cleanups. Lease loss monotonically creates/finalizes the disposal record; a late remote result cannot downgrade that state. Tests inject parent exit/stall before and after arming and require no Bastion session/listener residue.
+
+Before arming, the invoker owns OCI Bastion session lifecycle, the localhost listener/SSH process, transfer staging, and evidence return. After arming, the watchdog owns the exact Bastion session, exact listener identity, external worker lease, and disposal action until authenticated disarm; the live invoker may coordinate cleanup but cannot reclaim, bypass, or independently disarm that ownership, and parent exit/stall leaves it intact. On an ordinary failure the invoker first requests remote `cleanup` if the authenticated channel is still available and coordinates verified external cleanup through the watchdog. On `WORKER_DISPOSAL_REQUIRED`, missing heartbeat, or missing terminal response, it performs no further in-host mutation; the watchdog deletes only its exact Bastion session/listener, then uses the exact bound OCI instance action `STOP --force` with a bounded `STOPPED` waiter. Reuse is a separate explicit `RecoverDisposal` operation: start the same exact instance, wait for `RUNNING`, create a new exact Bastion session, and run read-only `verify-clean` proving no G0 process/cgroup/job/container/project residue plus the accepted Docker/IMDS baseline. If stop/start or verification fails, it halts for operator direction; it never terminates/reprovisions the instance automatically. It never deletes a session it did not create. Persistent Docker packages and the accepted IMDS guard are never cleanup targets.
 
 - [ ] **Step 3: Add static forbidden-action tests**
 
-Reject registry push/login, Terraform apply/destroy, OCI mutation except Bastion session lifecycle, DNS/OAuth/Discord/Twitch calls, host/network mode, public port publication, Restream lifecycle calls, production env paths, and G1/G2 activation.
+Reject registry push/login, Terraform apply/destroy, OCI mutation except Bastion session lifecycle and exact manifest-bound `racetime` stop/start for disposal recovery or idle shutdown, DNS/OAuth/Discord/Twitch calls, instance termination/reprovision, host/network mode, public port publication, Restream lifecycle calls, production env paths, and G1/G2 activation.
 
 - [ ] **Step 4: Capture RED, implement, and run GREEN**
 
-    python -m unittest tests.g0.test_worker tests.g0.test_invoke_oci_worker -v
+    python -m unittest tests.g0.test_worker tests.g0.test_watchdog tests.g0.test_invoke_oci_worker -v
 
 - [ ] **Step 5: Commit**
 
-    git add scripts/g0/worker.py scripts/g0/invoke-oci-worker.ps1 tests/g0
+    git add scripts/g0/worker.py scripts/g0/watchdog.py scripts/g0/invoke-oci-worker.ps1 tests/g0
     git commit -m "feat: orchestrate OCI G0 qualification"
 
 ## Task 11: Run local verification and review before remote preparation
@@ -453,7 +494,7 @@ Expected: all mandatory local contracts pass. Tool-unavailable skips are permitt
 
 - [ ] **Step 2: Run adversarial cleanup simulations**
 
-Inject failure after package download, firewall mutation, builder create, binfmt registration, each image import, service start, backup destruction, and Bastion creation. Require exact pre/accepted state restoration and no project residue.
+Inject failure after package download, firewall mutation, builder create, binfmt registration, each image import, service start, backup destruction, and Bastion creation. Also inject stalled supervisor, nonempty containment, lost heartbeat/control channel, and log finalization stalls. Require exact pre/accepted state restoration for ordinary failures; require disposal state, blocked in-host callbacks, exact-instance stop/restart, and read-only clean proof for unverifiable failures.
 
 - [ ] **Step 3: Request spec and code-quality reviews**
 
@@ -515,6 +556,14 @@ Use `invoke-oci-worker.ps1`. The remote controller must emit `WORKER_QUALIFICATI
 - [ ] **Step 3: Prove cleanup before accepting evidence**
 
 Require exact absence of transient builder/containers/networks/volumes/images/layouts/tools/test keys/source staging/Bastion session/listener and any added amd64 handler. Verify the exact prior binfmt state, exact accepted Docker firewall baseline, persistent Docker package/guard identity, no public ports, unchanged OCI boundary, and no production/G1 state.
+
+If the run emits `WORKER_DISPOSAL_REQUIRED` or loses its external lease, accept
+no qualification evidence. Exercise the Task 10 watchdog's pinned exact-session,
+exact-listener, and exact-worker `STOP --force` path. Then invoke
+`invoke-oci-worker.ps1 -Mode RecoverDisposal`; do not retry until its explicit
+start, `RUNNING` waiter, new Bastion session, and read-only `verify-clean`
+prove the worker boundary. A failed stop/start or clean proof halts for explicit
+operator direction; automatic termination or reprovision is forbidden.
 
 - [ ] **Step 4: Import only redacted retained evidence**
 

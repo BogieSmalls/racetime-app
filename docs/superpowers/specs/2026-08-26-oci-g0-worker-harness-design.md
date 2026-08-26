@@ -150,7 +150,67 @@ backup/restore, systemd, and cross-repository phases each have explicit budgets
 in the run manifest, with an overall worker maximum of 24 hours. The aggregate
 limit takes precedence and is deliberately longer than the 13-hour sum of the
 four platform/image ceilings so later gates and cleanup retain a real budget.
-A timeout is a failure followed by cleanup, never a skip.
+A command has three distinct clocks: its execution deadline
+(`execution_timeout_seconds`, 1 through 18,000), a bounded containment/cleanup
+deadline (`cleanup_timeout_seconds`, 5 through 600), and an external worker
+lease owned by the local OCI invoker. Every phase reserves both command clocks:
+execution plus cleanup must fit inside the phase's remaining allocation. The
+manifest reserves a separate final-cleanup allocation of 60 through 1,800
+seconds, and the phase allocations plus that reserve must fit inside the
+86,400-second aggregate wall limit. The worker emits an authenticated heartbeat
+every 15 seconds. The independently supervised invoker declares lease loss
+after 90 seconds without a valid heartbeat and also enforces an absolute
+terminal deadline of 86,490 seconds from run start: the 86,400-second aggregate
+already includes the reserved final cleanup, and only the 90-second external
+lease is added. Thus normal cleanup can finish inside its reserved clock while a
+silent or stalled controller remains externally bounded.
+
+`TIMED_OUT` is valid only when the execution deadline expired and
+the command boundary was then killed, reaped, proven empty, its streams reached
+EOF, and its logs were finalized inside the cleanup deadline. It is an ordinary
+failed phase followed by normal cleanup, never a skip.
+
+Every command runs inside a disposable operation supervisor, including
+read-only probes whose launch, capture, or logging syscalls can stall.
+The controller never runs arbitrary `Popen`, stream-drain, or log callbacks in
+threads that could outlive `Runner.run`. On Linux the target command tree is in
+one run-scoped cgroup v2 while the supervisor remains outside that target
+cgroup; on Windows the target tree is assigned to a retained Job Object before
+it is released. Controller/supervisor communication is a fixed nonblocking
+protocol. A successful command result is impossible until target-boundary
+emptiness, supervisor exit, stream EOF, and secure log finalization are all
+proved.
+
+Logs are local run-root artifacts. On Linux the supervisor traverses and
+creates their directory relative to a retained root directory descriptor,
+rejects symlinks at every component, creates temporary files with
+`O_EXCL|O_NOFOLLOW` and mode `0600`, then closes, fsyncs, and atomically
+finalizes them relative to the same descriptor. The Linux boundary verifies
+every component's `statx` mount identity against the approved local run-root
+mount and rejects bind-mount crossings plus remote/network filesystem types;
+lexical containment alone is insufficient. Windows retains
+reparse-checked ancestor and directory handles and denies delete sharing while
+writing/finalizing the equivalent files. Network filesystems and paths outside
+the run root are rejected. If a canary appears, the supervisor closes and
+unlinks every temporary/final command log relative to the retained directory
+handle and fsyncs the directory before reporting ordinary failure. If absence
+cannot be proved, the outcome is disposal-required.
+
+If ownership, boundary emptiness, supervisor termination, stream EOF, or log
+closure/finalization cannot be proved by the cleanup deadline, the outcome is
+`WORKER_DISPOSAL_REQUIRED`, not `TIMED_OUT` or ordinary `FAIL`. All later
+in-host phases and cleanup callbacks stop because they could race unknown work;
+only external Bastion/listener cleanup proceeds. A task stuck in Linux kernel
+`D` state cannot truthfully be bounded or killed in-host. The external lease
+maps a missing heartbeat or terminal response to the same disposition.
+
+Before reuse, the local OCI invoker stops the exact dedicated `racetime`
+instance, waits for `STOPPED`, restarts it, and requires `RUNNING`, no G0
+process/cgroup/job/container/project residue, the accepted Docker/IMDS baseline,
+and read-only `verify-clean`. Evidence from the abandoned run is invalid. The
+invoker may not retry merely because SSH reconnects. Instance termination or
+reprovision is not pre-authorized by this design; if stop/restart cannot restore
+a provably clean worker, the workflow halts for explicit operator direction.
 
 ## Inputs and transport
 
@@ -254,10 +314,28 @@ selected amd64/arm64 identities, per-platform elapsed time, complete pre/post
 `binfmt_misc` snapshots, exact cleanup inventory, and post-run OCI network
 recheck.
 
-The remote run ends with `WORKER_QUALIFICATION=PASS` or a failed phase plus
-cleanup status; it does not mark G0 complete. The operator imports only the
-declared redacted evidence, performs a docs/checklist/traceability closeout
-commit, proves that the qualified commit to closeout diff contains no executable
+The remote run ends with `WORKER_QUALIFICATION=PASS`, an ordinary failed phase
+plus `verified` or `failed` cleanup status, or a separate remote disposal
+signal. `failed` means cleanup stayed safely bounded but exact restoration did
+not succeed; it remains ordinary failed evidence and never permits worker
+qualification. `WORKER_DISPOSAL_REQUIRED` is reserved for an unprovable
+ownership, termination, stream, or log boundary.
+
+The local invoker is the authoritative creator and monotonic finalizer of the
+closed disposal record. It binds any authenticated remote disposal signal, or
+creates the record itself on heartbeat/terminal-response loss, before external
+recovery. A late remote response cannot downgrade the disposition. The record
+uses the run ID and a domain-separated SHA-256 fingerprint of the exact runtime
+instance OCID; the OCID itself stays only in ignored runtime control state and
+never enters tracked evidence. It records last authenticated heartbeat, failed
+proof classes, external lease/disposal status, and canary-safe hashes complete
+before failure. Custody uses an ignored append-only local control file followed
+by a closed redacted retained record. It never pretends incomplete command
+hashes, logs, phase evidence, or cleanup are valid. None of these outcomes marks
+G0 complete. The operator
+imports only the declared redacted evidence, performs a
+docs/checklist/traceability closeout commit, proves that the qualified commit
+to closeout diff contains no executable
 or candidate-source change, and reruns final validators. Any executable change
 invalidates the affected remote evidence.
 
@@ -265,6 +343,13 @@ invalidates the affected remote evidence.
 
 - Install cleanup before Docker project or `binfmt_misc` mutation.
 - Check every exit status and timeout; never convert a skip into a pass.
+- Distinguish a verified `TIMED_OUT` cleanup from
+  `WORKER_DISPOSAL_REQUIRED`. The latter blocks every later in-host action and
+  requires exact-instance stop/restart plus independent clean verification
+  before reuse; failure of that recovery stops for operator direction.
+- Cleanup "always runs" means either all safe in-host LIFO callbacks run and
+  are verified, or the state closes as `unverifiable` and external host
+  disposal replaces callbacks that could race unknown work.
 - Keep Docker bootstrap failure separate from qualification cleanup. If a
   partially installed engine cannot meet the persistent host contract, stop and
   report exact package/service state rather than improvising removal.
@@ -279,5 +364,8 @@ This phase does not publish images, push a manifest, start the public or
 restricted RaceTime stack, create application data, issue TLS, configure DNS,
 create OAuth applications, use production credentials, move schedulers, alter
 Restream infrastructure, resize the VM, add swap, open OCI ports, or authorize
-G2/G3. It does not uninstall Docker after G0 because Docker is part of the
-approved RaceTime host architecture.
+G2/G3. The only additional OCI lifecycle authority is stop/restart of the exact
+dedicated `racetime` worker after `WORKER_DISPOSAL_REQUIRED` or when idle;
+termination/reprovision remains outside this authorization. It does not
+uninstall Docker after G0 because Docker is part of the approved RaceTime host
+architecture.
