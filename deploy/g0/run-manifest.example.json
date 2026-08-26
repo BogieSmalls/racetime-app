@@ -47,13 +47,13 @@
   ],
   "phases": [
     {"name": "preflight", "timeout_seconds": 1800},
-    {"name": "worker-setup", "timeout_seconds": 3600},
+    {"name": "setup", "timeout_seconds": 3600},
     {"name": "images", "timeout_seconds": 50400},
-    {"name": "security-and-sbom", "timeout_seconds": 7200},
-    {"name": "services-and-configuration", "timeout_seconds": 7200},
-    {"name": "recovery-and-service-hardening", "timeout_seconds": 7200},
-    {"name": "cross-repository-evidence", "timeout_seconds": 3600},
-    {"name": "identities-and-gates", "timeout_seconds": 1800},
+    {"name": "security", "timeout_seconds": 7200},
+    {"name": "services", "timeout_seconds": 7200},
+    {"name": "recovery", "timeout_seconds": 7200},
+    {"name": "cross_repo", "timeout_seconds": 3600},
+    {"name": "identities", "timeout_seconds": 1800},
     {"name": "cleanup", "timeout_seconds": 3600}
   ]
 }

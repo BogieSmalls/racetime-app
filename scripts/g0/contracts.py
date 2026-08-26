@@ -17,6 +17,7 @@ class ContractError(ValueError):
 _DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}\Z")
 _RUN_ID_PATTERN = re.compile(r"[0-9]{8}t[0-9]{6}z-[0-9a-f]{8}\Z")
+_RELATIVE_PATH_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*\Z")
 _SAFE_NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}\Z")
 _IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _BRANCH_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}\Z")
@@ -26,13 +27,13 @@ _IMAGE_REFERENCE_PATTERN = re.compile(
 )
 _PHASE_NAMES = (
     "preflight",
-    "worker-setup",
+    "setup",
     "images",
-    "security-and-sbom",
-    "services-and-configuration",
-    "recovery-and-service-hardening",
-    "cross-repository-evidence",
-    "identities-and-gates",
+    "security",
+    "services",
+    "recovery",
+    "cross_repo",
+    "identities",
     "cleanup",
 )
 _CUSTODY_CLASSES = frozenset({"retained", "transient"})
@@ -53,6 +54,10 @@ def safe_relative_path(value: object, label: str) -> PurePosixPath:
         or "//" in value
     ):
         raise ContractError(f"{label} must be a workspace-relative POSIX path")
+    if _RELATIVE_PATH_PATTERN.fullmatch(value) is None:
+        raise ContractError(
+            f"{label} may contain only ASCII letters, digits, slash, dot, underscore, and hyphen"
+        )
     raw_parts = value.split("/")
     if any(part in {"", ".", ".."} for part in raw_parts):
         raise ContractError(f"{label} contains traversal or an empty segment")

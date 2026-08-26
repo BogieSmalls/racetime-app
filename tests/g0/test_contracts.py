@@ -30,13 +30,13 @@ RUN_ID = "20260826t120000z-1234abcd"
 PROJECT_PREFIX = f"z1rr-racetime-g0-{RUN_ID}"
 PHASE_NAMES = (
     "preflight",
-    "worker-setup",
+    "setup",
     "images",
-    "security-and-sbom",
-    "services-and-configuration",
-    "recovery-and-service-hardening",
-    "cross-repository-evidence",
-    "identities-and-gates",
+    "security",
+    "services",
+    "recovery",
+    "cross_repo",
+    "identities",
     "cleanup",
 )
 
@@ -49,7 +49,11 @@ def schema_errors(schema, value, root=None, location="$"):
         target = root
         for part in schema["$ref"].removeprefix("#/").split("/"):
             target = target[part.replace("~1", "/").replace("~0", "~")]
-        return schema_errors(target, value, root, location)
+        errors = schema_errors(target, value, root, location)
+        siblings = {key: child for key, child in schema.items() if key != "$ref"}
+        if siblings:
+            errors.extend(schema_errors(siblings, value, root, location))
+        return errors
     if "oneOf" in schema:
         matches = [
             not schema_errors(option, value, root, location)
@@ -118,7 +122,7 @@ def schema_errors(schema, value, root=None, location="$"):
             errors.append(f"{location}: string too short")
         if "maxLength" in schema and len(value) > schema["maxLength"]:
             errors.append(f"{location}: string too long")
-        if "pattern" in schema and re.fullmatch(schema["pattern"], value) is None:
+        if "pattern" in schema and re.search(schema["pattern"], value) is None:
             errors.append(f"{location}: pattern mismatch")
         if schema.get("format") == "date-time":
             try:
@@ -515,23 +519,42 @@ class ContractTests(unittest.TestCase):
                     validate_run_manifest(mutation)
 
     def test_paths_are_workspace_relative_and_outputs_have_safe_names(self):
-        for unsafe in (
+        for valid in (
+            "repositories/racetime",
+            "docs/release/v1.2/report_name-1.json",
+            "tests/.fixtures/data.json",
+        ):
+            with self.subTest(valid_path=valid):
+                self.assertEqual(valid, str(safe_relative_path(valid, "test path")))
+
+        unsafe_paths = (
             "../secrets.env",
             "/home/operator/.ssh/id_ed25519",
             "C:/Users/operator/.ssh/id_ed25519",
             "\\\\server\\share\\private.json",
             "~/.ssh/id_ed25519",
             "evidence\\report.json",
-        ):
-            with self.subTest(path=unsafe):
-                with self.assertRaises(ContractError):
-                    safe_relative_path(unsafe, "test path")
-
-        traversal = valid_run_manifest()
-        traversal["sources"][0]["local_path"] = "repositories/../private"
-        self.assertSchemaInvalid("run-manifest", traversal)
-        with self.assertRaises(ContractError):
-            validate_run_manifest(traversal)
+            "evidence/report name.json",
+            "evidence/report\nname.json",
+            "evidence/report.json\n",
+            "evidence/report$.json",
+            "evidence/report;.json",
+            "repositories/../private",
+        )
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            manifest_path = Path(temporary_directory) / "run-manifest.json"
+            for unsafe in unsafe_paths:
+                manifest = valid_run_manifest()
+                manifest["sources"][0]["local_path"] = unsafe
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                with self.subTest(path=unsafe):
+                    self.assertSchemaInvalid("run-manifest", manifest)
+                    with self.assertRaises(ContractError):
+                        safe_relative_path(unsafe, "test path")
+                    with self.assertRaises(ContractError):
+                        validate_run_manifest(manifest)
+                    with self.assertRaises(ContractError):
+                        load_json(manifest_path, "run-manifest")
 
         for unsafe_name in ("../report.json", ".private", "report name.json"):
             manifest = valid_run_manifest()
@@ -626,6 +649,33 @@ class ContractTests(unittest.TestCase):
                 self.assertSchemaInvalid("worker-evidence", mutation)
                 with self.assertRaises(ContractError):
                     validate_worker_evidence(mutation)
+
+    def test_worker_evidence_requires_exact_ordered_phase_names(self):
+        duplicate = valid_worker_evidence()
+        duplicate["phases"][1] = copy.deepcopy(duplicate["phases"][0])
+
+        missing = valid_worker_evidence()
+        missing["phases"].pop(4)
+
+        swapped = valid_worker_evidence()
+        swapped["phases"][2], swapped["phases"][3] = (
+            swapped["phases"][3],
+            swapped["phases"][2],
+        )
+
+        wrong = valid_worker_evidence()
+        wrong["phases"][6]["name"] = "cross-repository-evidence"
+
+        for label, evidence in (
+            ("duplicate", duplicate),
+            ("missing", missing),
+            ("swapped", swapped),
+            ("wrong", wrong),
+        ):
+            with self.subTest(case=label):
+                self.assertSchemaInvalid("worker-evidence", evidence)
+                with self.assertRaises(ContractError):
+                    validate_worker_evidence(evidence)
 
     def test_restream_history_is_metadata_only_and_requires_safe_disposition(self):
         for key, value in (

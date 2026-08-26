@@ -31,7 +31,18 @@
       "type": "array",
       "minItems": 9,
       "maxItems": 9,
-      "items": {"$ref": "#/$defs/phase"}
+      "prefixItems": [
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "preflight"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "setup"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "images"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "security"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "services"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "recovery"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "cross_repo"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "identities"}}},
+        {"$ref": "#/$defs/phase", "properties": {"name": {"const": "cleanup"}}}
+      ],
+      "items": false
     },
     "retained_artifacts": {
       "type": "array",
@@ -61,7 +72,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 255,
-      "pattern": "^(?!/)(?!~)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+      "pattern": "^(?![\\s\\S]*[\\r\\n])(?!/)(?!~)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:)[A-Za-z0-9][A-Za-z0-9._/-]*$"
     },
     "safe_name": {
       "type": "string",
@@ -86,13 +97,13 @@
         "name": {
           "enum": [
             "preflight",
-            "worker-setup",
+            "setup",
             "images",
-            "security-and-sbom",
-            "services-and-configuration",
-            "recovery-and-service-hardening",
-            "cross-repository-evidence",
-            "identities-and-gates",
+            "security",
+            "services",
+            "recovery",
+            "cross_repo",
+            "identities",
             "cleanup"
           ]
         },

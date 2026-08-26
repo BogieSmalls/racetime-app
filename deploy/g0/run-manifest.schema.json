@@ -59,13 +59,13 @@
       "maxItems": 9,
       "prefixItems": [
         {"$ref": "#/$defs/phase_preflight"},
-        {"$ref": "#/$defs/phase_worker_setup"},
+        {"$ref": "#/$defs/phase_setup"},
         {"$ref": "#/$defs/phase_images"},
-        {"$ref": "#/$defs/phase_security_and_sbom"},
-        {"$ref": "#/$defs/phase_services_and_configuration"},
-        {"$ref": "#/$defs/phase_recovery_and_service_hardening"},
-        {"$ref": "#/$defs/phase_cross_repository_evidence"},
-        {"$ref": "#/$defs/phase_identities_and_gates"},
+        {"$ref": "#/$defs/phase_security"},
+        {"$ref": "#/$defs/phase_services"},
+        {"$ref": "#/$defs/phase_recovery"},
+        {"$ref": "#/$defs/phase_cross_repo"},
+        {"$ref": "#/$defs/phase_identities"},
         {"$ref": "#/$defs/phase_cleanup"}
       ],
       "items": false
@@ -93,7 +93,7 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 255,
-      "pattern": "^(?!/)(?!~)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:)[A-Za-z0-9][A-Za-z0-9._/-]*$"
+      "pattern": "^(?![\\s\\S]*[\\r\\n])(?!/)(?!~)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*\\\\)(?!.*:)[A-Za-z0-9][A-Za-z0-9._/-]*$"
     },
     "custody_class": {
       "enum": ["retained", "transient"]
@@ -152,12 +152,12 @@
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
-    "phase_worker_setup": {
+    "phase_setup": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "timeout_seconds"],
       "properties": {
-        "name": {"const": "worker-setup"},
+        "name": {"const": "setup"},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
@@ -170,48 +170,48 @@
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
-    "phase_security_and_sbom": {
+    "phase_security": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "timeout_seconds"],
       "properties": {
-        "name": {"const": "security-and-sbom"},
+        "name": {"const": "security"},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
-    "phase_services_and_configuration": {
+    "phase_services": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "timeout_seconds"],
       "properties": {
-        "name": {"const": "services-and-configuration"},
+        "name": {"const": "services"},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
-    "phase_recovery_and_service_hardening": {
+    "phase_recovery": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "timeout_seconds"],
       "properties": {
-        "name": {"const": "recovery-and-service-hardening"},
+        "name": {"const": "recovery"},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
-    "phase_cross_repository_evidence": {
+    "phase_cross_repo": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "timeout_seconds"],
       "properties": {
-        "name": {"const": "cross-repository-evidence"},
+        "name": {"const": "cross_repo"},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
-    "phase_identities_and_gates": {
+    "phase_identities": {
       "type": "object",
       "additionalProperties": false,
       "required": ["name", "timeout_seconds"],
       "properties": {
-        "name": {"const": "identities-and-gates"},
+        "name": {"const": "identities"},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
       }
     },
