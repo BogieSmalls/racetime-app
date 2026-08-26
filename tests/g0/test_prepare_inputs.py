@@ -351,6 +351,30 @@ class PrepareInputsTests(unittest.TestCase):
         with self.assertRaisesRegex(PreparationError, "symlink"):
             self.prepare("out-artifact-link")
 
+    def test_rejects_artifact_destination_collision_with_prepared_source(self):
+        artifact = self.workspace / "artifacts" / "racetime.bundle"
+        artifact.parent.mkdir()
+        artifact.write_bytes(b"replacement bytes\n")
+        source = copy.deepcopy(self.source)
+        source["bundle_path"] = "custody/artifacts/racetime.bundle"
+        _write_json(self.manifest_path, _manifest(source))
+        _write_json(
+            self.workspace / "run-manifest.artifacts.json",
+            {
+                "schema_version": "1",
+                "artifacts": [
+                    {
+                        "name": "racetime.bundle",
+                        "source_path": "artifacts/racetime.bundle",
+                        "destination_path": "custody/artifacts/racetime.bundle",
+                        "sha256": _digest(artifact),
+                    }
+                ],
+            },
+        )
+        with self.assertRaisesRegex(PreparationError, "destination collides"):
+            self.prepare()
+
     def test_accepts_metadata_only_reviewed_inactive_bundle_history(self):
         _git(self.repository, "checkout", "--orphan", "history")
         _git(self.repository, "rm", "-rf", ".")

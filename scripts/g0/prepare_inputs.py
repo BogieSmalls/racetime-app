@@ -448,7 +448,13 @@ def _copy_artifacts(workspace: Path, staging: Path, declarations: list[dict], re
         target.parent.mkdir(parents=True, exist_ok=True)
         if _has_symlink_or_reparse(target.parent, staging):
             raise PreparationError("artifact destination crosses a symlink boundary")
-        target.write_bytes(value)
+        if target.exists():
+            raise PreparationError("artifact destination collides with prepared custody")
+        try:
+            with target.open("xb") as output:
+                output.write(value)
+        except FileExistsError as error:
+            raise PreparationError("artifact destination collides with prepared custody") from error
         result.append({"name": item["name"], "path": item["destination_path"], "sha256": item["sha256"], "size_bytes": size})
     return {"schema_version": "1", "artifacts": result}
 
