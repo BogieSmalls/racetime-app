@@ -167,6 +167,9 @@ _MAX_JSON_DEPTH = 32
 _MAX_JSON_NODES = 100_000
 _MAX_MONOTONIC_NS = (1 << 63) - 1
 _NANOSECONDS_PER_SECOND = 1_000_000_000
+_MONOTONIC_SECONDS_PATTERN = re.compile(
+    r"(0|[1-9][0-9]{0,9})\.([0-9]{9})\Z"
+)
 
 
 def safe_relative_path(value: object, label: str) -> PurePosixPath:
@@ -937,8 +940,8 @@ def validate_worker_evidence(value: object) -> dict:
     return result
 
 
-def validate_worker_disposal(value: object) -> dict:
-    """Validate the redacted, append-only worker-disposal control record."""
+def _validate_worker_disposal_structure(value: object) -> dict:
+    """Structurally parse disposal data; never use this alone for qualification."""
 
     _require_plain_json(value, "worker disposal")
     result = _object(
@@ -1072,21 +1075,33 @@ def validate_worker_disposal(value: object) -> dict:
     return result
 
 
-def _canonical_sha256(value: dict) -> str:
-    try:
-        payload = json.dumps(
-            value,
-            ensure_ascii=True,
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    except (TypeError, ValueError, RecursionError) as error:
-        raise ContractError("contract cannot be encoded canonically") from error
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+def _sha256_bytes(value: bytes) -> str:
+    return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
-def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
+def _monotonic_seconds_to_ns(value: object, label: str) -> int:
+    text = _string(
+        value,
+        label,
+        pattern=_MONOTONIC_SECONDS_PATTERN,
+        maximum=21,
+    )
+    match = _MONOTONIC_SECONDS_PATTERN.fullmatch(text)
+    if match is None:  # pragma: no cover - enforced by _string
+        raise ContractError(f"{label} has an unsafe format")
+    nanoseconds = (
+        int(match.group(1)) * _NANOSECONDS_PER_SECOND + int(match.group(2))
+    )
+    if nanoseconds > _MAX_MONOTONIC_NS:
+        raise ContractError(f"{label} exceeds the monotonic clock range")
+    return nanoseconds
+
+
+def _validate_disposal_control(
+    value: object,
+    run_manifest: dict,
+    run_manifest_sha256: str,
+) -> dict:
     _require_plain_json(value, "trusted disposal control")
     control = _object(
         value,
@@ -1099,6 +1114,8 @@ def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
             "instance_fingerprint_sha256",
             "run_manifest_sha256",
             "lease_status",
+            "trigger_cause",
+            "trigger_latched_at_monotonic_seconds",
             "run_started_monotonic_ns",
             "last_authenticated_heartbeat_monotonic_ns",
             "authenticated_remote_disposal_monotonic_ns",
@@ -1121,12 +1138,21 @@ def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
     manifest_sha256 = safe_sha256(
         control["run_manifest_sha256"], "trusted disposal control run manifest hash"
     )
-    if manifest_sha256 != _canonical_sha256(run_manifest):
+    if manifest_sha256 != run_manifest_sha256:
         raise ContractError("trusted disposal control run manifest hash is incorrect")
     lease_status = _choice(
         control["lease_status"],
         "trusted disposal control lease_status",
         _LEASE_STATUSES,
+    )
+    trigger_cause = _choice(
+        control["trigger_cause"],
+        "trusted disposal control trigger_cause",
+        _LEASE_STATUSES,
+    )
+    trigger_latched_at = _monotonic_seconds_to_ns(
+        control["trigger_latched_at_monotonic_seconds"],
+        "trusted disposal control trigger latch",
     )
 
     run_started = _integer(
@@ -1187,22 +1213,50 @@ def _validate_disposal_control(value: object, run_manifest: dict) -> dict:
     trigger_at, _, trigger_status = min(triggers)
     if disposal_observed < trigger_at:
         raise ContractError("trusted disposal control has no mature disposal trigger")
-    if lease_status != trigger_status:
+    if lease_status != trigger_status or trigger_cause != trigger_status:
         raise ContractError("trusted disposal control did not retain the earliest trigger")
+    if trigger_latched_at != trigger_at:
+        raise ContractError("trusted disposal control trigger latch time is incorrect")
     return control
 
 
-def _disposal_hash_allowlist(run_manifest: dict) -> dict[str, tuple[str, str | None]]:
+def _validate_disposal_control_transition(previous: dict | None, candidate: dict) -> None:
+    if previous is None:
+        return
+    frozen_keys = (
+        "schema_version",
+        "armed",
+        "run_id",
+        "project_prefix",
+        "instance_fingerprint_sha256",
+        "run_manifest_sha256",
+        "lease_status",
+        "trigger_cause",
+        "trigger_latched_at_monotonic_seconds",
+        "run_started_monotonic_ns",
+        "last_authenticated_heartbeat_monotonic_ns",
+        "authenticated_remote_disposal_monotonic_ns",
+        "disposal_observed_monotonic_ns",
+        "absolute_terminal_deadline_monotonic_ns",
+    )
+    if any(previous[key] != candidate[key] for key in frozen_keys):
+        raise ContractError("trusted disposal trigger latch or basis changed")
+
+
+def _disposal_hash_allowlist(
+    run_manifest: dict,
+    run_manifest_sha256: str,
+    trusted_control_sha256: str,
+) -> dict[str, tuple[str, str | None]]:
     allowed: dict[str, tuple[str, str | None]] = {}
 
     def register(name: str, kind: str, sha256: str | None) -> None:
         entry = (kind, sha256)
-        previous = allowed.get(name)
-        if previous is not None and previous != entry:
-            raise ContractError("run manifest disposal hash protocol is ambiguous")
+        if name in allowed:
+            raise ContractError("run manifest disposal hash origins collide")
         allowed[name] = entry
 
-    register("run-manifest.json", "run-manifest", _canonical_sha256(run_manifest))
+    register("run-manifest.json", "run-manifest", run_manifest_sha256)
     register(
         "docker-bootstrap-lock.json",
         "docker-bootstrap-lock",
@@ -1213,7 +1267,18 @@ def _disposal_hash_allowlist(run_manifest: dict) -> dict[str, tuple[str, str | N
         "tool-lock",
         run_manifest["lock_identities"]["tool_lock_sha256"],
     )
-    register("control-record.json", "control-record", None)
+    register("control-record.json", "control-record", trusted_control_sha256)
+    register("worker-evidence.json", "reserved-output", None)
+    register("worker-disposal.json", "reserved-control", None)
+    for output in run_manifest["outputs"]:
+        if output["name"] == "worker-evidence.json":
+            continue
+        output_kind = (
+            "retained-artifact"
+            if output["custody_class"] == "retained"
+            else "reserved-output"
+        )
+        register(output["name"], output_kind, None)
     for source in run_manifest["sources"]:
         register(
             PurePosixPath(source["bundle_path"]).name,
@@ -1225,9 +1290,6 @@ def _disposal_hash_allowlist(run_manifest: dict) -> dict[str, tuple[str, str | N
             "source-archive",
             source["archive_sha256"],
         )
-    for output in run_manifest["outputs"]:
-        if output["custody_class"] == "retained" and output["name"] != "worker-evidence.json":
-            register(output["name"], "retained-artifact", None)
     return allowed
 
 
@@ -1241,14 +1303,43 @@ def validate_worker_disposal_transition(
     candidate: object,
     *,
     run_manifest: object,
+    run_manifest_sha256: object,
+    previous_trusted_control: object | None,
     trusted_control: object,
+    trusted_control_sha256: object,
 ) -> dict:
     """Validate one monotonic disposal-record transition against trusted control state."""
 
     manifest = validate_run_manifest(run_manifest)
-    current = validate_worker_disposal(candidate)
-    prior = None if previous is None else validate_worker_disposal(previous)
-    control = _validate_disposal_control(trusted_control, manifest)
+    retained_manifest_sha256 = safe_sha256(
+        run_manifest_sha256,
+        "retained run manifest hash",
+    )
+    retained_control_sha256 = safe_sha256(
+        trusted_control_sha256,
+        "retained trusted control hash",
+    )
+    current = _validate_worker_disposal_structure(candidate)
+    prior = (
+        None if previous is None else _validate_worker_disposal_structure(previous)
+    )
+    prior_control = (
+        None
+        if previous_trusted_control is None
+        else _validate_disposal_control(
+            previous_trusted_control,
+            manifest,
+            retained_manifest_sha256,
+        )
+    )
+    control = _validate_disposal_control(
+        trusted_control,
+        manifest,
+        retained_manifest_sha256,
+    )
+    if prior is not None and prior_control is None:
+        raise ContractError("worker disposal transition lacks prior trusted control")
+    _validate_disposal_control_transition(prior_control, control)
     if not control["armed"]:
         raise ContractError("worker disposal requires an armed trusted control")
 
@@ -1265,11 +1356,19 @@ def validate_worker_disposal_transition(
         != control["instance_fingerprint_sha256"]
     ):
         raise ContractError("worker disposal instance identity does not match trusted control")
-    if current["lease_status"] != control["lease_status"]:
+    if (
+        current["lease_status"] != control["lease_status"]
+        or current["lease_status"] != control["trigger_cause"]
+    ):
         raise ContractError("worker disposal lease status does not match trusted control")
 
-    allowlist = _disposal_hash_allowlist(manifest)
+    allowlist = _disposal_hash_allowlist(
+        manifest,
+        retained_manifest_sha256,
+        retained_control_sha256,
+    )
     manifest_hash = None
+    control_hash = None
     for complete_hash in current["complete_pre_failure_hashes"]:
         allowed = allowlist.get(complete_hash["name"])
         if allowed is None or allowed[0] != complete_hash["kind"]:
@@ -1278,8 +1377,12 @@ def validate_worker_disposal_transition(
             raise ContractError("worker disposal hash does not match its protocol identity")
         if complete_hash["name"] == "run-manifest.json":
             manifest_hash = complete_hash["sha256"]
+        elif complete_hash["name"] == "control-record.json":
+            control_hash = complete_hash["sha256"]
     if manifest_hash != control["run_manifest_sha256"]:
         raise ContractError("worker disposal lacks the exact run manifest hash")
+    if control_hash != retained_control_sha256:
+        raise ContractError("worker disposal lacks the exact trusted control hash")
 
     if prior is None:
         if len(current["lifecycle_events"]) != 1:
@@ -1590,9 +1693,7 @@ def _read_contract_bytes(contract_path: Path) -> bytes:
     return _read_contract_bytes_posix(contract_path)
 
 
-def load_json(path: Path, schema_name: str) -> dict:
-    """Load one named G0 contract without following symlinks and validate it."""
-
+def _load_json_value_with_bytes(path: Path) -> tuple[object, bytes]:
     contract_path = Path(path)
     try:
         raw = _read_contract_bytes(contract_path)
@@ -1614,16 +1715,55 @@ def load_json(path: Path, schema_name: str) -> dict:
         raise
     except (ValueError, RecursionError) as error:
         raise ContractError("cannot decode contract JSON") from error
+    return value, raw
+
+
+def load_run_manifest_with_sha256(path: Path) -> tuple[dict, str]:
+    """Atomically load a run manifest and retain its exact byte identity."""
+
+    value, raw = _load_json_value_with_bytes(path)
+    return validate_run_manifest(value), _sha256_bytes(raw)
+
+
+def load_worker_disposal(
+    path: Path,
+    *,
+    previous: object | None,
+    run_manifest_path: Path,
+    previous_trusted_control: object | None,
+    trusted_control_path: Path,
+) -> dict:
+    """Load disposal data only with exact retained manifest and control context."""
+
+    manifest, manifest_sha256 = load_run_manifest_with_sha256(run_manifest_path)
+    control, control_raw = _load_json_value_with_bytes(trusted_control_path)
+    disposal, _ = _load_json_value_with_bytes(path)
+    return validate_worker_disposal_transition(
+        previous,
+        disposal,
+        run_manifest=manifest,
+        run_manifest_sha256=manifest_sha256,
+        previous_trusted_control=previous_trusted_control,
+        trusted_control=control,
+        trusted_control_sha256=_sha256_bytes(control_raw),
+    )
+
+
+def load_json(path: Path, schema_name: str) -> dict:
+    """Load a non-disposal G0 contract and validate it."""
+
     normalized_name = schema_name.removesuffix(".schema.json")
+    if normalized_name == "worker-disposal":
+        raise ContractError("worker disposal requires trusted byte context")
     validators: dict[str, Callable[[object], dict]] = {
         "run-manifest": validate_run_manifest,
         "docker-bootstrap-lock": _validate_bootstrap_lock,
         "tool-lock": validate_tool_lock,
         "worker-evidence": validate_worker_evidence,
-        "worker-disposal": validate_worker_disposal,
         "restream-history": validate_restream_history,
     }
     validator = validators.get(normalized_name)
     if validator is None:
         raise ContractError("unknown schema name")
+    value, _ = _load_json_value_with_bytes(path)
     return validator(value)

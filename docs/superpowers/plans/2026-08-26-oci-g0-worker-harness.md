@@ -74,10 +74,28 @@ Expose:
 
     class ContractError(ValueError): ...
     def load_json(path: Path, schema_name: str) -> dict: ...
+    def load_run_manifest_with_sha256(path: Path) -> tuple[dict, str]: ...
+    def load_worker_disposal(
+        path: Path,
+        *,
+        previous: object | None,
+        run_manifest_path: Path,
+        previous_trusted_control: object | None,
+        trusted_control_path: Path,
+    ) -> dict: ...
     def validate_run_manifest(value: object) -> dict: ...
     def validate_tool_lock(value: object) -> dict: ...
     def validate_worker_evidence(value: object) -> dict: ...
-    def validate_worker_disposal(value: object) -> dict: ...
+    def validate_worker_disposal_transition(
+        previous: object | None,
+        candidate: object,
+        *,
+        run_manifest: object,
+        run_manifest_sha256: object,
+        previous_trusted_control: object | None,
+        trusted_control: object,
+        trusted_control_sha256: object,
+    ) -> dict: ...
     def validate_restream_history(value: object) -> dict: ...
     def safe_relative_path(value: object, label: str) -> PurePosixPath: ...
     def safe_sha256(value: object, label: str) -> str: ...
@@ -89,6 +107,17 @@ The separate disposal schema contains only safe run/instance identities, last
 heartbeat, failed proof classes, lease/disposal lifecycle status, and hashes
 known complete before failure. It must reject phase PASS claims, incomplete
 command hashes/log identities, and ordinary verified-clean status.
+
+Generic `load_json` must reject worker-disposal input: structural parsing alone
+is never qualification evidence. `load_worker_disposal` atomically and
+boundedly loads the disposal, retained run manifest, and trusted control record,
+binds the fixed manifest/control hashes to their exact file bytes, and performs
+the complete trusted-context transition validation. Once the earliest mature
+authenticated-remote, heartbeat-loss, or absolute-terminal trigger is latched,
+its cause, exact nine-fractional-digit monotonic-seconds timestamp, and all
+trigger-basis fields are immutable across later disposal transitions. Evidence
+leaf names are globally unique across fixed control records, source artifacts,
+and manifest outputs, even when colliding entries carry identical digests.
 
 - [ ] **Step 4: Run GREEN and schema self-validation**
 

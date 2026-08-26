@@ -20,7 +20,6 @@ from scripts.g0.contracts import (
     validate_restream_history,
     validate_run_manifest,
     validate_tool_lock,
-    validate_worker_disposal,
     validate_worker_evidence,
 )
 
@@ -189,6 +188,70 @@ def binary_lock(name="buildx"):
     }
 
 
+def exact_json_bytes(value):
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def exact_json_sha256(value):
+    return "sha256:" + hashlib.sha256(exact_json_bytes(value)).hexdigest()
+
+
+def format_monotonic_seconds(nanoseconds):
+    return (
+        f"{nanoseconds // 1_000_000_000}."
+        f"{nanoseconds % 1_000_000_000:09d}"
+    )
+
+
+def validate_worker_disposal_structure(value):
+    return g0_contracts._validate_worker_disposal_structure(value)
+
+
+_AUTO_PREVIOUS_CONTROL = object()
+_RAW_DISPOSAL_TRANSITION = getattr(
+    g0_contracts, "validate_worker_disposal_transition"
+)
+
+
+def validate_disposal_transition(
+    previous,
+    candidate,
+    *,
+    run_manifest,
+    trusted_control,
+    previous_trusted_control=_AUTO_PREVIOUS_CONTROL,
+    run_manifest_sha256=None,
+    trusted_control_sha256=None,
+):
+    if previous_trusted_control is _AUTO_PREVIOUS_CONTROL:
+        previous_trusted_control = trusted_control if previous is not None else None
+    retained_control_sha256 = trusted_control_sha256 or exact_json_sha256(
+        trusted_control
+    )
+    for record in (previous, candidate):
+        if record is None:
+            continue
+        for complete_hash in record["complete_pre_failure_hashes"]:
+            if complete_hash["name"] == "control-record.json":
+                complete_hash["sha256"] = retained_control_sha256
+    return _RAW_DISPOSAL_TRANSITION(
+        previous,
+        candidate,
+        run_manifest=run_manifest,
+        run_manifest_sha256=run_manifest_sha256
+        or exact_json_sha256(run_manifest),
+        previous_trusted_control=previous_trusted_control,
+        trusted_control=trusted_control,
+        trusted_control_sha256=retained_control_sha256,
+    )
+
+
 def valid_run_manifest():
     phase_timeouts = (1800, 3600, 50400, 7200, 7200, 7200, 3600, 1800, 2700)
     execution_timeouts = (1200, 3000, 18000, 6600, 6600, 6600, 3000, 1200, 1800)
@@ -261,16 +324,11 @@ def valid_run_manifest():
     }
 
 
-def valid_worker_disposal():
-    manifest_sha256 = "sha256:" + hashlib.sha256(
-        json.dumps(
-            valid_run_manifest(),
-            ensure_ascii=True,
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
+def valid_worker_disposal(manifest_sha256=None, control_sha256=None):
+    manifest_sha256 = manifest_sha256 or exact_json_sha256(valid_run_manifest())
+    control_sha256 = control_sha256 or exact_json_sha256(
+        valid_trusted_control(manifest_sha256)
+    )
     return {
         "schema_version": "1",
         "disposition": "WORKER_DISPOSAL_REQUIRED",
@@ -299,28 +357,25 @@ def valid_worker_disposal():
                 "kind": "run-manifest",
                 "sha256": manifest_sha256,
                 "completed_at_utc": "2026-08-26T12:00:00.000000Z",
+            },
+            {
+                "name": "control-record.json",
+                "kind": "control-record",
+                "sha256": control_sha256,
+                "completed_at_utc": "2026-08-26T12:00:01.000000Z",
             }
         ],
     }
 
 
-def valid_initial_worker_disposal():
-    record = valid_worker_disposal()
+def valid_initial_worker_disposal(manifest_sha256=None, control_sha256=None):
+    record = valid_worker_disposal(manifest_sha256, control_sha256)
     record["lifecycle_events"] = record["lifecycle_events"][:1]
     return record
 
 
-def valid_trusted_control():
-    manifest = valid_run_manifest()
-    manifest_sha256 = "sha256:" + hashlib.sha256(
-        json.dumps(
-            manifest,
-            ensure_ascii=True,
-            allow_nan=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    ).hexdigest()
+def valid_trusted_control(manifest_sha256=None):
+    manifest_sha256 = manifest_sha256 or exact_json_sha256(valid_run_manifest())
     run_started = 1_000_000_000
     return {
         "schema_version": "1",
@@ -330,6 +385,8 @@ def valid_trusted_control():
         "instance_fingerprint_sha256": SHA_C,
         "run_manifest_sha256": manifest_sha256,
         "lease_status": "authenticated-remote-signal",
+        "trigger_cause": "authenticated-remote-signal",
+        "trigger_latched_at_monotonic_seconds": "20.000000000",
         "run_started_monotonic_ns": run_started,
         "last_authenticated_heartbeat_monotonic_ns": 10_000_000_000,
         "authenticated_remote_disposal_monotonic_ns": 20_000_000_000,
@@ -579,7 +636,7 @@ class ContractTests(unittest.TestCase):
             "run-manifest": validate_run_manifest,
             "tool-lock": validate_tool_lock,
             "worker-evidence": validate_worker_evidence,
-            "worker-disposal": validate_worker_disposal,
+            "worker-disposal": validate_worker_disposal_structure,
             "restream-history": validate_restream_history,
         }
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -591,7 +648,11 @@ class ContractTests(unittest.TestCase):
                         self.assertEqual(value, direct_validators[schema_name](value))
                     path = root / f"{schema_name}.json"
                     path.write_text(json.dumps(value), encoding="utf-8")
-                    self.assertEqual(value, load_json(path, schema_name))
+                    if schema_name == "worker-disposal":
+                        with self.assertRaises(ContractError):
+                            load_json(path, schema_name)
+                    else:
+                        self.assertEqual(value, load_json(path, schema_name))
 
     def test_committed_example_is_valid_and_uses_separate_lock_identities(self):
         example = json.loads(
@@ -607,6 +668,29 @@ class ContractTests(unittest.TestCase):
             validated["lock_identities"]["docker_bootstrap_sha256"],
             validated["lock_identities"]["tool_lock_sha256"],
         )
+
+    def test_run_manifest_loader_hashes_exact_retained_bytes(self):
+        manifest = valid_run_manifest()
+        compact = exact_json_bytes(manifest)
+        pretty = (json.dumps(manifest, indent=2, sort_keys=False) + "\n").encode(
+            "utf-8"
+        )
+        self.assertNotEqual(compact, pretty)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "run-manifest.json"
+            path.write_bytes(pretty)
+            try:
+                loaded, retained_sha256 = (
+                    g0_contracts.load_run_manifest_with_sha256(path)
+                )
+            except AttributeError as error:
+                self.fail(f"exact-byte manifest loader is missing: {error}")
+            self.assertEqual(manifest, loaded)
+            self.assertEqual(
+                "sha256:" + hashlib.sha256(pretty).hexdigest(),
+                retained_sha256,
+            )
+            self.assertNotEqual(exact_json_sha256(manifest), retained_sha256)
 
     def test_schema_version_commit_digest_and_utc_timestamp_are_exact(self):
         mutations = []
@@ -634,7 +718,11 @@ class ContractTests(unittest.TestCase):
             ("docker-bootstrap-lock", valid_bootstrap_lock(), None),
             ("tool-lock", valid_tool_lock(), validate_tool_lock),
             ("worker-evidence", valid_worker_evidence(), validate_worker_evidence),
-            ("worker-disposal", valid_worker_disposal(), validate_worker_disposal),
+            (
+                "worker-disposal",
+                valid_worker_disposal(),
+                validate_worker_disposal_structure,
+            ),
             ("restream-history", valid_restream_history(), validate_restream_history),
         )
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -676,7 +764,11 @@ class ContractTests(unittest.TestCase):
                     path = root / f"{schema_name}.json"
                     path.write_text(json.dumps(value), encoding="utf-8")
                     try:
-                        loaded = load_json(path, schema_name)
+                        loaded = (
+                            validate_worker_disposal_structure(value)
+                            if schema_name == "worker-disposal"
+                            else load_json(path, schema_name)
+                        )
                     except ContractError as error:
                         self.fail(f"exact string schema version was rejected: {error}")
                     self.assertEqual(value, loaded)
@@ -692,7 +784,10 @@ class ContractTests(unittest.TestCase):
                         path = root / f"{schema_name}-invalid.json"
                         path.write_text(json.dumps(mutation), encoding="utf-8")
                         with self.assertRaises(ContractError):
-                            load_json(path, schema_name)
+                            if schema_name == "worker-disposal":
+                                validate_worker_disposal_structure(mutation)
+                            else:
+                                load_json(path, schema_name)
 
         manifest = valid_run_manifest()
         manifest["schema_version"] = "1"
@@ -701,7 +796,7 @@ class ContractTests(unittest.TestCase):
         control = valid_trusted_control()
         control["schema_version"] = "1"
         try:
-            accepted = g0_contracts.validate_worker_disposal_transition(
+            accepted = validate_disposal_transition(
                 None,
                 disposal,
                 run_manifest=manifest,
@@ -715,7 +810,7 @@ class ContractTests(unittest.TestCase):
             invalid_control["schema_version"] = invalid_version
             with self.subTest(trusted_control_version=repr(invalid_version)):
                 with self.assertRaises(ContractError):
-                    g0_contracts.validate_worker_disposal_transition(
+                    validate_disposal_transition(
                         None,
                         disposal,
                         run_manifest=manifest,
@@ -881,7 +976,7 @@ class ContractTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.assertSchemaInvalid("worker-disposal", mutation)
                 with self.assertRaises(ContractError):
-                    validate_worker_disposal(mutation)
+                    validate_worker_disposal_structure(mutation)
 
     def test_worker_disposal_binds_domain_separated_fingerprint_and_safe_run_identity(self):
         mutations = []
@@ -902,7 +997,7 @@ class ContractTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.assertSchemaInvalid("worker-disposal", mutation)
                 with self.assertRaises(ContractError):
-                    validate_worker_disposal(mutation)
+                    validate_worker_disposal_structure(mutation)
 
     def test_worker_disposal_requires_monotonic_lifecycle_and_heartbeat(self):
         skipped_state = valid_worker_disposal()
@@ -934,7 +1029,7 @@ class ContractTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
-                    validate_worker_disposal(mutation)
+                    validate_worker_disposal_structure(mutation)
 
     def test_worker_disposal_accepts_only_complete_safe_pre_failure_hashes(self):
         after_failure = valid_worker_disposal()
@@ -991,7 +1086,7 @@ class ContractTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
-                    validate_worker_disposal(mutation)
+                    validate_worker_disposal_structure(mutation)
 
     def test_worker_disposal_requires_exact_builtin_json_types(self):
         class HostileString(str):
@@ -1029,10 +1124,10 @@ class ContractTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
-                    validate_worker_disposal(mutation)
+                    validate_worker_disposal_structure(mutation)
 
         with self.assertRaises(ContractError):
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 valid_worker_disposal(),
                 run_manifest=valid_run_manifest(),
@@ -1065,7 +1160,7 @@ class ContractTests(unittest.TestCase):
                 with self.subTest(field=setter_index, timestamp=timestamp):
                     self.assertSchemaInvalid("worker-disposal", mutation)
                     with self.assertRaises(ContractError):
-                        validate_worker_disposal(mutation)
+                        validate_worker_disposal_structure(mutation)
 
     def test_worker_disposal_schema_matches_structural_runtime_constraints(self):
         skipped_lifecycle = valid_worker_disposal()
@@ -1085,7 +1180,7 @@ class ContractTests(unittest.TestCase):
             with self.subTest(case=label):
                 self.assertSchemaInvalid("worker-disposal", mutation)
                 with self.assertRaises(ContractError):
-                    validate_worker_disposal(mutation)
+                    validate_worker_disposal_structure(mutation)
 
     def test_worker_disposal_transition_accepts_only_append_only_progress(self):
         manifest = valid_run_manifest()
@@ -1093,7 +1188,7 @@ class ContractTests(unittest.TestCase):
         previous = valid_initial_worker_disposal()
         self.assertEqual(
             previous,
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 previous,
                 run_manifest=manifest,
@@ -1119,7 +1214,7 @@ class ContractTests(unittest.TestCase):
         )
         self.assertEqual(
             candidate,
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 previous,
                 candidate,
                 run_manifest=manifest,
@@ -1174,7 +1269,7 @@ class ContractTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
-                    g0_contracts.validate_worker_disposal_transition(
+                    validate_disposal_transition(
                         previous,
                         candidate,
                         run_manifest=manifest,
@@ -1204,7 +1299,7 @@ class ContractTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
-                    g0_contracts.validate_worker_disposal_transition(
+                    validate_disposal_transition(
                         prior,
                         candidate,
                         run_manifest=manifest,
@@ -1234,7 +1329,7 @@ class ContractTests(unittest.TestCase):
         ]
         self.assertEqual(
             previous,
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 previous,
                 copy.deepcopy(previous),
                 run_manifest=manifest,
@@ -1245,7 +1340,7 @@ class ContractTests(unittest.TestCase):
         changed = copy.deepcopy(previous)
         changed["failed_proof_classes"].append("process-ownership")
         with self.assertRaises(ContractError):
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 previous,
                 changed,
                 run_manifest=manifest,
@@ -1259,13 +1354,17 @@ class ContractTests(unittest.TestCase):
         candidate["failed_proof_classes"].append("heartbeat-authentication")
         control = valid_trusted_control()
         control["lease_status"] = "heartbeat-lost"
+        control["trigger_cause"] = "heartbeat-lost"
         control["authenticated_remote_disposal_monotonic_ns"] = None
         control["disposal_observed_monotonic_ns"] = (
             control["last_authenticated_heartbeat_monotonic_ns"] + 90_000_000_000
         )
+        control["trigger_latched_at_monotonic_seconds"] = format_monotonic_seconds(
+            control["disposal_observed_monotonic_ns"]
+        )
         self.assertEqual(
             candidate,
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 candidate,
                 run_manifest=manifest,
@@ -1287,6 +1386,7 @@ class ContractTests(unittest.TestCase):
         )
         early_terminal = valid_trusted_control()
         early_terminal["lease_status"] = "terminal-response-lost"
+        early_terminal["trigger_cause"] = "terminal-response-lost"
         early_terminal["authenticated_remote_disposal_monotonic_ns"] = None
         early_terminal["last_authenticated_heartbeat_monotonic_ns"] = (
             early_terminal["absolute_terminal_deadline_monotonic_ns"]
@@ -1294,6 +1394,11 @@ class ContractTests(unittest.TestCase):
         )
         early_terminal["disposal_observed_monotonic_ns"] = (
             early_terminal["absolute_terminal_deadline_monotonic_ns"] - 1
+        )
+        early_terminal[
+            "trigger_latched_at_monotonic_seconds"
+        ] = format_monotonic_seconds(
+            early_terminal["absolute_terminal_deadline_monotonic_ns"]
         )
 
         wrong_deadline = copy.deepcopy(early_terminal)
@@ -1308,7 +1413,7 @@ class ContractTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
-                    g0_contracts.validate_worker_disposal_transition(
+                    validate_disposal_transition(
                         None,
                         disposal,
                         run_manifest=manifest,
@@ -1332,8 +1437,15 @@ class ContractTests(unittest.TestCase):
             "authenticated_remote_disposal_monotonic_ns"
         ]
         heartbeat_control["lease_status"] = "heartbeat-lost"
+        heartbeat_control["trigger_cause"] = "heartbeat-lost"
+        heartbeat_control[
+            "trigger_latched_at_monotonic_seconds"
+        ] = format_monotonic_seconds(
+            heartbeat_control["last_authenticated_heartbeat_monotonic_ns"]
+            + 90_000_000_000
+        )
         try:
-            accepted = g0_contracts.validate_worker_disposal_transition(
+            accepted = validate_disposal_transition(
                 None,
                 heartbeat_candidate,
                 run_manifest=manifest,
@@ -1347,8 +1459,14 @@ class ContractTests(unittest.TestCase):
         later_remote_candidate["lease_status"] = "authenticated-remote-signal"
         later_remote_control = copy.deepcopy(heartbeat_control)
         later_remote_control["lease_status"] = "authenticated-remote-signal"
+        later_remote_control["trigger_cause"] = "authenticated-remote-signal"
+        later_remote_control[
+            "trigger_latched_at_monotonic_seconds"
+        ] = format_monotonic_seconds(
+            later_remote_control["authenticated_remote_disposal_monotonic_ns"]
+        )
         with self.assertRaises(ContractError):
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 later_remote_candidate,
                 run_manifest=manifest,
@@ -1371,8 +1489,14 @@ class ContractTests(unittest.TestCase):
             + 100_000_000_000
         )
         terminal_control["lease_status"] = "terminal-response-lost"
+        terminal_control["trigger_cause"] = "terminal-response-lost"
+        terminal_control[
+            "trigger_latched_at_monotonic_seconds"
+        ] = format_monotonic_seconds(
+            terminal_control["absolute_terminal_deadline_monotonic_ns"]
+        )
         try:
-            accepted = g0_contracts.validate_worker_disposal_transition(
+            accepted = validate_disposal_transition(
                 None,
                 terminal_candidate,
                 run_manifest=manifest,
@@ -1390,13 +1514,219 @@ class ContractTests(unittest.TestCase):
         ]
         later_heartbeat_control = copy.deepcopy(terminal_control)
         later_heartbeat_control["lease_status"] = "heartbeat-lost"
+        later_heartbeat_control["trigger_cause"] = "heartbeat-lost"
+        later_heartbeat_control[
+            "trigger_latched_at_monotonic_seconds"
+        ] = format_monotonic_seconds(
+            later_heartbeat_control["last_authenticated_heartbeat_monotonic_ns"]
+            + 90_000_000_000
+        )
         with self.assertRaises(ContractError):
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 later_heartbeat_candidate,
                 run_manifest=manifest,
                 trusted_control=later_heartbeat_control,
             )
+
+    def test_worker_disposal_trigger_latch_rejects_a_late_heartbeat_downgrade(self):
+        manifest = valid_run_manifest()
+        manifest_sha256 = exact_json_sha256(manifest)
+
+        previous_control = valid_trusted_control(manifest_sha256)
+        previous_control["lease_status"] = "heartbeat-lost"
+        previous_control["trigger_cause"] = "heartbeat-lost"
+        previous_control[
+            "trigger_latched_at_monotonic_seconds"
+        ] = "100.000000000"
+        previous_control["authenticated_remote_disposal_monotonic_ns"] = None
+        previous_control["disposal_observed_monotonic_ns"] = 100_000_000_000
+
+        candidate_control = copy.deepcopy(previous_control)
+        candidate_control["last_authenticated_heartbeat_monotonic_ns"] = (
+            candidate_control["absolute_terminal_deadline_monotonic_ns"]
+            - 30_000_000_000
+        )
+        candidate_control["disposal_observed_monotonic_ns"] = candidate_control[
+            "absolute_terminal_deadline_monotonic_ns"
+        ]
+        candidate_control["lease_status"] = "terminal-response-lost"
+        candidate_control["trigger_cause"] = "terminal-response-lost"
+        terminal_ns = candidate_control[
+            "absolute_terminal_deadline_monotonic_ns"
+        ]
+        candidate_control[
+            "trigger_latched_at_monotonic_seconds"
+        ] = f"{terminal_ns // 1_000_000_000}.{terminal_ns % 1_000_000_000:09d}"
+
+        candidate_control_sha256 = exact_json_sha256(candidate_control)
+        candidate = valid_initial_worker_disposal(
+            manifest_sha256,
+            candidate_control_sha256,
+        )
+        candidate["lease_status"] = "terminal-response-lost"
+        candidate["failed_proof_classes"].append(
+            "terminal-response-authentication"
+        )
+
+        try:
+            with self.assertRaises(ContractError):
+                validate_disposal_transition(
+                    None,
+                    candidate,
+                    run_manifest=manifest,
+                    run_manifest_sha256=manifest_sha256,
+                    previous_trusted_control=previous_control,
+                    trusted_control=candidate_control,
+                    trusted_control_sha256=candidate_control_sha256,
+                )
+        except TypeError as error:
+            self.fail(f"latched transition interface is missing: {error}")
+
+    def test_worker_disposal_trigger_latch_freezes_each_valid_basis_change(self):
+        manifest = valid_run_manifest()
+        manifest_sha256 = exact_json_sha256(manifest)
+        previous_control = valid_trusted_control(manifest_sha256)
+
+        changed_heartbeat = copy.deepcopy(previous_control)
+        changed_heartbeat["last_authenticated_heartbeat_monotonic_ns"] += 1
+
+        changed_observation = copy.deepcopy(previous_control)
+        changed_observation["disposal_observed_monotonic_ns"] += 1
+
+        changed_run_start = copy.deepcopy(previous_control)
+        changed_run_start["run_started_monotonic_ns"] += 1
+        changed_run_start["absolute_terminal_deadline_monotonic_ns"] += 1
+
+        changed_remote_trigger = copy.deepcopy(previous_control)
+        changed_remote_trigger["authenticated_remote_disposal_monotonic_ns"] += 1
+        changed_remote_trigger["disposal_observed_monotonic_ns"] += 1
+        changed_remote_trigger[
+            "trigger_latched_at_monotonic_seconds"
+        ] = "20.000000001"
+
+        for label, candidate_control in (
+            ("heartbeat", changed_heartbeat),
+            ("observation", changed_observation),
+            ("run start and terminal basis", changed_run_start),
+            ("remote trigger and latch", changed_remote_trigger),
+        ):
+            control_sha256 = exact_json_sha256(candidate_control)
+            candidate = valid_initial_worker_disposal(
+                manifest_sha256,
+                control_sha256,
+            )
+            with self.subTest(case=label):
+                self.assertEqual(
+                    candidate,
+                    validate_disposal_transition(
+                        None,
+                        candidate,
+                        run_manifest=manifest,
+                        run_manifest_sha256=manifest_sha256,
+                        previous_trusted_control=None,
+                        trusted_control=candidate_control,
+                        trusted_control_sha256=control_sha256,
+                    ),
+                )
+                with self.assertRaises(ContractError):
+                    validate_disposal_transition(
+                        None,
+                        candidate,
+                        run_manifest=manifest,
+                        run_manifest_sha256=manifest_sha256,
+                        previous_trusted_control=previous_control,
+                        trusted_control=candidate_control,
+                        trusted_control_sha256=control_sha256,
+                    )
+
+    def test_worker_disposal_trigger_latch_has_exact_json_string_precision(self):
+        class StringSubclass(str):
+            pass
+
+        manifest = valid_run_manifest()
+        manifest_sha256 = exact_json_sha256(manifest)
+        for latch in (
+            "20",
+            "20.00000000",
+            "20.0000000000",
+            20.0,
+            StringSubclass("20.000000000"),
+        ):
+            control = valid_trusted_control(manifest_sha256)
+            control["trigger_latched_at_monotonic_seconds"] = latch
+            control_sha256 = exact_json_sha256(control)
+            candidate = valid_initial_worker_disposal(
+                manifest_sha256,
+                control_sha256,
+            )
+            with self.subTest(latch=repr(latch)):
+                with self.assertRaises(ContractError):
+                    validate_disposal_transition(
+                        None,
+                        candidate,
+                        run_manifest=manifest,
+                        run_manifest_sha256=manifest_sha256,
+                        previous_trusted_control=None,
+                        trusted_control=control,
+                        trusted_control_sha256=control_sha256,
+                    )
+
+    def test_worker_disposal_rejects_cross_origin_leaf_name_collisions(self):
+        duplicate_source = valid_run_manifest()
+        duplicate_source["sources"][1][
+            "bundle_path"
+        ] = "other/racetime.bundle"
+        duplicate_source["sources"][1]["bundle_sha256"] = duplicate_source[
+            "sources"
+        ][0][
+            "bundle_sha256"
+        ]
+        reserved_name = valid_run_manifest()
+        reserved_name["sources"][0][
+            "bundle_path"
+        ] = "custody/run-manifest.json"
+        reserved_evidence = valid_run_manifest()
+        reserved_evidence["sources"][0][
+            "bundle_path"
+        ] = "custody/worker-evidence.json"
+        reserved_disposal = valid_run_manifest()
+        reserved_disposal["sources"][0][
+            "bundle_path"
+        ] = "custody/worker-disposal.json"
+        transient_output = valid_run_manifest()
+        transient_output["sources"][0][
+            "bundle_path"
+        ] = "custody/raw-worker.log"
+
+        for label, manifest in (
+            ("identical source leaf", duplicate_source),
+            ("reserved leaf", reserved_name),
+            ("reserved evidence leaf", reserved_evidence),
+            ("reserved disposal leaf", reserved_disposal),
+            ("transient output leaf", transient_output),
+        ):
+            manifest_sha256 = exact_json_sha256(manifest)
+            control = valid_trusted_control(manifest_sha256)
+            control_sha256 = exact_json_sha256(control)
+            candidate = valid_initial_worker_disposal(
+                manifest_sha256,
+                control_sha256,
+            )
+            with self.subTest(case=label):
+                try:
+                    with self.assertRaises(ContractError):
+                        validate_disposal_transition(
+                            None,
+                            candidate,
+                            run_manifest=manifest,
+                            run_manifest_sha256=manifest_sha256,
+                            previous_trusted_control=None,
+                            trusted_control=control,
+                            trusted_control_sha256=control_sha256,
+                        )
+                except TypeError as error:
+                    self.fail(f"exact hash transition interface is missing: {error}")
 
     def test_worker_disposal_transition_requires_armed_manifest_hash_and_allowlist(self):
         manifest = valid_run_manifest()
@@ -1405,7 +1735,7 @@ class ContractTests(unittest.TestCase):
         unarmed_control = copy.deepcopy(control)
         unarmed_control["armed"] = False
         with self.assertRaises(ContractError):
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 valid_initial_worker_disposal(),
                 run_manifest=manifest,
@@ -1435,7 +1765,7 @@ class ContractTests(unittest.TestCase):
         ):
             with self.subTest(case=label):
                 with self.assertRaises(ContractError):
-                    g0_contracts.validate_worker_disposal_transition(
+                    validate_disposal_transition(
                         None,
                         candidate,
                         run_manifest=manifest,
@@ -1448,7 +1778,7 @@ class ContractTests(unittest.TestCase):
         initial = valid_initial_worker_disposal()
         self.assertEqual(
             initial,
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 initial,
                 run_manifest=manifest,
@@ -1458,12 +1788,69 @@ class ContractTests(unittest.TestCase):
 
         advanced = valid_worker_disposal()
         with self.assertRaises(ContractError):
-            g0_contracts.validate_worker_disposal_transition(
+            validate_disposal_transition(
                 None,
                 advanced,
                 run_manifest=manifest,
                 trusted_control=control,
             )
+
+    def test_worker_disposal_load_requires_full_trusted_byte_context(self):
+        manifest = valid_run_manifest()
+        manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode("utf-8")
+        manifest_sha256 = "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()
+        control = valid_trusted_control(manifest_sha256)
+        control_bytes = (json.dumps(control, indent=2) + "\n").encode("utf-8")
+        control_sha256 = "sha256:" + hashlib.sha256(control_bytes).hexdigest()
+        disposal = valid_initial_worker_disposal(
+            manifest_sha256,
+            control_sha256,
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            manifest_path = root / "run-manifest.json"
+            control_path = root / "control-record.json"
+            disposal_path = root / "worker-disposal.json"
+            manifest_path.write_bytes(manifest_bytes)
+            control_path.write_bytes(control_bytes)
+            disposal_path.write_bytes(exact_json_bytes(disposal))
+
+            with self.assertRaises(ContractError):
+                load_json(disposal_path, "worker-disposal")
+
+            try:
+                loaded = g0_contracts.load_worker_disposal(
+                    disposal_path,
+                    previous=None,
+                    run_manifest_path=manifest_path,
+                    previous_trusted_control=None,
+                    trusted_control_path=control_path,
+                )
+            except AttributeError as error:
+                self.fail(f"context-requiring disposal loader is missing: {error}")
+            self.assertEqual(disposal, loaded)
+
+            manifest_path.write_bytes(exact_json_bytes(manifest))
+            with self.assertRaises(ContractError):
+                g0_contracts.load_worker_disposal(
+                    disposal_path,
+                    previous=None,
+                    run_manifest_path=manifest_path,
+                    previous_trusted_control=None,
+                    trusted_control_path=control_path,
+                )
+
+            manifest_path.write_bytes(manifest_bytes)
+            control_path.write_bytes(exact_json_bytes(control))
+            with self.assertRaises(ContractError):
+                g0_contracts.load_worker_disposal(
+                    disposal_path,
+                    previous=None,
+                    run_manifest_path=manifest_path,
+                    previous_trusted_control=None,
+                    trusted_control_path=control_path,
+                )
 
     def test_load_json_is_bounded_and_never_echoes_untrusted_key_or_path(self):
         canary = "private-secret-path-canary"
@@ -1476,27 +1863,27 @@ class ContractTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaises(ContractError):
-                load_json(oversized, "worker-disposal")
+                load_json(oversized, "run-manifest")
 
             deep = root / "deep.json"
             deep.write_text("[" * 40 + "0" + "]" * 40, encoding="utf-8")
             with self.assertRaisesRegex(ContractError, "structural limits"):
-                load_json(deep, "worker-disposal")
+                load_json(deep, "run-manifest")
 
             recursive = root / "recursive.json"
             recursive.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
             with self.assertRaises(ContractError):
-                load_json(recursive, "worker-disposal")
+                load_json(recursive, "run-manifest")
 
             missing = root / f"{canary}.json"
             with self.assertRaises(ContractError) as path_error:
-                load_json(missing, "worker-disposal")
+                load_json(missing, "run-manifest")
             self.assertNotIn(canary, str(path_error.exception))
 
             unknown_key = valid_worker_disposal()
             unknown_key[canary] = True
             with self.assertRaises(ContractError) as key_error:
-                validate_worker_disposal(unknown_key)
+                validate_worker_disposal_structure(unknown_key)
             self.assertNotIn(canary, str(key_error.exception))
 
             duplicate = root / "duplicate.json"
@@ -1505,7 +1892,7 @@ class ContractTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaises(ContractError) as duplicate_error:
-                load_json(duplicate, "worker-disposal")
+                load_json(duplicate, "run-manifest")
             self.assertNotIn(canary, str(duplicate_error.exception))
 
     def test_paths_are_workspace_relative_and_outputs_have_safe_names(self):
