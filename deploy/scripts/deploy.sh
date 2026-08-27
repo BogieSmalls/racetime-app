@@ -129,6 +129,7 @@ current_maintenance_repository="$(record_get manifest.images.maintenance.reposit
 current_maintenance_digest="$(record_get manifest.images.maintenance.digest)"
 current_app_image="$current_app_repository:$current_sha"
 current_maintenance_image="$current_maintenance_repository:$current_sha"
+current_app_reference="$current_app_image@$current_app_digest"
 if [[ -n "$expected_current_release" ]]; then
     [[ "$current_sha" == "$expected_current_release" ]] \
         || fail 'current release changed before rollback lock'
@@ -198,7 +199,12 @@ automatic_restore_allowed=0
 
 restore_prior_services() {
     set_current_images
-    "${compose[@]}" up -d web racebot >/dev/null
+    if docker run --rm --entrypoint test "$current_app_reference" -f /srv/racetime/racetime/discord_race_announcer.py; then
+        "${compose[@]}" up -d web racebot discord-announcer >/dev/null
+    else
+        "${compose[@]}" rm -sf discord-announcer >/dev/null 2>&1 || true
+        "${compose[@]}" up -d web racebot >/dev/null
+    fi
 }
 cleanup() {
     local result=$?
@@ -359,10 +365,10 @@ wait_for_service() {
 }
 start_services_stage() {
     set_target_images
-    "${compose[@]}" up -d web racebot
+    "${compose[@]}" up -d web racebot discord-announcer
     services_changed=1
     local service
-    for service in web racebot db redis; do
+    for service in web racebot discord-announcer db redis; do
         wait_for_service "$service" || return 1
     done
 }

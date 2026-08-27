@@ -50,7 +50,8 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --home-dir /srv/racetime \
         --shell /usr/sbin/nologin racetime \
     && install -d -o 10001 -g 10001 \
-        /srv/racetime /srv/racetime/static /srv/racetime/media
+        /srv/racetime /srv/racetime/static /srv/racetime/media \
+        /srv/racetime/announcer
 
 WORKDIR /srv/racetime
 COPY --from=python-build /opt/venv /opt/venv

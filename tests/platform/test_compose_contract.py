@@ -47,7 +47,7 @@ class ComposeContractTests(unittest.TestCase):
         config, _ = render_compose("qualification")
         services = config["services"]
         self.assertEqual(set(services), {
-            "caddy", "web", "racebot", "db", "redis",
+            "caddy", "web", "racebot", "discord-announcer", "db", "redis",
             "migrate", "collectstatic", "maintenance",
         })
         self.assertEqual(services["migrate"]["command"], ["migrate"])
@@ -66,7 +66,7 @@ class ComposeContractTests(unittest.TestCase):
         )
         self.assertNotIn("migrate", services["racebot"].get("depends_on", {}))
 
-    def test_proxy_network_has_exactly_caddy_and_web(self):
+    def test_proxy_network_has_only_caddy_web_and_the_outbound_announcer(self):
         config, _ = render_compose("qualification")
         proxy = config["networks"]["proxy"]
         self.assertEqual(
@@ -80,6 +80,7 @@ class ComposeContractTests(unittest.TestCase):
         self.assertEqual(attached, {
             "caddy": "172.30.0.2",
             "web": "172.30.0.3",
+            "discord-announcer": "172.30.0.4",
         })
         self.assertTrue(config["networks"]["data"]["internal"])
         self.assertNotIn("data", config["services"]["caddy"]["networks"])
@@ -121,7 +122,9 @@ class ComposeContractTests(unittest.TestCase):
         self.assertNotRegex(rendered, r"(?i)\b(copy|cp|rsync|promote)\b.*(?:volume|state)")
 
     def test_state_generations_select_distinct_named_volumes(self):
-        expected_suffixes = {"db", "redis", "media", "static", "secrets"}
+        expected_suffixes = {
+            "db", "redis", "media", "static", "secrets", "announcer",
+        }
         rendered = {}
         for state in ("qualification", "production"):
             config, text = render_compose(state)
@@ -149,7 +152,10 @@ class ComposeContractTests(unittest.TestCase):
         self.assertIn("media-data:/srv/racetime/media", services["web"]["volumes"])
         self.assertIn("static-data:/srv/racetime/static:ro", services["caddy"]["volumes"])
         self.assertIn("media-data:/srv/racetime/media:ro", services["caddy"]["volumes"])
-        for name in ("web", "racebot", "db", "redis", "migrate", "maintenance"):
+        for name in (
+            "web", "racebot", "discord-announcer", "db", "redis",
+            "migrate", "maintenance",
+        ):
             self.assertIn(
                 "secret-data:/run/racetime-secrets:ro",
                 services[name]["volumes"],
@@ -167,7 +173,9 @@ class ComposeContractTests(unittest.TestCase):
 
     def test_long_running_services_have_health_restart_limits_and_logs(self):
         config, _ = render_compose("qualification")
-        for name in ("caddy", "web", "racebot", "db", "redis"):
+        for name in (
+            "caddy", "web", "racebot", "discord-announcer", "db", "redis",
+        ):
             service = config["services"][name]
             self.assertIn("healthcheck", service, name)
             self.assertEqual(service["restart"], "unless-stopped", name)
@@ -176,7 +184,7 @@ class ComposeContractTests(unittest.TestCase):
             self.assertEqual(service["logging"]["driver"], "json-file")
             self.assertEqual(service["logging"]["options"]["max-size"], "10m")
             self.assertEqual(service["logging"]["options"]["max-file"], "3")
-        for name in ("caddy", "web", "racebot"):
+        for name in ("caddy", "web", "racebot", "discord-announcer"):
             self.assertTrue(config["services"][name]["read_only"])
             self.assertIn("/tmp", " ".join(config["services"][name]["tmpfs"]))
         health_script = (

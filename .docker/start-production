@@ -33,6 +33,9 @@ case "$mode" in
     racebot)
         exec python manage.py racebot --noreload
         ;;
+    discord-announcer)
+        exec python -m racetime.discord_race_announcer
+        ;;
     migrate)
         exec python manage.py migrate --noinput
         ;;
@@ -48,7 +51,7 @@ case "$mode" in
         exec "$@"
         ;;
     *)
-        echo "usage: start-production {web|racebot|migrate|collectstatic|maintenance}" >&2
+        echo "usage: start-production {web|racebot|discord-announcer|migrate|collectstatic|maintenance}" >&2
         exit 64
         ;;
 esac

@@ -114,6 +114,30 @@ services:
     mem_limit: 512m
     logging: *default-logging
 
+  discord-announcer:
+    image: ${RACETIME_IMAGE:?set RACETIME_IMAGE}@${RACETIME_IMAGE_DIGEST:?set RACETIME_IMAGE_DIGEST}
+    <<: [*app-environment, *app-security]
+    command: ["discord-announcer"]
+    volumes:
+      - announcer-data:/srv/racetime/announcer
+      - secret-data:/run/racetime-secrets:ro
+    networks:
+      proxy:
+        ipv4_address: 172.30.0.4
+    depends_on:
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/srv/racetime/.docker/healthcheck", "process"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    cpus: "0.10"
+    mem_limit: 128m
+    logging: *default-logging
+
   db:
     image: mariadb:11.4.12@sha256:4f1d8d202fcf7bcb3902f63af09f9c1a050c2922a89652f22abaec0d4f015e83
     command:
@@ -260,5 +284,7 @@ volumes:
     name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-static
   secret-data:
     name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-secrets
+  announcer-data:
+    name: z1rr-racetime-${RACETIME_STATE_GENERATION:?choose qualification or production}-announcer
   caddy-state:
     name: ${CADDY_STATE_VOLUME:?choose the exact qualification or production Caddy state volume}
