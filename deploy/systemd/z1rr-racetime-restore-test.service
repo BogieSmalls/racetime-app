@@ -9,6 +9,9 @@ Type=oneshot
 User=root
 Group=root
 Environment=Z1RR_BACKUP_CONFIG=/etc/z1rr-racetime/backup.env
+# ProtectHome=true hides /root, which breaks Docker CLI plugin discovery
+# and makes `docker compose` an unknown subcommand.
+Environment=DOCKER_CONFIG=/etc/z1rr-racetime/docker-config
 EnvironmentFile=/etc/z1rr-racetime/backup.env
 ExecStart=/opt/z1rr-racetime/deploy/backup/restore-test.sh --database-manifest ${RESTORE_DATABASE_MANIFEST} --media-manifest ${RESTORE_MEDIA_MANIFEST} --caddy-manifest ${RESTORE_CADDY_MANIFEST} --release-sha ${RACETIME_RELEASE_SHA}
 TimeoutStartSec=4h

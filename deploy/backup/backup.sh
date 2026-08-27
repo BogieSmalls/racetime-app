@@ -121,8 +121,10 @@ if [[ "$backup_type" == 'database' ]]; then
         'MYSQL_PWD="$(cat "$MARIADB_ROOT_PASSWORD_FILE")"; export MYSQL_PWD; exec mariadb-dump --single-transaction --routines --events --triggers --hex-blob --databases "$1"' \
         backup-dump "$DB_SCHEMA_NAME" >"$payload" \
         || fail 'database export failed'
-    "${compose[@]}" exec -T web python manage.py showmigrations --plan \
-        >"$migrations_file" || fail 'migration inventory failed'
+    # compose exec bypasses the image ENTRYPOINT, so production secrets are
+    # never exported and Django dies on DJANGO_SECRET_KEY. Invoke the
+    # entrypoint explicitly in maintenance mode to load them first.
+    "${compose[@]}" exec -T web /srv/racetime/.docker/start-production maintenance python manage.py showmigrations --plan >"$migrations_file" || fail 'migration inventory failed'
     source_entries="$(awk '/^CREATE TABLE / {count++} END {print count+0}' "$payload")"
 else
     if [[ "$backup_type" == 'media' ]]; then

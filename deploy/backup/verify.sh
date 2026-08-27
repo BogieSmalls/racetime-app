@@ -86,8 +86,12 @@ if [[ "$backup_type" == 'database' ]]; then
         -e MARIADB_ALLOW_EMPTY_ROOT_PASSWORD=1 "$MARIADB_VERIFY_IMAGE" >/dev/null \
         || fail 'disposable MariaDB failed to start'
     ready=0
-    for _attempt in $(seq 1 30); do
-        if docker exec "$verifier_name" mariadb-admin ping --silent >/dev/null 2>&1; then
+    for _attempt in $(seq 1 90); do
+        # The MariaDB entrypoint runs a TEMPORARY server on the same socket
+        # during initialisation; it answers ping, then shuts down and takes
+        # the socket with it. Gate on the init-complete marker so the restore
+        # cannot race that shutdown.
+        if docker logs "$verifier_name" 2>&1 | grep -q 'init process done' && docker exec "$verifier_name" healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; then
             ready=1
             break
         fi
