@@ -410,6 +410,7 @@ class GoalEditForm(forms.ModelForm):
             'team_races',
             'streaming_required',
             'allow_stream_override',
+            'sort_order',
         )
         model = models.Goal
 
@@ -450,7 +451,7 @@ class RaceForm(forms.ModelForm):
         help_text='Select a goal for this race, or use a custom goal.',
         queryset=models.Goal.objects.filter(active=True).annotate(
             num_races=Count('race__id'),
-        ).order_by('-num_races', 'name'),
+        ).order_by('sort_order', '-num_races', 'name'),
         required=False,
         blank=True,
         widget=GoalWidget,
