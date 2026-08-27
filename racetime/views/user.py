@@ -22,9 +22,13 @@ from django.views import generic
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.debug import sensitive_post_parameters
 from oauth2_provider.models import get_access_token_model, get_application_model
-from oauth2_provider.views import AuthorizationView, ProtectedResourceView
+from oauth2_provider.views import (
+    AuthorizationView,
+    ProtectedResourceView,
+    ScopedProtectedResourceView,
+)
 
-from .base import PublicAPIMixin, UserMixin
+from .base import BotMixin, PublicAPIMixin, UserMixin
 from .. import forms, models
 from ..middleware import CsrfViewMiddlewareTwitch
 from ..rtgg import (
@@ -913,6 +917,54 @@ class OAuthUserInfo(ProtectedResourceView):
 
     def get_scopes(self):
         return ['read']
+
+
+class OAuthIdentityLinks(ScopedProtectedResourceView, BotMixin, generic.View):
+    required_scopes = ['read']
+    allowed_bot_name = 'Z1RR Restream'
+
+    def get(self, request, category, *args, **kwargs):
+        category_object = get_object_or_404(
+            models.Category,
+            slug=category,
+            active=True,
+        )
+        bot = self.get_bot(category_object)
+        if not bot or bot.name != self.allowed_bot_name:
+            raise PermissionDenied
+
+        racetimegg_identities = (
+            models.ExternalIdentity.objects
+            .filter(
+                provider='racetimegg',
+                user__active=True,
+                user__twitch_login__isnull=False,
+            )
+            .exclude(user__twitch_login='')
+            .select_related('user')
+            .order_by('user__twitch_login')
+        )
+        discord_by_user = dict(
+            models.ExternalIdentity.objects
+            .filter(
+                provider='discord',
+                user_id__in=[
+                    identity.user_id for identity in racetimegg_identities
+                ],
+            )
+            .values_list('user_id', 'subject')
+        )
+        return http.JsonResponse({
+            'identities': [
+                {
+                    'racetimegg_id': identity.subject,
+                    'discord_id': discord_by_user[identity.user_id],
+                    'twitch_login': identity.user.twitch_login.lower(),
+                }
+                for identity in racetimegg_identities
+                if identity.user_id in discord_by_user
+            ],
+        })
 
 
 class OAuthDeleteToken(LoginRequiredMixin, generic.DeleteView):

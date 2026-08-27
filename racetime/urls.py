@@ -177,6 +177,11 @@ urlpatterns = [
             protected(oauth2_views.RevokeTokenView.as_view(), 'oauth_decision', 'oauth2_revoke', ('POST',)),
             name='oauth2_revoke',
         ),
+        path(
+            '<str:category>/identity-links',
+            views.OAuthIdentityLinks.as_view(),
+            name='oauth_identity_links',
+        ),
 
         path(
             'delete/<pk>',
