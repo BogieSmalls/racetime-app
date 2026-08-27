@@ -107,6 +107,17 @@ class ProductionSettingsTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
 
+    def test_channel_layer_disables_read_timeout_for_blocking_receives(self):
+        script = (
+            "import os;import django;django.setup();from django.conf import settings;"
+            "host=settings.CHANNEL_LAYERS['default']['CONFIG']['hosts'][0];"
+            "assert host == {'address':os.environ['REDIS_URL'],'socket_timeout':None};"
+            "print('CHANNEL_TIMEOUT=PASS')"
+        )
+        completed = run_production_probe(script=script)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(completed.stdout.strip(), "CHANNEL_TIMEOUT=PASS")
+
     def test_missing_invalid_and_placeholder_settings_fail_safely(self):
         self.assert_invalid("DJANGO_SECRET_KEY", remove=True)
         self.assert_invalid("DJANGO_SECRET_KEY", "changeme")

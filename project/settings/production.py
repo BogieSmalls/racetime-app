@@ -171,7 +171,10 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "racetime.utils.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [REDIS_URL],
+            "hosts": [{
+                "address": REDIS_URL,
+                "socket_timeout": None,
+            }],
             "prefix": "z1rr-racetime-production-channels",
             "capacity": 100,
             "expiry": 10,
