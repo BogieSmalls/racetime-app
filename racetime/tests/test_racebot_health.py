@@ -2,11 +2,13 @@ from datetime import timedelta
 from io import StringIO
 from unittest import mock
 
+import requests
 from django.core.cache import cache
 from django.core.management import CommandError, call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from racetime import models
 from racetime.racebot import RaceBot
 
 
@@ -22,6 +24,68 @@ LOCMEM_CACHE = {
 class RacebotHealthTests(TestCase):
     def setUp(self):
         cache.clear()
+        RaceBot.races.clear()
+
+    def create_ready_race(self, *, bot_pid=None):
+        category = models.Category.objects.create(
+            name="Racebot Test",
+            short_name="RBT",
+            slug="racebot-test",
+        )
+        race = models.Race.objects.create(
+            category=category,
+            slug="twitch-outage",
+            bot_pid=bot_pid,
+        )
+        for number in (1, 2):
+            user = models.User.objects.create_user(
+                f"racer{number}@example.invalid",
+                name=f"Racer{number}",
+                discriminator=f"{number:04d}",
+                twitch_id=number,
+                twitch_login=f"racer{number}",
+                twitch_name=f"Racer{number}",
+            )
+            models.Entrant.objects.create(
+                race=race,
+                user=user,
+                ready=True,
+                stream_override=True,
+            )
+        return race
+
+    def test_twitch_outage_does_not_block_new_race_auto_start(self):
+        race = self.create_ready_race()
+        bot = RaceBot(4242)
+
+        with mock.patch(
+            "racetime.racebot.requests.post",
+            side_effect=requests.Timeout("Twitch unavailable"),
+        ) as token_request, mock.patch(
+            "racetime.racebot.requests.get"
+        ) as stream_request, mock.patch(
+            "racetime.racebot.notice_exception"
+        ), mock.patch(
+            "racetime.racebot.sleep"
+        ):
+            bot.handle()
+            bot.races[0]["last_refresh"] = timezone.now() - timedelta(seconds=1)
+            bot.handle()
+
+        race.refresh_from_db()
+        self.assertEqual(race.state, models.RaceStates.pending.value)
+        self.assertIsNotNone(race.started_at)
+        self.assertEqual(token_request.call_count, 1)
+        self.assertEqual(token_request.call_args.kwargs["timeout"], (3.05, 5))
+        stream_request.assert_not_called()
+
+    def test_startup_releases_active_races_owned_by_reused_container_pid(self):
+        race = self.create_ready_race(bot_pid=1)
+
+        RaceBot(1)
+
+        race.refresh_from_db()
+        self.assertIsNone(race.bot_pid)
 
     def test_adoption_cycle_records_pid_and_time(self):
         observed_at = timezone.now()

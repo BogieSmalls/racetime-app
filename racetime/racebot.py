@@ -35,15 +35,19 @@ class RaceBot:
 
     def __init__(self, process_id):
         self.pid = process_id
+        self.last_adoption = None
+        self.last_twitch_refresh = None
+        self.twitch_token = None
+        self.twitch_token_refresh = None
+        self.races = []
+        released = self.queryset.filter(bot_pid=self.pid).update(bot_pid=None)
+        if released:
+            self.logger.warning(
+                '[Bot] Released %(count)d race(s) assigned to reused PID %(pid)d.'
+                % {'count': released, 'pid': self.pid}
+            )
 
     def handle(self):
-        if (
-            not self.twitch_token
-            or not self.twitch_token_refresh
-            or self.twitch_token_refresh < timezone.now()
-        ):
-            self.update_twitch_token()
-
         for race in self.races:
             if timezone.now() - race['last_refresh'] > timedelta(milliseconds=100):
                 race['last_refresh'] = timezone.now()
@@ -57,8 +61,18 @@ class RaceBot:
             self.record_adoption_heartbeat()
 
         if not self.last_twitch_refresh or timezone.now() - self.last_twitch_refresh > timedelta(seconds=10):
-            self.logger.debug('[Twitch] Refreshing stream statuses.')
-            self.update_live_status()
+            if (
+                not self.twitch_token
+                or not self.twitch_token_refresh
+                or self.twitch_token_refresh < timezone.now()
+            ):
+                self.update_twitch_token()
+
+            if self.twitch_token:
+                self.logger.debug('[Twitch] Refreshing stream statuses.')
+                self.update_live_status()
+            else:
+                self.logger.warning('[Twitch] Stream status refresh skipped: no access token.')
             self.last_twitch_refresh = timezone.now()
 
         sleep(0.01)
@@ -258,7 +272,7 @@ class RaceBot:
                 'client_id': settings.TWITCH_CLIENT_ID,
                 'client_secret': settings.TWITCH_CLIENT_SECRET,
                 'grant_type': 'client_credentials',
-            })
+            }, timeout=(3.05, 5))
             if resp.status_code != 200:
                 raise requests.RequestException
         except requests.RequestException as ex:
@@ -270,6 +284,10 @@ class RaceBot:
             self.logger.debug('[Twitch] OAuth2 token obtained (expires %s).' % self.twitch_token_refresh)
 
     def update_live_status(self):
+        if not self.twitch_token:
+            self.logger.warning('[Twitch] Stream status refresh skipped: no access token.')
+            return
+
         if not self.races:
             self.logger.debug('[Twitch] No races to check.')
             return
@@ -298,7 +316,7 @@ class RaceBot:
                 }, headers={
                     'Authorization': 'Bearer ' + self.twitch_token,
                     'Client-ID': settings.TWITCH_CLIENT_ID,
-                })
+                }, timeout=(3.05, 5))
                 if resp.status_code != 200:
                     raise requests.RequestException
             except requests.RequestException:

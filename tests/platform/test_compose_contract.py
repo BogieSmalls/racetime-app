@@ -66,7 +66,7 @@ class ComposeContractTests(unittest.TestCase):
         )
         self.assertNotIn("migrate", services["racebot"].get("depends_on", {}))
 
-    def test_proxy_network_has_only_caddy_web_and_the_outbound_announcer(self):
+    def test_proxy_network_carries_services_that_require_outbound_access(self):
         config, _ = render_compose("qualification")
         proxy = config["networks"]["proxy"]
         self.assertEqual(
@@ -81,6 +81,7 @@ class ComposeContractTests(unittest.TestCase):
             "caddy": "172.30.0.2",
             "web": "172.30.0.3",
             "discord-announcer": "172.30.0.4",
+            "racebot": "172.30.0.5",
         })
         self.assertTrue(config["networks"]["data"]["internal"])
         self.assertNotIn("data", config["services"]["caddy"]["networks"])

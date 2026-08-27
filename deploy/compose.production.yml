@@ -97,6 +97,8 @@ services:
     volumes:
       - secret-data:/run/racetime-secrets:ro
     networks:
+      proxy:
+        ipv4_address: 172.30.0.5
       data: {}
     depends_on:
       db:
