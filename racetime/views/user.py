@@ -4,9 +4,11 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.files.base import ContentFile
 from django.core.exceptions import PermissionDenied
 from django.core.mail import send_mail
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.db.transaction import atomic
 from django.forms import model_to_dict
@@ -25,6 +27,12 @@ from oauth2_provider.views import AuthorizationView, ProtectedResourceView
 from .base import PublicAPIMixin, UserMixin
 from .. import forms, models
 from ..middleware import CsrfViewMiddlewareTwitch
+from ..rtgg import (
+    RTGGImportError,
+    discover_profile,
+    download_avatar,
+    load_profile,
+)
 from ..utils import delete_user, notice_exception, patreon_auth_url, patreon_update_memberships, twitch_auth_url
 
 
@@ -380,6 +388,169 @@ class EditAccountConnections(LoginRequiredMixin, UserMixin, generic.TemplateView
         return context
 
 
+class RacetimeGGImport(LoginRequiredMixin, UserMixin, generic.TemplateView):
+    template_name = 'racetime/user/import_racetimegg.html'
+
+    def render_error(self, message, *, status=400):
+        context = super().get_context_data()
+        context['import_error'] = message
+        return self.render_to_response(context, status=status)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        identity = self.user.external_identities.filter(
+            provider='racetimegg',
+        ).first()
+        context['racetimegg_identity'] = identity
+        if identity:
+            return context
+
+        if not self.user.twitch_login:
+            self.request.session['twitch_auth_next'] = reverse(
+                'racetimegg_import',
+            )
+            context['twitch_url'] = twitch_auth_url(self.request)
+            return context
+
+        try:
+            context['candidate'] = discover_profile(
+                twitch_login=self.user.twitch_login,
+                twitch_name=self.user.twitch_name,
+            )
+        except (requests.RequestException, RTGGImportError) as ex:
+            notice_exception(ex)
+            context['import_error'] = (
+                'Racetime.gg could not be checked right now. Please try again.'
+            )
+        return context
+
+    def post(self, request):
+        if self.user.external_identities.filter(provider='racetimegg').exists():
+            messages.info(
+                request,
+                'Your racetime.gg profile is already linked. Your later '
+                'Raceroom profile edits were left unchanged.',
+            )
+            return http.HttpResponseRedirect(reverse('edit_account'))
+
+        if not self.user.twitch_login:
+            return self.render_error(
+                'Connect Twitch before importing a racetime.gg profile.',
+            )
+        if self.user.active_race_entrant:
+            return self.render_error(
+                'You cannot import a profile while participating in a race.',
+            )
+
+        profile_url = request.POST.get('profile_url', '').strip()
+        if not profile_url or len(profile_url) > 300:
+            return self.render_error(
+                'Enter a valid public racetime.gg profile URL.',
+            )
+
+        try:
+            profile = load_profile(profile_url)
+            if profile['twitch_login'] != self.user.twitch_login.lower():
+                raise RTGGImportError(
+                    'That racetime.gg profile does not match your connected '
+                    'Twitch account.',
+                )
+            avatar_data = (
+                download_avatar(profile['avatar_url'])
+                if not self.user.avatar and profile['avatar_url']
+                else None
+            )
+            self.import_profile(profile, avatar_data)
+        except (requests.RequestException, RTGGImportError) as ex:
+            if isinstance(ex, requests.RequestException):
+                notice_exception(ex)
+                message = (
+                    'Racetime.gg could not be checked right now. '
+                    'Please try again.'
+                )
+            else:
+                message = str(ex)
+            return self.render_error(message)
+        except IntegrityError:
+            return self.render_error(
+                'That racetime.gg profile is already linked to another '
+                'Raceroom account.',
+                status=409,
+            )
+
+        self.user.log_action('racetimegg_import', request)
+        messages.success(
+            request,
+            'Your racetime.gg profile was imported successfully.',
+        )
+        return http.HttpResponseRedirect(reverse('edit_account'))
+
+    @atomic
+    def import_profile(self, profile, avatar_data):
+        user = models.User.objects.select_for_update().get(pk=self.user.pk)
+        subject_identity = (
+            models.ExternalIdentity.objects.select_for_update()
+            .filter(provider='racetimegg', subject=profile['subject'])
+            .first()
+        )
+        if subject_identity and subject_identity.user_id != user.id:
+            raise RTGGImportError(
+                'That racetime.gg profile is already linked to another '
+                'Raceroom account.',
+            )
+        if (
+            models.ExternalIdentity.objects.select_for_update()
+            .filter(provider='racetimegg', user=user)
+            .exists()
+        ):
+            raise RTGGImportError(
+                'A racetime.gg profile is already linked to this account.',
+            )
+        if (
+            models.User.objects.select_for_update()
+            .filter(
+                name=profile['name'],
+                discriminator=profile['discriminator'],
+            )
+            .exclude(pk=user.pk)
+            .exists()
+        ):
+            raise RTGGImportError(
+                'That racetime.gg display identity is already in use on '
+                'Raceroom.',
+            )
+
+        if (
+            user.name != profile['name']
+            or user.discriminator != profile['discriminator']
+        ):
+            models.UserLog.objects.create(
+                user=user,
+                email=user.email,
+                name=user.name,
+                discriminator=user.discriminator,
+                changed_password=False,
+            )
+        user.name = profile['name']
+        user.discriminator = profile['discriminator']
+        if not user.pronouns and profile['pronouns']:
+            user.pronouns = profile['pronouns']
+        if not user.profile_bio and profile['bio']:
+            user.profile_bio = profile['bio']
+        if not user.avatar and avatar_data:
+            user.avatar.save(
+                f"rtgg-{profile['subject']}.png",
+                ContentFile(avatar_data),
+                save=False,
+            )
+        user.save()
+        models.ExternalIdentity.objects.create(
+            user=user,
+            provider='racetimegg',
+            subject=profile['subject'],
+        )
+
+
 class TeamPageMixin(LoginRequiredMixin, UserMixin):
     pass
 
@@ -541,7 +712,14 @@ class TwitchAuth(LoginRequiredMixin, UserMixin, generic.View):
                             'account. You can now join races that requires streaming.',
                         )
 
-        return http.HttpResponseRedirect(reverse('edit_account_connections'))
+        redirect_to = request.session.pop('twitch_auth_next', '')
+        if not url_has_allowed_host_and_scheme(
+            url=redirect_to,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            redirect_to = reverse('edit_account_connections')
+        return http.HttpResponseRedirect(redirect_to)
 
 
 class TwitchDisconnect(LoginRequiredMixin, UserMixin, generic.View):

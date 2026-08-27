@@ -73,6 +73,16 @@ account_patterns = [
         name='discord_create_account',
     ),
     path('connections', views.EditAccountConnections.as_view(), name='edit_account_connections'),
+    path(
+        'racetimegg/import',
+        protected(
+            views.RacetimeGGImport.as_view(),
+            'profile_mutation',
+            'racetimegg_import',
+            ('POST',),
+        ),
+        name='racetimegg_import',
+    ),
     path('standing', views.AccountStanding.as_view(), name='account_standing'),
     path('teams', views.EditAccountTeams.as_view(), name='edit_account_teams'),
     path(

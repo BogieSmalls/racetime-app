@@ -1,0 +1,49 @@
+{% extends 'racetime/base.html' %}
+
+{% block title %}
+    Import racetime.gg profile |
+{% endblock %}
+
+{% block main %}
+    {% include 'racetime/user/tabs.html' with current='edit_account_connections' %}
+    <h2>Import your racetime.gg profile</h2>
+    <div class="division">
+        {% if racetimegg_identity %}
+            <p>Your racetime.gg profile is already linked to this account.</p>
+        {% elif not user.twitch_login %}
+            <p>
+                Connect the same Twitch account shown on your racetime.gg
+                profile so we can verify that the profile belongs to you.
+            </p>
+            <p><a href="{{ twitch_url }}" class="btn">Connect Twitch</a></p>
+        {% elif import_error %}
+            <p>{{ import_error }}</p>
+        {% elif candidate %}
+            <h3>We found {{ candidate.name }}#{{ candidate.discriminator }}</h3>
+            <p>
+                This profile links to
+                <a href="https://www.twitch.tv/{{ candidate.twitch_login }}" target="_blank" rel="nofollow">
+                    twitch.tv/{{ candidate.twitch_login }}
+                </a>.
+            </p>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="profile_url" value="{{ candidate.url }}">
+                <button type="submit" class="btn">Import this profile</button>
+            </form>
+        {% else %}
+            <p>
+                We could not find a racetime.gg profile using your connected
+                Twitch name. Paste your public profile URL below.
+            </p>
+            <form method="post" class="layout-form">
+                {% csrf_token %}
+                <label for="profile_url">racetime.gg profile URL</label>
+                <input id="profile_url" name="profile_url" type="url"
+                       required maxlength="300"
+                       placeholder="https://racetime.gg/user/...">
+                <button type="submit" class="btn">Verify and import</button>
+            </form>
+        {% endif %}
+    </div>
+{% endblock %}

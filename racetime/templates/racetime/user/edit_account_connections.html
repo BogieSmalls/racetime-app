@@ -56,6 +56,16 @@
             </p>
         {% endif %}
     </div>
+    <div class="division">
+        <h3>Import your racetime.gg profile</h3>
+        <p class="help">
+            Bring your racetime.gg name and profile details into Z1RR
+            Raceroom after verifying the same Twitch account.
+        </p>
+        <p>
+            <a href="{% url 'racetimegg_import' %}" class="btn">Import racetime.gg profile</a>
+        </p>
+    </div>
     {% if patreon_enabled %}
     <div class="division">
         <h3>Connect to Patreon</h3>
