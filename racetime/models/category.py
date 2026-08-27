@@ -554,6 +554,13 @@ class Goal(models.Model):
     default_settings = models.JSONField(
         default=dict,
     )
+    sort_order = models.PositiveSmallIntegerField(
+        default=0,
+        help_text=(
+            'Position of this goal in goal lists and leaderboards. Lower '
+            'numbers appear first; goals sharing a number are ordered by name.'
+        ),
+    )
     created_at = models.DateTimeField(
         auto_now_add=True,
     )
@@ -562,6 +569,7 @@ class Goal(models.Model):
     )
 
     class Meta:
+        ordering = ['sort_order', 'name']
         constraints = [
             models.UniqueConstraint(
                 fields=['category', 'name'],

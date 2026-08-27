@@ -220,7 +220,7 @@ class CategoryLeaderboards(Category):
             show_leaderboard=True,
         )
         goals = goals.annotate(num_races=db_models.Count('race__id'))
-        goals = goals.order_by('-active', '-num_races', 'name')
+        goals = goals.order_by('-active', 'sort_order', '-num_races', 'name')
         for goal in goals:
             rankings = models.UserRanking.objects.filter(
                 category=category,
