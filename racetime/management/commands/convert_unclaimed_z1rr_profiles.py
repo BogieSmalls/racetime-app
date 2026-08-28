@@ -1,10 +1,22 @@
 """Convert never-authenticated imported users into private import candidates."""
 
+import logging
+
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import transaction
 
 from ...models import Category, ExternalIdentity, ProfileImportCandidate, User
+
+
+logger = logging.getLogger(__name__)
+
+
+def _delete_avatar(storage, name):
+    try:
+        storage.delete(name)
+    except OSError:
+        logger.warning("Unable to delete legacy avatar %s", name)
 
 
 def _related_activity(user):
@@ -165,7 +177,7 @@ class Command(BaseCommand):
                 user.delete()
             for storage, name in avatar_files:
                 transaction.on_commit(
-                    lambda storage=storage, name=name: storage.delete(name)
+                    lambda storage=storage, name=name: _delete_avatar(storage, name)
                 )
 
         self.stdout.write(self.style.SUCCESS(f"APPLIED: {summary}"))

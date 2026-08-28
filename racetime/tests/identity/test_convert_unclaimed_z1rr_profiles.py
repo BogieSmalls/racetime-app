@@ -1,4 +1,5 @@
 from io import StringIO
+from unittest import mock
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -114,3 +115,20 @@ class ConvertUnclaimedZ1RRProfilesTests(TestCase):
 
         candidate = ProfileImportCandidate.objects.get()
         self.assertIsNone(candidate.twitch_id)
+
+    def test_read_only_legacy_avatar_does_not_fail_applied_conversion(self):
+        user = self.create_placeholder()
+        user.avatar = "legacy-avatar.png"
+        user.save(update_fields=["avatar"])
+
+        with mock.patch.object(
+            user.avatar.storage,
+            "delete",
+            side_effect=OSError(30, "Read-only file system"),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = self.run_conversion(apply=True)
+
+        self.assertIn("APPLIED", result)
+        self.assertFalse(User.objects.filter(pk=user.pk).exists())
+        self.assertTrue(ProfileImportCandidate.objects.exists())
