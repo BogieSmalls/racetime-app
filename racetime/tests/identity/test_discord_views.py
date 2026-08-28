@@ -9,7 +9,8 @@ from django.urls import resolve, reverse
 from django.utils import timezone
 
 from racetime.discord import DISCORD_OAUTH_SESSION_KEY, DiscordIdentity, DiscordOAuthError
-from racetime.models import ExternalIdentity, User, UserAction
+from racetime.models import ExternalIdentity, ProfileImportCandidate, User, UserAction
+from racetime.rtgg import RTGGImportError
 
 
 PENDING_IDENTITY_SESSION_KEY = "discord_pending_identity"
@@ -200,6 +201,128 @@ class DiscordViewTests(TestCase):
             set(UserAction.objects.filter(user=user).values_list("action", flat=True)),
             {"create_account", "discord_login"},
         )
+    @staticmethod
+    def import_profile():
+        return {
+            "subject": "rtgg-subject",
+            "url": "https://racetime.gg/user/rtgg-subject/racer",
+            "name": "RTGG Racer",
+            "discriminator": "4670",
+            "twitch_login": "racer_live",
+            "twitch_name": "RacerLive",
+            "avatar_url": None,
+            "pronouns": "she/her",
+            "bio": "Imported bio",
+        }
+
+    @mock.patch("racetime.views.discord_auth.load_profile")
+    def test_private_candidate_is_shown_only_after_discord_authentication(
+        self, load_profile
+    ):
+        ProfileImportCandidate.objects.create(
+            discord_subject="123",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+        load_profile.return_value = self.import_profile()
+        self.set_pending_identity()
+
+        response = self.client.get(reverse("discord_create_account"), secure=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "RTGG Racer#4670")
+        self.assertContains(response, "Import profile and create account")
+        self.assertContains(response, "Create without importing")
+        self.assertEqual(self.racer_user_count(), 0)
+        load_profile.assert_called_once_with(
+            "https://racetime.gg/user/rtgg-subject"
+        )
+
+    @mock.patch("racetime.views.discord_auth.load_profile")
+    def test_import_choice_creates_account_with_profile_and_consumes_candidate(
+        self, load_profile
+    ):
+        ProfileImportCandidate.objects.create(
+            discord_subject="123",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+        load_profile.return_value = self.import_profile()
+        self.set_pending_identity(next_url="/category/z1rr")
+
+        response = self.client.post(
+            reverse("discord_create_account"),
+            {"profile_choice": "import"},
+            secure=True,
+            HTTP_HOST="testserver",
+        )
+
+        self.assertRedirects(response, "/category/z1rr", fetch_redirect_response=False)
+        user = User.objects.get(email="123@discord.invalid")
+        self.assertEqual(user.name, "RTGG Racer")
+        self.assertEqual(user.discriminator, "4670")
+        self.assertEqual(user.pronouns, "she/her")
+        self.assertEqual(user.profile_bio, "Imported bio")
+        self.assertEqual(user.twitch_id, 987654321)
+        self.assertEqual(user.twitch_login, "racer_live")
+        self.assertEqual(user.twitch_name, "RacerLive")
+        self.assertEqual(
+            set(user.external_identities.values_list("provider", "subject")),
+            {("discord", "123"), ("racetimegg", "rtgg-subject")},
+        )
+        self.assertFalse(
+            ProfileImportCandidate.objects.filter(discord_subject="123").exists()
+        )
+
+    def test_fresh_choice_copies_nothing_and_keeps_candidate_for_later(self):
+        ProfileImportCandidate.objects.create(
+            discord_subject="123",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+        self.set_pending_identity()
+
+        response = self.client.post(
+            reverse("discord_create_account"),
+            {"profile_choice": "fresh", "name": "Fresh Racer"},
+            secure=True,
+            HTTP_HOST="testserver",
+        )
+
+        self.assertRedirects(response, "/", fetch_redirect_response=False)
+        user = User.objects.get(email="123@discord.invalid")
+        self.assertEqual(user.name, "Fresh Racer")
+        self.assertIsNone(user.twitch_id)
+        self.assertFalse(
+            user.external_identities.filter(provider="racetimegg").exists()
+        )
+        self.assertTrue(
+            ProfileImportCandidate.objects.filter(discord_subject="123").exists()
+        )
+
+    @mock.patch("racetime.views.discord_auth.load_profile")
+    def test_candidate_provider_failure_still_allows_fresh_account(self, load_profile):
+        ProfileImportCandidate.objects.create(
+            discord_subject="123",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+        load_profile.side_effect = RTGGImportError("provider unavailable")
+        self.set_pending_identity()
+
+        page = self.client.get(reverse("discord_create_account"), secure=True)
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "could not be loaded right now")
+
+        response = self.client.post(
+            reverse("discord_create_account"),
+            {"profile_choice": "fresh", "name": "Fresh Racer"},
+            secure=True,
+            HTTP_HOST="testserver",
+        )
+        self.assertRedirects(response, "/", fetch_redirect_response=False)
+        self.assertTrue(User.objects.filter(name="Fresh Racer").exists())
+
 
     def test_invalid_name_does_not_create_or_consume_pending_identity(self):
         self.set_pending_identity()
@@ -304,3 +427,33 @@ class DiscordViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.racer_user_count(), 0)
+    @mock.patch("racetime.views.discord_auth.load_profile")
+    def test_import_refuses_candidate_twitch_linked_to_another_user(
+        self, load_profile
+    ):
+        User.objects.create_user(
+            "other@example.com",
+            name="Other Racer",
+            twitch_id=987654321,
+            twitch_login="racer_live",
+            twitch_name="RacerLive",
+        )
+        ProfileImportCandidate.objects.create(
+            discord_subject="123",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+        load_profile.return_value = self.import_profile()
+        self.set_pending_identity()
+
+        response = self.client.post(
+            reverse("discord_create_account"),
+            {"profile_choice": "import"},
+            secure=True,
+            HTTP_HOST="testserver",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "could not be imported")
+        self.assertFalse(User.objects.filter(email="123@discord.invalid").exists())
+        self.assertTrue(ProfileImportCandidate.objects.exists())

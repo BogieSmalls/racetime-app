@@ -9,15 +9,52 @@
 
 {% block content %}
     <main class="create-account">
-        <h2>Choose your racer name</h2>
-        <p class="help">
-            This is the public name other racers will see. Your Discord account
-            will remain the way you sign in.
-        </p>
+        <h2>Finish creating your account</h2>
+        {% if candidate %}
+            <div class="division">
+                <h3>Optional racetime.gg import</h3>
+                {% if candidate_profile %}
+                    <p>
+                        Your Discord ID matches the private import candidate
+                        <strong>{{ candidate_profile.name }}#{{ candidate_profile.discriminator }}</strong>.
+                    </p>
+                    <p class="help">
+                        If you choose to import, Raceroom will copy the display
+                        name and discriminator, pronouns, avatar, bio, and
+                        <a href="https://www.twitch.tv/{{ candidate_profile.twitch_login }}"
+                           target="_blank" rel="nofollow">Twitch link</a>
+                        shown on that public racetime.gg profile.
+                    </p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="profile_choice" value="import">
+                        <button class="btn" type="submit">Import profile and create account</button>
+                    </form>
+                {% endif %}
+                {% if import_error %}
+                    <p>{{ import_error }}</p>
+                {% endif %}
+            </div>
+            <h3>Create without importing</h3>
+            <p class="help">
+                This copies nothing from racetime.gg. You can choose to import
+                or dismiss the private candidate later in Account Connections.
+            </p>
+        {% else %}
+            <h3>Choose your racer name</h3>
+            <p class="help">
+                This is the public name other racers will see. Your Discord
+                account will remain the way you sign in.
+            </p>
+        {% endif %}
         <form class="create-account-form layout-form" method="post">
             {% csrf_token %}
+            <input type="hidden" name="profile_choice" value="fresh">
             <ul>{{ form.as_ul }}</ul>
-            <button class="btn" type="submit">Create account</button>
+            <button class="btn" type="submit">
+                {% if candidate %}Create without importing{% else %}Create account{% endif %}
+            </button>
+            <a href="/" class="btn cancel">Cancel</a>
         </form>
     </main>
 {% endblock %}

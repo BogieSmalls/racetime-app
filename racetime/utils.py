@@ -639,6 +639,18 @@ def delete_user(request, user, protect=True):
     }
 
     with atomic():
+        discord_subject = (
+            user.external_identities.filter(provider='discord')
+            .values_list('subject', flat=True)
+            .first()
+        )
+        if discord_subject:
+            ProfileImportCandidate = apps.get_model(
+                'racetime', 'ProfileImportCandidate',
+            )
+            ProfileImportCandidate.objects.filter(
+                discord_subject=discord_subject,
+            ).delete()
         # Delete comments
         Entrant = apps.get_model('racetime', 'Entrant')
         Entrant.objects.filter(user=user).update(comment=None)

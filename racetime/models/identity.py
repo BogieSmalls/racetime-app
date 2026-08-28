@@ -70,3 +70,46 @@ class ExternalIdentity(models.Model):
 
     def __str__(self):
         return f"{self.provider}:{self.subject}"
+
+
+class ProfileImportCandidateManager(models.Manager):
+    def create(self, **kwargs):
+        if "discord_subject" not in kwargs or "racetimegg_subject" not in kwargs:
+            raise ValidationError(
+                "discord_subject and racetimegg_subject are required"
+            )
+        _, kwargs["discord_subject"] = ExternalIdentity.objects.normalize(
+            "discord", kwargs["discord_subject"]
+        )
+        _, kwargs["racetimegg_subject"] = ExternalIdentity.objects.normalize(
+            "racetimegg", kwargs["racetimegg_subject"]
+        )
+        return super().create(**kwargs)
+
+
+class ProfileImportCandidate(models.Model):
+    """A private, unclaimed match offered only after Discord authentication."""
+
+    discord_subject = models.CharField(max_length=128, unique=True)
+    racetimegg_subject = models.CharField(max_length=128, unique=True)
+    twitch_id = models.BigIntegerField(unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = ProfileImportCandidateManager()
+
+    class Meta:
+        ordering = ("discord_subject",)
+
+    def clean(self):
+        super().clean()
+        _, self.discord_subject = ExternalIdentity.objects.normalize(
+            "discord", self.discord_subject
+        )
+        _, self.racetimegg_subject = ExternalIdentity.objects.normalize(
+            "racetimegg", self.racetimegg_subject
+        )
+
+    def __str__(self):
+        return (
+            f"discord:{self.discord_subject} -> racetimegg:{self.racetimegg_subject}"
+        )

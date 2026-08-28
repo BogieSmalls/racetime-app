@@ -5,7 +5,7 @@ from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 from PIL import Image
 
-from racetime.models import ExternalIdentity, User
+from racetime.models import ExternalIdentity, ProfileImportCandidate, User
 from racetime.rtgg import discover_profile
 
 
@@ -332,3 +332,80 @@ class RacetimeGGImportViewTests(TestCase):
         self.assertNotIn("twitch_auth_next", self.client.session)
         self.user.refresh_from_db()
         self.assertEqual(self.user.twitch_login, "bogiesmalls")
+    @mock.patch("racetime.views.user.download_avatar")
+    @mock.patch("racetime.views.user.load_profile")
+    def test_private_candidate_can_be_imported_without_prior_twitch_connection(
+        self, load_profile, download_avatar,
+    ):
+        self.user.twitch_id = None
+        self.user.twitch_login = None
+        self.user.twitch_name = None
+        self.user.save(
+            update_fields=["twitch_id", "twitch_login", "twitch_name"],
+        )
+        ProfileImportCandidate.objects.create(
+            discord_subject="123456789012345678",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+        load_profile.return_value = {
+            "subject": "rtgg-subject",
+            "url": "https://racetime.gg/user/rtgg-subject/bogie",
+            "name": "Bogie",
+            "discriminator": "4670",
+            "twitch_login": "bogiesmalls",
+            "twitch_name": "BogieSmalls",
+            "avatar_url": None,
+            "pronouns": "he/him",
+            "bio": "Z1R racer",
+        }
+
+        response = self.client.post(
+            reverse("racetimegg_import"),
+            {"action": "import_candidate"},
+        )
+
+        self.assertRedirects(response, reverse("edit_account"))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.name, "Bogie")
+        self.assertEqual(self.user.discriminator, "4670")
+        self.assertEqual(self.user.twitch_id, 987654321)
+        self.assertEqual(self.user.twitch_login, "bogiesmalls")
+        self.assertTrue(
+            self.user.external_identities.filter(
+                provider="racetimegg",
+                subject="rtgg-subject",
+            ).exists()
+        )
+        self.assertFalse(ProfileImportCandidate.objects.exists())
+        download_avatar.assert_not_called()
+
+    def test_private_candidate_can_be_dismissed_permanently(self):
+        ProfileImportCandidate.objects.create(
+            discord_subject="123456789012345678",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+
+        response = self.client.post(
+            reverse("racetimegg_import"),
+            {"action": "dismiss_candidate"},
+        )
+
+        self.assertRedirects(response, reverse("edit_account_connections"))
+        self.assertFalse(ProfileImportCandidate.objects.exists())
+        self.assertFalse(
+            self.user.external_identities.filter(provider="racetimegg").exists()
+        )
+    @mock.patch("racetime.utils.send_mail")
+    def test_account_deletion_also_removes_private_candidate(self, send_mail):
+        ProfileImportCandidate.objects.create(
+            discord_subject="123456789012345678",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+
+        response = self.client.post(reverse("delete_account"))
+
+        self.assertRedirects(response, reverse("home"), fetch_redirect_response=False)
+        self.assertFalse(ProfileImportCandidate.objects.exists())

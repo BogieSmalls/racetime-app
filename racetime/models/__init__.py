@@ -3,7 +3,7 @@ from .bot import Bot
 from .category import AuditLog, Category, CategoryRequest, Emote, Goal
 from .chat import Message
 from .choices import EntrantStates, RaceStates
-from .identity import ExternalIdentity
+from .identity import ExternalIdentity, ProfileImportCandidate
 from .race import Entrant, Race
 from .team import Team, TeamAuditLog, TeamMember
 from .user import (
@@ -21,6 +21,7 @@ __all__ = [
     'Bot',
     # identity
     'ExternalIdentity',
+    'ProfileImportCandidate',
 
     # category
     'AuditLog',

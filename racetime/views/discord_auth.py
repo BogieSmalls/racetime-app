@@ -2,8 +2,11 @@
 
 import time
 
+import requests
+
 from django.conf import settings
 from django.contrib.auth import login
+from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import render
@@ -22,6 +25,7 @@ from racetime.discord import (
     consume_discord_callback,
     issue_discord_oauth_state,
 )
+from racetime.rtgg import RTGGImportError, RTGG_ORIGIN, download_avatar, load_profile
 
 
 PENDING_IDENTITY_SESSION_KEY = "discord_pending_identity"
@@ -99,7 +103,29 @@ def _find_identity(subject, *, lock=False):
     return identities.filter(provider="discord", subject=subject).first()
 
 
-def _create_or_find_account(request, subject, name):
+def _candidate_profile(candidate):
+    profile = load_profile(
+        f"{RTGG_ORIGIN}/user/{candidate.racetimegg_subject}"
+    )
+    if (
+        profile["subject"] != candidate.racetimegg_subject
+        or not profile["twitch_login"]
+    ):
+        raise RTGGImportError(
+            "The matched racetime.gg profile could not be verified."
+        )
+    return profile
+
+
+def _create_or_find_account(
+    request,
+    subject,
+    name,
+    *,
+    candidate_id=None,
+    profile=None,
+    avatar_data=None,
+):
     try:
         with transaction.atomic():
             identity = _find_identity(subject, lock=True)
@@ -110,15 +136,60 @@ def _create_or_find_account(request, subject, name):
             if models.User.objects.select_for_update().filter(email=email).exists():
                 raise SyntheticEmailCollision
 
+            candidate = None
+            if profile is not None:
+                candidate = (
+                    models.ProfileImportCandidate.objects.select_for_update()
+                    .filter(pk=candidate_id, discord_subject=subject)
+                    .first()
+                )
+                if (
+                    candidate is None
+                    or candidate.racetimegg_subject != profile["subject"]
+                ):
+                    raise RTGGImportError(
+                        "The private import candidate is no longer available."
+                    )
+
+                if (
+                    models.User.objects.select_for_update()
+                    .filter(twitch_id=candidate.twitch_id)
+                    .exists()
+                ):
+                    raise RTGGImportError(
+                        "That Twitch account is already linked."
+                    )
             user = models.User(email=email, name=name)
+            if profile is not None:
+                user.discriminator = profile["discriminator"]
+                user.pronouns = profile["pronouns"]
+                user.profile_bio = profile["bio"]
+                user.twitch_id = candidate.twitch_id
+                user.twitch_login = profile["twitch_login"]
+                user.twitch_name = (
+                    profile.get("twitch_name") or profile["twitch_login"]
+                )
             user.set_unusable_password()
             user.save()
+            if avatar_data:
+                user.avatar.save(
+                    f"rtgg-{profile['subject']}.png",
+                    ContentFile(avatar_data),
+                )
             models.ExternalIdentity.objects.create(
                 user=user,
                 provider="discord",
                 subject=subject,
                 last_authenticated_at=timezone.now(),
             )
+            if profile is not None:
+                models.ExternalIdentity.objects.create(
+                    user=user,
+                    provider="racetimegg",
+                    subject=profile["subject"],
+                )
+                candidate.delete()
+                user.log_action("racetimegg_import", request)
             user.log_action("create_account", request)
             return user
     except IntegrityError:
@@ -180,11 +251,44 @@ def discord_create_account(request):
     if pending is None:
         return _generic_error(request)
 
+    candidate = models.ProfileImportCandidate.objects.filter(
+        discord_subject=pending["subject"]
+    ).first()
+    choice = request.POST.get("profile_choice", "fresh")
     form = forms.DiscordDisplayNameForm(
-        request.POST if request.method == "POST" else None
+        request.POST
+        if request.method == "POST" and choice != "import"
+        else None
     )
-    if request.method == "POST" and form.is_valid():
-        request.session.pop(PENDING_IDENTITY_SESSION_KEY, None)
+    candidate_profile = None
+    import_error = None
+    user = None
+
+    if request.method == "POST" and choice == "import":
+        if candidate is None:
+            import_error = "The private import candidate is no longer available."
+        else:
+            try:
+                candidate_profile = _candidate_profile(candidate)
+                avatar_data = (
+                    download_avatar(candidate_profile["avatar_url"])
+                    if candidate_profile["avatar_url"]
+                    else None
+                )
+                user = _create_or_find_account(
+                    request,
+                    pending["subject"],
+                    candidate_profile["name"],
+                    candidate_id=candidate.pk,
+                    profile=candidate_profile,
+                    avatar_data=avatar_data,
+                )
+            except (requests.RequestException, RTGGImportError, IntegrityError):
+                import_error = (
+                    "The matched racetime.gg profile could not be imported "
+                    "right now. You can retry or create an account without it."
+                )
+    elif request.method == "POST" and choice == "fresh" and form.is_valid():
         try:
             user = _create_or_find_account(
                 request,
@@ -193,12 +297,31 @@ def discord_create_account(request):
             )
         except (IntegrityError, SyntheticEmailCollision):
             return _generic_error(request)
+    elif request.method == "POST" and choice not in {"fresh", "import"}:
+        form.add_error(None, "Choose how to create your account.")
+
+    if user is not None:
+        request.session.pop(PENDING_IDENTITY_SESSION_KEY, None)
         if _login_discord_user(request, user) is None:
             return _generic_error(request)
         return HttpResponseRedirect(pending["next"])
 
+    if request.method == "GET" and candidate is not None:
+        try:
+            candidate_profile = _candidate_profile(candidate)
+        except (requests.RequestException, RTGGImportError):
+            import_error = (
+                "Your matched racetime.gg profile could not be loaded right "
+                "now. You can still create an account without importing it."
+            )
+
     return render(
         request,
         "racetime/user/discord_create_account.html",
-        {"form": form},
+        {
+            "form": form,
+            "candidate": candidate,
+            "candidate_profile": candidate_profile,
+            "import_error": import_error,
+        },
     )

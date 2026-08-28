@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import transaction
 
-from ...models import ExternalIdentity, User
+from ...models import ExternalIdentity, ProfileImportCandidate, User
 
 
 def _required_text(profile, field, *, maximum=None):
@@ -115,6 +115,26 @@ def _classify(profiles):
             classifications.append(("existing", profile))
             continue
 
+        candidate = ProfileImportCandidate.objects.filter(
+            discord_subject=profile["discord_id"],
+        ).first()
+        if candidate is not None:
+            if (
+                candidate.racetimegg_subject != profile["rtgg_id"]
+                or candidate.twitch_id != profile["twitch_id"]
+            ):
+                raise CommandError(
+                    "An existing private candidate conflicts with the import."
+                )
+            classifications.append(("existing", profile))
+            continue
+
+        if ProfileImportCandidate.objects.filter(
+            racetimegg_subject=profile["rtgg_id"],
+        ).exists() or ProfileImportCandidate.objects.filter(
+            twitch_id=profile["twitch_id"],
+        ).exists():
+            raise CommandError("A private candidate conflicts with the import.")
         if ExternalIdentity.objects.filter(
             provider="racetimegg", subject=profile["rtgg_id"]
         ).exists():
@@ -152,30 +172,10 @@ class Command(BaseCommand):
             for kind, profile in classifications:
                 if kind == "existing":
                     continue
-                user = User(
-                    email=f"{profile['discord_id']}@discord.invalid",
-                    name=profile["name"],
-                    discriminator=profile["discriminator"],
-                    pronouns=profile["pronouns"],
+                ProfileImportCandidate.objects.create(
+                    discord_subject=profile["discord_id"],
+                    racetimegg_subject=profile["rtgg_id"],
                     twitch_id=profile["twitch_id"],
-                    twitch_login=profile["twitch_login"],
-                    twitch_name=profile["twitch_name"],
-                )
-                user.set_unusable_password()
-                user.save()
-                ExternalIdentity.objects.bulk_create(
-                    (
-                        ExternalIdentity(
-                            user=user,
-                            provider="discord",
-                            subject=profile["discord_id"],
-                        ),
-                        ExternalIdentity(
-                            user=user,
-                            provider="racetimegg",
-                            subject=profile["rtgg_id"],
-                        ),
-                    )
                 )
 
         self.stdout.write(

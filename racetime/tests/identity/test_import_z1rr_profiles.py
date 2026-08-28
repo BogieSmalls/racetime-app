@@ -6,7 +6,7 @@ from io import StringIO
 from django.core.management import call_command
 from django.test import TestCase
 
-from racetime.models import ExternalIdentity, User
+from racetime.models import ExternalIdentity, ProfileImportCandidate, User
 
 
 class ImportZ1RRProfilesTests(TestCase):
@@ -41,7 +41,7 @@ class ImportZ1RRProfilesTests(TestCase):
         finally:
             os.unlink(path)
 
-    def test_dry_run_then_apply_creates_claimable_idempotent_profile(self):
+    def test_dry_run_then_apply_creates_private_idempotent_candidate(self):
         dry_run = self.run_import()
 
         self.assertIn("DRY RUN", dry_run)
@@ -50,29 +50,17 @@ class ImportZ1RRProfilesTests(TestCase):
         applied = self.run_import(apply=True)
 
         self.assertIn("CREATED=1", applied)
-        user = User.objects.get(email="123456789012345678@discord.invalid")
-        self.assertEqual(user.email, "123456789012345678@discord.invalid")
-        self.assertEqual(user.name, "Racer One")
-        self.assertEqual(user.discriminator, "1234")
-        self.assertEqual(user.pronouns, "they/them")
-        self.assertEqual(user.twitch_id, 987654321)
-        self.assertEqual(user.twitch_login, "racerone")
-        self.assertEqual(user.twitch_name, "RacerOne")
-        self.assertFalse(user.has_usable_password())
-        self.assertEqual(
-            set(
-                ExternalIdentity.objects.filter(user=user).values_list(
-                    "provider", "subject"
-                )
-            ),
-            {
-                ("discord", "123456789012345678"),
-                ("racetimegg", "fR42gLweew3pQlm4"),
-            },
+        candidate = ProfileImportCandidate.objects.get(
+            discord_subject="123456789012345678"
         )
+        self.assertEqual(candidate.racetimegg_subject, "fR42gLweew3pQlm4")
+        self.assertEqual(candidate.twitch_id, 987654321)
+        self.assertEqual(User.objects.count(), self.initial_user_count)
+        self.assertFalse(ExternalIdentity.objects.exists())
 
         repeated = self.run_import(apply=True)
 
         self.assertIn("CREATED=0", repeated)
         self.assertIn("EXISTING=1", repeated)
-        self.assertEqual(User.objects.count(), self.initial_user_count + 1)
+        self.assertEqual(User.objects.count(), self.initial_user_count)
+        self.assertEqual(ProfileImportCandidate.objects.count(), 1)

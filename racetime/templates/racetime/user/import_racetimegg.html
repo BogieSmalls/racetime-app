@@ -10,6 +10,35 @@
     <div class="division">
         {% if racetimegg_identity %}
             <p>Your racetime.gg profile is already linked to this account.</p>
+        {% elif private_candidate %}
+            <p>
+                Your Discord ID has a private racetime.gg import candidate.
+                Nothing is copied unless you choose to import it.
+            </p>
+            {% if import_error %}
+                <p>{{ import_error }}</p>
+            {% elif candidate %}
+                <h3>{{ candidate.name }}#{{ candidate.discriminator }}</h3>
+                <p class="help">
+                    Importing copies the display name and discriminator,
+                    pronouns, avatar, bio, and
+                    <a href="https://www.twitch.tv/{{ candidate.twitch_login }}"
+                       target="_blank" rel="nofollow">Twitch link</a>
+                    from this public racetime.gg profile.
+                </p>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="import_candidate">
+                    <button type="submit" class="btn">Import this profile</button>
+                </form>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="dismiss_candidate">
+                <button type="submit" class="btn dangerous">
+                    Dismiss this candidate permanently
+                </button>
+            </form>
         {% elif not user.twitch_login %}
             <p>
                 Connect the same Twitch account shown on your racetime.gg
