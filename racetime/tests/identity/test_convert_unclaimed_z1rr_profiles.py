@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from racetime.models import (
     ExternalIdentity,
+    Category,
     ProfileImportCandidate,
     User,
     UserAction,
@@ -85,3 +86,18 @@ class ConvertUnclaimedZ1RRProfilesTests(TestCase):
 
         self.assertTrue(User.objects.filter(pk=user.pk).exists())
         self.assertFalse(ProfileImportCandidate.objects.exists())
+    def test_category_roles_are_carried_by_private_candidate(self):
+        user = self.create_placeholder()
+        category = Category.objects.create(
+            name="Z1R Randomizer",
+            short_name="Z1RR",
+            slug="z1rr",
+        )
+        category.owners.add(user)
+        category.moderators.add(user)
+
+        self.run_conversion(apply=True)
+
+        candidate = ProfileImportCandidate.objects.get()
+        self.assertEqual(list(candidate.owned_categories.all()), [category])
+        self.assertEqual(list(candidate.moderated_categories.all()), [category])

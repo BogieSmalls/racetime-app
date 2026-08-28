@@ -9,7 +9,7 @@ from django.urls import resolve, reverse
 from django.utils import timezone
 
 from racetime.discord import DISCORD_OAUTH_SESSION_KEY, DiscordIdentity, DiscordOAuthError
-from racetime.models import ExternalIdentity, ProfileImportCandidate, User, UserAction
+from racetime.models import Category, ExternalIdentity, ProfileImportCandidate, User, UserAction
 from racetime.rtgg import RTGGImportError
 
 
@@ -457,3 +457,29 @@ class DiscordViewTests(TestCase):
         self.assertContains(response, "could not be imported")
         self.assertFalse(User.objects.filter(email="123@discord.invalid").exists())
         self.assertTrue(ProfileImportCandidate.objects.exists())
+    def test_fresh_account_inherits_local_category_roles_from_candidate(self):
+        candidate = ProfileImportCandidate.objects.create(
+            discord_subject="123",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=987654321,
+        )
+        category = Category.objects.create(
+            name="Z1R Randomizer",
+            short_name="Z1RR",
+            slug="z1rr",
+        )
+        candidate.owned_categories.add(category)
+        candidate.moderated_categories.add(category)
+        self.set_pending_identity()
+
+        self.client.post(
+            reverse("discord_create_account"),
+            {"profile_choice": "fresh", "name": "Fresh Racer"},
+            secure=True,
+            HTTP_HOST="testserver",
+        )
+
+        user = User.objects.get(email="123@discord.invalid")
+        self.assertTrue(category.owners.filter(pk=user.pk).exists())
+        self.assertTrue(category.moderators.filter(pk=user.pk).exists())
+        self.assertTrue(ProfileImportCandidate.objects.filter(pk=candidate.pk).exists())

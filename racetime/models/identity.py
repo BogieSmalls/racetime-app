@@ -93,6 +93,16 @@ class ProfileImportCandidate(models.Model):
     discord_subject = models.CharField(max_length=128, unique=True)
     racetimegg_subject = models.CharField(max_length=128, unique=True)
     twitch_id = models.BigIntegerField(unique=True)
+    owned_categories = models.ManyToManyField(
+        "Category",
+        blank=True,
+        related_name="+",
+    )
+    moderated_categories = models.ManyToManyField(
+        "Category",
+        blank=True,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = ProfileImportCandidateManager()
@@ -108,6 +118,10 @@ class ProfileImportCandidate(models.Model):
         _, self.racetimegg_subject = ExternalIdentity.objects.normalize(
             "racetimegg", self.racetimegg_subject
         )
+
+    def apply_category_roles(self, user):
+        user.owned_categories.add(*self.owned_categories.all())
+        user.mod_categories.add(*self.moderated_categories.all())
 
     def __str__(self):
         return (

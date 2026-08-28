@@ -677,6 +677,7 @@ class RacetimeGGImport(LoginRequiredMixin, UserMixin, generic.TemplateView):
             subject=profile['subject'],
         )
         if candidate is not None:
+            candidate.apply_category_roles(user)
             candidate.delete()
         else:
             stale_candidate = self.get_private_candidate(lock=True)

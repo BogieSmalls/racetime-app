@@ -4,12 +4,12 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import transaction
 
-from ...models import ExternalIdentity, ProfileImportCandidate, User
+from ...models import Category, ExternalIdentity, ProfileImportCandidate, User
 
 
 def _related_activity(user):
     for relation in user._meta.related_objects:
-        if relation.related_model is ExternalIdentity:
+        if relation.related_model in {Category, ExternalIdentity}:
             continue
         accessor = relation.get_accessor_name()
         if not accessor or accessor.endswith("+") or not hasattr(user, accessor):
@@ -151,11 +151,13 @@ class Command(BaseCommand):
             convert, claimed, excluded = _classify(exclusions)
             for item in convert:
                 user = User.objects.select_for_update().get(pk=item["user_id"])
-                ProfileImportCandidate.objects.create(
+                candidate = ProfileImportCandidate.objects.create(
                     discord_subject=item["discord_subject"],
                     racetimegg_subject=item["racetimegg_subject"],
                     twitch_id=item["twitch_id"],
                 )
+                candidate.owned_categories.set(user.owned_categories.all())
+                candidate.moderated_categories.set(user.mod_categories.all())
                 if user.avatar:
                     avatar_files.append((user.avatar.storage, user.avatar.name))
                 user.delete()

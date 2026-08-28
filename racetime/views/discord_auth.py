@@ -176,6 +176,15 @@ def _create_or_find_account(
                     f"rtgg-{profile['subject']}.png",
                     ContentFile(avatar_data),
                 )
+            role_candidate = candidate
+            if role_candidate is None:
+                role_candidate = (
+                    models.ProfileImportCandidate.objects.select_for_update()
+                    .filter(discord_subject=subject)
+                    .first()
+                )
+            if role_candidate is not None:
+                role_candidate.apply_category_roles(user)
             models.ExternalIdentity.objects.create(
                 user=user,
                 provider="discord",
