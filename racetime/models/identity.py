@@ -92,7 +92,7 @@ class ProfileImportCandidate(models.Model):
 
     discord_subject = models.CharField(max_length=128, unique=True)
     racetimegg_subject = models.CharField(max_length=128, unique=True)
-    twitch_id = models.BigIntegerField(unique=True)
+    twitch_id = models.BigIntegerField(null=True, blank=True, unique=True)
     owned_categories = models.ManyToManyField(
         "Category",
         blank=True,

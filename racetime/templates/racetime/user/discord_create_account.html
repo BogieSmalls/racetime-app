@@ -20,9 +20,12 @@
                     </p>
                     <p class="help">
                         If you choose to import, Raceroom will copy the display
-                        name and discriminator, pronouns, avatar, bio, and
-                        <a href="https://www.twitch.tv/{{ candidate_profile.twitch_login }}"
-                           target="_blank" rel="nofollow">Twitch link</a>
+                        name and discriminator, pronouns, avatar, and bio
+                        {% if candidate.twitch_id and candidate_profile.twitch_login %}
+                            plus the
+                            <a href="https://www.twitch.tv/{{ candidate_profile.twitch_login }}"
+                               target="_blank" rel="nofollow">Twitch link</a>
+                        {% endif %}
                         shown on that public racetime.gg profile.
                     </p>
                     <form method="post">

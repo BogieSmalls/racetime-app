@@ -414,10 +414,7 @@ class RacetimeGGImport(LoginRequiredMixin, UserMixin, generic.TemplateView):
         profile = load_profile(
             f"{RTGG_ORIGIN}/user/{candidate.racetimegg_subject}"
         )
-        if (
-            profile['subject'] != candidate.racetimegg_subject
-            or not profile['twitch_login']
-        ):
+        if profile['subject'] != candidate.racetimegg_subject:
             raise RTGGImportError(
                 'The matched racetime.gg profile could not be verified.',
             )
@@ -598,7 +595,7 @@ class RacetimeGGImport(LoginRequiredMixin, UserMixin, generic.TemplateView):
                 raise RTGGImportError(
                     'The private import candidate is no longer available.',
                 )
-            if (
+            if candidate.twitch_id is not None and (
                 models.User.objects.select_for_update()
                 .filter(twitch_id=candidate.twitch_id)
                 .exclude(pk=user.pk)
@@ -664,7 +661,11 @@ class RacetimeGGImport(LoginRequiredMixin, UserMixin, generic.TemplateView):
                 ContentFile(avatar_data),
                 save=False,
             )
-        if candidate is not None:
+        if (
+            candidate is not None
+            and candidate.twitch_id is not None
+            and profile['twitch_login']
+        ):
             user.twitch_id = candidate.twitch_id
             user.twitch_login = profile['twitch_login']
             user.twitch_name = (

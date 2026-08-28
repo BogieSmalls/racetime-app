@@ -80,11 +80,7 @@ def _classify(exclusions):
             )
         )
         rtgg = [identity for identity in linked if identity[0] == "racetimegg"]
-        if (
-            len(linked) != 2
-            or len(rtgg) != 1
-            or user.twitch_id is None
-        ):
+        if len(linked) != 2 or len(rtgg) != 1:
             raise CommandError(
                 f"Unclaimed Discord identity {subject} has unexpected links."
             )
@@ -101,11 +97,17 @@ def _classify(exclusions):
             raise CommandError(
                 f"Discord identity {subject} has both a User and a candidate."
             )
-        if ProfileImportCandidate.objects.filter(
+        candidate_conflict = ProfileImportCandidate.objects.filter(
             racetimegg_subject=rtgg[0][1]
-        ).exists() or ProfileImportCandidate.objects.filter(
-            twitch_id=user.twitch_id
-        ).exists():
+        ).exists()
+        if user.twitch_id is not None:
+            candidate_conflict = (
+                candidate_conflict
+                or ProfileImportCandidate.objects.filter(
+                    twitch_id=user.twitch_id
+                ).exists()
+            )
+        if candidate_conflict:
             raise CommandError(
                 f"Discord identity {subject} conflicts with another candidate."
             )

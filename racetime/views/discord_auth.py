@@ -107,10 +107,7 @@ def _candidate_profile(candidate):
     profile = load_profile(
         f"{RTGG_ORIGIN}/user/{candidate.racetimegg_subject}"
     )
-    if (
-        profile["subject"] != candidate.racetimegg_subject
-        or not profile["twitch_login"]
-    ):
+    if profile["subject"] != candidate.racetimegg_subject:
         raise RTGGImportError(
             "The matched racetime.gg profile could not be verified."
         )
@@ -151,7 +148,7 @@ def _create_or_find_account(
                         "The private import candidate is no longer available."
                     )
 
-                if (
+                if candidate.twitch_id is not None and (
                     models.User.objects.select_for_update()
                     .filter(twitch_id=candidate.twitch_id)
                     .exists()
@@ -164,11 +161,12 @@ def _create_or_find_account(
                 user.discriminator = profile["discriminator"]
                 user.pronouns = profile["pronouns"]
                 user.profile_bio = profile["bio"]
-                user.twitch_id = candidate.twitch_id
-                user.twitch_login = profile["twitch_login"]
-                user.twitch_name = (
-                    profile.get("twitch_name") or profile["twitch_login"]
-                )
+                if candidate.twitch_id is not None and profile["twitch_login"]:
+                    user.twitch_id = candidate.twitch_id
+                    user.twitch_login = profile["twitch_login"]
+                    user.twitch_name = (
+                        profile.get("twitch_name") or profile["twitch_login"]
+                    )
             user.set_unusable_password()
             user.save()
             if avatar_data:

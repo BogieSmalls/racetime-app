@@ -483,3 +483,29 @@ class DiscordViewTests(TestCase):
         self.assertTrue(category.owners.filter(pk=user.pk).exists())
         self.assertTrue(category.moderators.filter(pk=user.pk).exists())
         self.assertTrue(ProfileImportCandidate.objects.filter(pk=candidate.pk).exists())
+    @mock.patch("racetime.views.discord_auth.load_profile")
+    def test_candidate_without_twitch_imports_remaining_profile(self, load_profile):
+        ProfileImportCandidate.objects.create(
+            discord_subject="123",
+            racetimegg_subject="rtgg-subject",
+            twitch_id=None,
+        )
+        profile = self.import_profile()
+        profile["twitch_login"] = None
+        profile["twitch_name"] = None
+        load_profile.return_value = profile
+        self.set_pending_identity()
+
+        response = self.client.post(
+            reverse("discord_create_account"),
+            {"profile_choice": "import"},
+            secure=True,
+            HTTP_HOST="testserver",
+        )
+
+        self.assertRedirects(response, "/", fetch_redirect_response=False)
+        user = User.objects.get(email="123@discord.invalid")
+        self.assertEqual(user.name, "RTGG Racer")
+        self.assertIsNone(user.twitch_id)
+        self.assertIsNone(user.twitch_login)
+        self.assertFalse(ProfileImportCandidate.objects.exists())

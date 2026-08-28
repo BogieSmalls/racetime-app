@@ -101,3 +101,16 @@ class ConvertUnclaimedZ1RRProfilesTests(TestCase):
         candidate = ProfileImportCandidate.objects.get()
         self.assertEqual(list(candidate.owned_categories.all()), [category])
         self.assertEqual(list(candidate.moderated_categories.all()), [category])
+    def test_profile_without_twitch_still_becomes_private_candidate(self):
+        user = self.create_placeholder()
+        user.twitch_id = None
+        user.twitch_login = None
+        user.twitch_name = None
+        user.save(
+            update_fields=["twitch_id", "twitch_login", "twitch_name"],
+        )
+
+        self.run_conversion(apply=True)
+
+        candidate = ProfileImportCandidate.objects.get()
+        self.assertIsNone(candidate.twitch_id)

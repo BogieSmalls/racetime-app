@@ -21,9 +21,12 @@
                 <h3>{{ candidate.name }}#{{ candidate.discriminator }}</h3>
                 <p class="help">
                     Importing copies the display name and discriminator,
-                    pronouns, avatar, bio, and
-                    <a href="https://www.twitch.tv/{{ candidate.twitch_login }}"
-                       target="_blank" rel="nofollow">Twitch link</a>
+                    pronouns, avatar, and bio
+                    {% if private_candidate.twitch_id and candidate.twitch_login %}
+                        plus the
+                        <a href="https://www.twitch.tv/{{ candidate.twitch_login }}"
+                           target="_blank" rel="nofollow">Twitch link</a>
+                    {% endif %}
                     from this public racetime.gg profile.
                 </p>
                 <form method="post">
