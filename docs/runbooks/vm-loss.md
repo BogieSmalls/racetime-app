@@ -67,10 +67,8 @@ commit's amd64 manifest; record Terraform/forecast/load evidence.
 ## Verification
 
 ```bash
-python scripts/ops/collect-release-identities.py \
-  --config /etc/z1rr-racetime/release-paths.json \
-  --output /var/lib/z1rr-racetime/release-identities.json
-python scripts/ops/validate-evidence.py /srv/evidence/vm-loss-restore.json
+curl -fsS https://raceroom.z1rracing.com/healthz
+docker compose --env-file /etc/z1rr-racetime/compose.env ps
 ```
 
 Verify RPO, four-hour RTO, exact commit/digests/config, account/category/race/

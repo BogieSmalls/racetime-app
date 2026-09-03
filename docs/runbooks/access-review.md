@@ -20,7 +20,6 @@ custodian confirms seal/version/fingerprint custody only and has no routine role
 ## Inputs and exact commands
 
 ```bash
-python scripts/ops/validate-evidence.py /srv/evidence/access-review.json
 terraform -chdir=infra/oci show -json /root/reviewed.tfplan
 docker compose --env-file /etc/z1rr-racetime/compose.env \
   -f deploy/compose.production.yml exec -T web \

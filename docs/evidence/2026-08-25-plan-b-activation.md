@@ -53,5 +53,9 @@ promoted into fresh production state.
 - G2/G3: not authorized by this activation record.
 
 The OCI ARM64 host may be used to close the native ARM64 portion of the G0
-qualification blocker. The Synology remains the native amd64 worker. This
-worker selection does not waive either architecture's required evidence.
+qualification blocker. Worker selection was superseded on 2026-08-26 by the
+[OCI A1 G0 worker harness design](../superpowers/specs/2026-08-26-oci-g0-worker-harness-design.md):
+the dedicated `racetime` A1 instance is the worker, building `linux/arm64`
+natively and `linux/amd64` under a transactional, cleanup-verified
+`binfmt_misc` handler. The Synology is no longer in use. This worker
+selection does not waive either architecture's required evidence.

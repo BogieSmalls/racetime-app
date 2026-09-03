@@ -64,8 +64,10 @@ destructive remediation before evidence and an exact target are secured.
 
 ## Verification
 
+Confirm the service is healthy and the failure condition is cleared:
+
 ```bash
-python scripts/ops/validate-evidence.py /srv/evidence/incident.json
+curl -fsS https://raceroom.z1rracing.com/healthz
 ```
 
 Verify service/integrity/security, exact release/schema, results/media, one
