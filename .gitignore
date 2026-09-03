@@ -23,3 +23,10 @@ __pycache__
 *.tfvars.json
 crash.log
 infra/oci/backend.hcl
+
+# Local database dumps - contain user PII and password hashes, never commit
+backups-local/
+*.sql.gz
+
+# Local Claude Code settings (machine-specific permissions)
+.claude/settings.local.json
